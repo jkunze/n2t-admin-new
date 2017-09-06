@@ -1,0 +1,308 @@
+#!/usr/bin/env perl
+
+use 5.010;
+use strict;
+use warnings;
+
+use DB_File;
+use File::OM;
+
+my $me = $0;
+$me =~ s,.*/,,;
+
+# xxx make options into commands: default command being 'grep'
+# xxx --grep -> grep-l   # like "grep -l" to only show filenames
+# xxx --put -> put
+# xxx --starts Key -> starts Key
+# xxx mode for --del Key
+
+my $usage_text = << "EOF";
+
+SYNOPSIS                          ($0)
+    $me - read or write one or more BDB files
+
+USAGE
+    $me --get Key ... -- File ...
+    $me --grepl Key=[Value] ... -- File ...   XXX
+    $me --put Key=[Value] ... -- File ...
+    $me --starts Key ... -- File ...
+
+Each named File argument must contain a Berkeley DB BTREE database.
+In the first form, for each File listed after the "--" delimiter argument,
+print the File name and the value, if any, associated with each Key listed
+before the "--".  Keys and values are returned in label-colon-value (ANVL)
+record format.
+
+In the --grepl form, print just the File name for which the Key is present
+and, optionally, for which Key is set to the corresponding Value.
+
+In the --put form, set the Key to the corresponding Value, which may be
+empty, in each File.
+
+In the --starts form, print all bindings in File _beginning_ with Key.
+
+This script can be useful for updating or harvesting the statuses of a
+set of minters and binders.  Note that for eggnog and noid databases,
+administrative keys all begin with ":/".
+
+EXAMPLES
+    \$ $me :/oacounter :/template :/oklz -- nd/fk4/NOID/noid.bdb
+    :: nd/fk4/NOID/noid.bdb
+    :/oacounter: 19876
+    :/template: g5.reedeek
+    :/oklz: <undef>
+    \$ $me --put :/oklz=1 -- nd/fk4/NOID/noid.bdb
+    \$ $me :/oklz -- nd/fk4/NOID/noid.bdb
+    :/oklz: 1
+
+LIMITATIONS
+    Not true ANVL format above, since the initial colons aren't encoded.
+    Needs a --del mode.
+    Does not currently handle BDB duplicate keys.
+    Currently assumes each BDB file is of type DB_BTREE.
+
+EOF
+
+# XXX with the literal value of empty for either undefined or empty values
+#     associated with a Key (eg, maybe should be "<undef>" for former)
+
+# $om output multiplexor
+# $file to search
+# $keysR reference to an array of key names
+sub get_keys_from_file { my( $om, $file, $keysR )=@_;
+
+	my ($hash, $db);
+	$db = tie(%$hash, "DB_File", $file, O_RDONLY, 0666, $DB_BTREE);
+	$db or
+		print(":: error: tie failed on $file: $!\n"),
+		return 0;
+	# XXX should use orec
+	print(":: $file\n");
+	my ($keyname, $value);
+	foreach $keyname (@$keysR) {
+		$value = $hash->{$keyname};
+		defined($value) or
+			$value = "<undef>";
+		print $om->elem($keyname, $value);
+		#print "$keyname: $value\n";
+
+	}
+	print("\n");		# separator between file outputs
+	undef $db;
+	untie %$hash;
+}
+
+# $om output multiplexor     xxx not using
+# $file to search
+# $keysR reference to an array of key names
+sub get_ids_from_file { my( $om, $file, $keysR )=@_;
+
+	my ($hash, $db);
+	$db = tie(%$hash, "DB_File", $file, O_RDONLY, 0666, $DB_BTREE);
+	$db or
+		print(":: error: tie failed on $file: $!\n"),
+		return 0;
+
+	get_startkey_from_file($om, $file, $db,
+			($_ eq '' ? undef : $_))	# kludge: '' -> undef
+		for (@$keysR);
+
+	undef $db;
+	untie %$hash;
+}
+
+# Lists all ids starting with a given key (eg, NAAN, shoulder, ...)
+# $om output multiplexor     xxx not using
+# $file to search
+# $db open BTREE
+# $keysR reference to an array of key names
+sub get_startkey_from_file { my( $om, $file, $db, $startkey )=@_;
+
+	my ($iflag, $cur_id, $key, $value, $s);
+	my ($num_elems, $num_ids, $total_num_elems) = (0, 0, 0);
+
+	defined($startkey) and				# if given, start at 
+		($key, $iflag) = ($startkey, R_CURSOR),	# user-supplied key
+	1 or
+		($key, $iflag) = (0, R_FIRST)		# else list all ids
+	;
+
+	# Initialize "for" loop.
+	#
+	$s = $db->seq($key, $value, $iflag);	# get the very first binding
+	$s == 0 and				# so we can initialize cur_id
+		($cur_id = $key) =~ s/\|.*//;	# drop subelem to make cur_id
+	if ($s == 0 and $startkey) {
+		# xxx faster: don't use regex
+		$key =~ /^\Q$startkey\E.*$/ or	# past what user asked?
+			$s = 1;			# forces loop not to start
+	}
+	for (	;				# loop initialized above
+		$s == 0;			# while not EOF
+		$s = $db->seq($key, $value, R_NEXT) )	# get next binding
+	{
+		# xxx faster: don't use regex
+		$key =~ /^\Q$cur_id\E(?:\|.*)?$/ and	# if no new id
+			$num_elems++,			# count for this id
+			next;				# get next elem
+
+		# if we get here, a new id has appeared
+		$num_ids++;				# count previous id
+		$total_num_elems += $num_elems;		# keep running total
+
+		if ($startkey) {	# is the new id past what user wants?
+			# xxx faster: don't use regex
+			$key =~ /^\Q$startkey\E.*$/ or
+				last;
+		}
+		print("$num_elems $cur_id\n");# previous id stats
+		$num_elems = 1;				# reset elem count
+		# xxx faster: don't use regex
+		($cur_id = $key) =~ s/\|.*//;	# drop subelem to make cur_id
+	}
+	$s < 0 and
+		goto SEQ_ERROR;
+	# same code as above, but speeds up the above loop
+	$num_ids and		# output final id, if any ids at all
+		print("$num_elems $cur_id\n");
+
+	print("$startkey: $num_ids ids, ",
+		#"total_num_elems is $total_num_elems, ",
+		($num_ids ? ($total_num_elems / $num_ids) : 0),
+		" average elements per id\n");
+	return 1;
+
+   SEQ_ERROR:
+	print("error $s from db->seq: $!\n");
+	return 0;
+}
+
+sub put_keys_into_file { my( $om, $file, $keysR, $valuesR )=@_;
+
+	my ($hash, $db);
+	$db = tie(%$hash, "DB_File", $file, O_RDWR, 0666, $DB_BTREE);
+	$db or
+		print(":: error: write tie failed on $file: $!\n"),
+		return 0;
+	# XXX should use orec
+	print(":: $file\n");
+	my ($key, $value, $n);
+	my $max = scalar @$keysR;
+	for ($n = 0; $n < $max; $n++) {
+		# XXX should use comment encode
+		print "# was: $key ", (defined($hash->{$key})
+			? $hash->{$key} : "<undef>"), "\n";
+		($key, $value) = ( @{ $keysR }[$n], @{ $valuesR }[$n] );
+		$hash->{$key} = $value;
+		print $om->elem($key, $hash->{$key});
+	}
+	# XXX should use crec
+	print("\n");		# separator between file outputs
+	undef $db;
+	untie %$hash;
+}
+
+# main
+{
+	my (@keys, @files, $arg, $file, $startkey);
+	my $mode = '';
+
+	$#ARGV < 0 and
+		print($usage_text),
+		exit 1;
+	#if ($ARGV[0] eq '--put' || $ARGV[0] eq '--grep') {
+	#if ($ARGV[0] =~ /^--(put|grep|starts)$/) {
+	#if ($ARGV[0] =~ /^--starts$/) {
+	#	$mode = 'starts';
+	#	shift;
+	#	$#ARGV < 1 and
+	#		print("error: no Keys or Files given\n$usage_text"),
+	#		exit 1;
+	#	$startkey = shift;
+	#}
+	if ($ARGV[0] =~ /^--(.+)$/) {
+		#$ARGV[0] eq '--put' and
+		#	$put = 1,
+		#1 or
+		#	$grep = 1,
+		#;
+		$mode = $1;
+		shift;
+		$#ARGV < 0 and
+			print("error: no Keys or Files given\n$usage_text"),
+			exit 1;
+	}
+	#elsif ($ARGV[0] eq '--starts') {
+	#	shift;
+	#	# my $om = File::OM->new("ANVL", { output => *STDOUT });
+	#	#	xxx why doesnt' *STDOUT work?
+	#	my $om = File::OM->new("ANVL");
+	#	$om or
+	#		print("error: no ANVL output multiplexor\n"),
+	#		exit 1;
+	#	get_start_from_file($om, $ARGV[1], $ARGV[0]);
+	#	exit;
+	#}
+	my $before_delim = 1;
+	while (defined($arg = shift)) {
+		$arg eq '--' and
+			$before_delim = 0,
+			next;
+		$before_delim and
+			push(@keys, $arg),
+		1 or
+			push(@files, $arg),
+		;
+	}
+	$before_delim and
+		print("error: no delimiter between Keys and Files given\n",
+			$usage_text),
+		exit 1;
+	# xxx document: give key as "" to "list all" ids in db
+	@keys or
+		print("error: no Keys given\n$usage_text"),
+		exit 1;
+	@files or
+		print("error: no Files given\n$usage_text"),
+		exit 1;
+
+	# my $om = File::OM->new("ANVL", { output => *STDOUT });
+	#	xxx why doesnt' *STDOUT work?
+	my $om = File::OM->new("ANVL");
+	$om or
+		print("error: no ANVL output multiplexor\n"),
+		exit 1;
+	if ($mode eq 'put') {
+		my @kvpairs = @keys;
+		my ($key, $value, @values);
+		undef @keys;
+		foreach my $keyval (@kvpairs) {
+			($key, $value) = split /=/, $keyval, 2;
+			defined($key) && defined($value) or
+				print("error: Key=Value pair ($keyval) ",
+					"malformed (missing '='?)\n"),
+				exit 1;
+			$key or print(
+				"warning: Key for Value ($value) is empty\n");
+			$value or print(
+				"warning: Value for Key ($key) is empty\n");
+			push @keys, $key;
+			push @values, $value;
+		}
+		put_keys_into_file($om, $_, \@keys, \@values)
+			for (@files);
+	}
+	elsif ($mode eq 'get') {
+		get_keys_from_file($om, $_, \@keys)
+			for (@files);
+	}
+	elsif ($mode eq 'starts') {
+		get_ids_from_file($om, $_, \@keys)
+			for (@files);
+	}
+	else {
+		print "error: unknown mode: $mode\n";
+		exit 1;
+	}
+}
+

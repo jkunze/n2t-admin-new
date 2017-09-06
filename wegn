@@ -1,0 +1,517 @@
+#!/bin/bash
+
+# xxx bug in "./wegn help" see $def_host value when on non-home ISP vs localhost
+
+me=$( basename $0 )
+function usage {
+	cat << EOT
+
+SYNOPSIS                          ($0)
+    $me - web eggnog client
+
+USAGE
+    $me [ -vhs ] [ -c CfgDir ] [ -i Infile ] [ HUMB ] command ...
+
+DESCRIPTION
+    Wegn interacts with an eggnog server, at $def_host by default.
+    Common commands:
+
+      I.set X Y    set element X to Y under the identifier I
+      I.fetch      get all elements bound under I
+      mint 1       generate a unique semi-opaque string
+      locate I     get I's target URL (like resolve but no redirect)
+      locates I    like locate, but using https instead of http
+      egghelp      print server information about egg
+      noghelp      print server information about nog
+      help         print full information about this client ($me)
+
+    Use the optional HUMB argument (of form Host@User@Minter@Binder) to access
+    another server, such as the configured-in production ("prd") server:
+
+      $me prd@@@ mint 1
+      $me prd@@ ark:/99999/fk4wegntest.set foo bar
+      $me prd@@ ark:/99999/fk4wegntest.fetch
+
+EOT
+
+	[[ ! "$1" == help ]] &&		# if not asking for full information
+		return 0
+
+cat << EOT
+    Currently configured-in server abbreviations:
+
+      prd  -->  ${def_prd:-??}
+      stg  -->  ${def_stg:-??}
+      dev  -->  ${def_dev:-??}
+      loc  -->  ${def_loc:-??}
+
+OPTIONS
+    -v         Make $me more verbose.
+    -s         Require non-self-signed certificate from server.
+    -h         Same as "help" command.
+    -i Infile  Read commands from Infile (--infile Infile) instead of from
+               the command line.  Comment and blank lines are ignored.
+    -p Pswd    Override system-discovered password with Pswd.
+    -c CfgDir  Configuration directory under $src_top.
+               It is responsible for defining HUMB (host-user-minter-binder)
+               values, and defaults to the first directory containing the
+               file $bstcfg, or to "web" if none.  To see those
+	       values, use -h after -c, as in "$me -c CfgDir -h".
+
+    Single-token options not listed above, such as --header=X, are passed
+    to 'wget'.  If the first non-flag argument contains two at-sign (@)
+    delimiters, it defines three values.  Any non-empty values (which
+    cannot contain the delimiter) specify:
+
+    host   - a hostname[:port] combination if no internal periods, or one of
+             prd, stg, dev, loc; default is \$def_host ($def_host)
+    user   - a user (populator); default is \$def_user ($def_user)
+    minter - a minter name; default is \$def_minter ($def_minter)
+    binder - a binder name; default is \$def_binder ($def_binder)
+
+    Any other arguments are taken as a command to pass to egg or nog on
+    the server, except for "help" (about $me) and the special operation,
+    
+       locate Id
+
+    which asks for the given Id's target URL (its "_t" element) but only
+    after applying the all resolver logic and rewrite rules.  Currently,
+    Id must look like an ARK and the target must look like a URL.  This is
+    resolution minus any attempt to access or bother the target URL itself,
+    which need not be working nor even exist for the operation to complete,
+    ie, "locate i" is like "i.get _t" from the resolver's view.  A variant
+    command, "resolve", does complete resolution (_does_ follow redirects).
+
+EXAMPLES
+    These commands,
+
+       $me mint 1
+       $me i.set a b
+       $me i.fetch
+
+    behave as if you had given these longer form commands,
+
+       $me $def_host@$def_user@$def_minter mint 1
+       $me $def_host@$def_user@$def_binder i.set a b
+       $me $def_host@$def_user@$def_binder i.fetch
+
+    For example, to mint a test DOI with the default host and user,
+
+       $me @@b5072/FK2 mint 1
+
+SECURITY CONSIDERATIONS
+    Be very careful who you give access to this client.  For the sake of
+    convenience, wegn gives the caller very BROAD POWERS TO MODIFY ANY AND
+    ALL EGGNOG DATA ON ANY SERVERS configured. For the sake of safety, the
+    build_server_tree script regularly chmod's configuration files (some
+    containing passwords) so that only the owner can use them.
+
+    To avoid overwriting any real identifiers, such as ARKs and DOIs, it's
+    best to use "fake" ids, such as those of the form
+    
+       ark:/99999/fk9<word>     or
+       doi:/b5072/fk9<word>
+
+    as their initial strings don't match any currently used identifiers.
+    Note the "fk9" shoulder, which helps us avoid altering other users'
+    test identifiers, such as those on the fk4 or FK2 shoulders.  If you
+    are just setting random values, strings that don't look like public
+    identifiers, such as "i", are ok; eg, "i.set a b" should be harmless,
+    (but may still create a little mess that you should clean up).
+    
+    To work properly with a mix of passwords, populators, users, hosts,
+    minters, and binders, it requires read access to eggnog source code,
+    containing configuration subdirectories residing on your system in an
+    "SVU" path such as ~/sv/cur/build/eggnog/t/.
+
+EOT
+}
+
+function wegn_cfg {
+
+	cfgdir="$1"
+	[[ $cfgdir ]] || {
+		echo "Error: no cfgdir arg to wegn_cfg"
+		return 1
+	}
+	local public=--public
+	#[[ $cfgdir == t/web ]] &&
+	[[ $cfgdir == web ]] &&
+		public=
+
+	# We're going to get especially picky with errors now, because we're
+	# building up to a risky eval of some grep'd output.
+	#
+	fqconf=$src_top/t/$cfgdir	# fully qualified config directory
+	[[ -d $fqconf ]] || {
+		echo "Error: CfgDir directory ($src_top/$cfgdir) not found."
+		usage
+		exit 1
+	}
+	bst=./build_server_tree
+	pubenv=$( cd $src_top; $bst $public env $cfgdir ) || {
+		echo "Error fetching environment."
+		echo "Using \"cd $src_top; $bst --public env $cfgdir\"."
+		echo "Got:"
+		echo "$pubenv"	# "double-quotes" preserve newlines upon output
+		exit 1
+	}
+	[[ $pubenv ]] || {
+		echo "Error: empty return from environment fetch."
+		exit 1
+	}
+	evalstr=$( egrep 'EGNAPA_(PORT|HOST|SERVER)' <<< "$pubenv" ) || {
+		echo "Error filtering environment from:" "$pubenv"
+		exit 1
+	}
+	[[ "$evalstr" =~ EGNAPA_PORT ]] || {	# ok if includes at least this
+		echo "Invalid configuration data: $evalstr"
+		exit 1
+	}
+
+	# Because we may configure twice (once so that help info works,
+	# we first need to wipe out any prior settings so we don't
+	# accidentally inherit the previous configuration's settings.
+	#
+	unset \
+		EGNAPA_TOP EGNAPA_HOST \
+		EGNAPA_PORT_HPA EGNAPA_PORT_HPAS \
+		EGNAPA_PORT_HPR EGNAPA_PORT_HPRS \
+		EGNAPA_SERVER_prd EGNAPA_SERVER_stg EGNAPA_SERVER_dev
+
+	# Now we bring in the new settings
+	#
+	eval "$evalstr"
+
+	#def_loc=$EGNAPA_HOST:$EGNAPA_PORT_HPRS
+	def_loc=localhost:$EGNAPA_PORT_HPRS
+
+	def_prd=${EGNAPA_SERVER_prd}
+	def_stg=${EGNAPA_SERVER_stg}
+	def_dev=${EGNAPA_SERVER_dev}
+
+	def_host=$def_loc
+	def_user=ezid
+	def_minter=99999/fk4
+	#def_binder=ezid_test
+	def_binder=ezid		# yyy change?
+
+	host=$def_host
+	user=$def_user
+	minter=$def_minter
+	binder=$def_binder
+	locate= resolve= https=
+
+	return 0
+}
+
+# NB: You must call with a HUMB string.  It sets globals.
+function humb_parse {
+
+	# Create a host-user-minter-binder array from string, w@x@y@z,
+	# that doubles each @, leaving a space between, @w@ @x@ @y@ @z@.
+	# We use this trickery to make a bash array that may contain some
+	# empty values.
+	#
+	humb=(	# append more @'s in case lazy user didn't do all delimiters
+		$( sed -e 's/@/@ @/g' -e 's/.*/@&@/' <<< "$1@@@" )
+	)
+	function undelimit {		# strip off the @ delimiters
+		sed 's/^@\(.*\)@$/\1/'
+	}
+	# Only change old values that are non-empty.
+	[[ "${humb[0]}" != @@ ]] &&	# empty value detected
+		host=$( undelimit <<< ${humb[0]} )
+	[[ "${humb[1]}" != @@ ]] &&	# empty value detected
+		user=$( undelimit <<< ${humb[1]} )
+	[[ "${humb[2]}" != @@ ]] &&	# empty value detected
+		minter=$( undelimit <<< ${humb[2]} )	# override default
+	[[ "${humb[3]}" != @@ ]] &&	# empty value detected
+		binder=$( undelimit <<< ${humb[3]} )	# override default
+}
+
+function wegn_cmd {
+
+	operation=$1		# the first command word is the operation
+	shift			# $1 is now first command arg
+
+	case $operation in
+
+	help)
+		usage help
+		return
+		;;
+
+	mint|hold|nab|queue|noghelp)
+		urlpath=a/$user/m/ark/$minter
+		[[ $operation == noghelp ]] &&
+			operation=	# translate noghelp to remote help
+		;;
+
+	resolve)
+		resolve=1
+		operation=
+		locate=1
+		;;
+
+	locate)
+		locate=1
+		;;
+
+	locates)
+		locate=1
+		https=1
+		;;
+
+	*)			# some egg operation
+		urlpath=a/$binder/b
+		[[ $operation == egghelp ]] &&
+			operation=	# translate egghelp to remote help
+		;;
+	esac
+
+	# In t/web config case, users/realms/minders aren't synonymous
+	# (see t/web/build_server_tree.cfg)
+	#
+	realm=$user			# probable default, but not in t/web;
+	[[ $cfgdir == web ]] &&		# there we'll assume (kludge)
+		realm=pestx		# that $user is in pestx realm
+
+	[[ "$pw" ]] ||		# if caller didn't say, fetch $user's password
+		pw=$( wegnpw $user $cfgdir $realm )
+
+	[[ ! "$pw" && ! $locate ]] && {		# covers $resolve case as well
+		echo "error: no password for user: $user"
+		return 1
+	}
+
+	terrs=$( mktemp /tmp/wegn.XXXX )
+	egnverbose=
+	[[ $verbose ]] &&
+		egnverbose="--verbose"
+
+	wargs="-O - $cert_bypass --user=$user"
+	wurl="https://$host/$urlpath?$egnverbose $operation $@"
+
+	wstat=
+	if [[ $locate ]]
+	then
+		if [[ $https ]]
+		then
+			host=$( sed "s/:.*/:$EGNAPA_PORT_HPRS/" <<< $host )
+			wurl="https://$host/$1"
+		else
+			host=$( sed "s/:.*/:$EGNAPA_PORT_HPR/" <<< $host )
+			wurl="http://$host/$1"
+		fi
+		wargs="-O - -T 3 $cert_bypass "
+		[[ ! $resolve ]] &&
+			wargs+="--max-redirect 0"
+
+		[[ $verbose ]] &&
+			echo "Running: wget $wargs $extra_wget_args \"$wurl\""
+		wget 2> $terrs $wargs $extra_wget_args "$wurl"
+		wstat=$?	# yyy Hmm, seems to return '8' even on success?
+		if [[ $resolve ]]
+		then				# drop the "following" message
+			loc=$( grep 'Location: http' $terrs )
+		else
+			loc=$(sed -n '/Location: http/s/ .following.//p' $terrs)
+			wstat=0		# we were successful at finding a value
+		fi
+		if [[ $loc ]]
+		then
+			echo $loc
+		else
+			wstat='wegn: no location'
+		fi
+	else
+		[[ $verbose ]] && {
+			echo "Running: wget $wargs" \
+				"--password=xxx $extra_wget_args \"$wurl\""
+		}
+
+		wget 2> $terrs $wargs --password="$pw" $extra_wget_args "$wurl"
+		wstat=$?
+	fi
+	[[ $wstat != 0 ]] && {
+		echo "wget error: $wstat"
+		cat $terrs
+		rm -f $terrs
+		return 1
+	}
+	[[ $verbose ]] && {
+		echo "wget output:"
+		cat $terrs
+		rm -f $terrs
+	}
+	return 0
+}
+
+# MAIN
+
+# Pick up whatever SVU mode may be in effect for the caller.  Use it
+# initially to figure out what configurations may exist beyond the usual
+# "web" shipped with the eggnog source.  We crudely prefer the first
+# directory in $src_top/t that (a) is NOT t/web and (b) contains what
+# looks like a $bstcfg file.
+#
+svumode=$( sed 's/^[^:]*://' <<< $SVU_USING )
+[[ "$svumode" ]] ||
+	svumode=cur		# if none, default to "cur"
+src_top=$HOME/sv/$svumode/build/eggnog
+
+cert_bypass="--no-check-certificate"	# self-signed cert is the default
+
+bstcfg=build_server_tree.cfg
+cfgdir=$(
+	cd $src_top
+	cfg_pre=t/web			# if we find nothing, try this
+	for f in t/*/$bstcfg
+	do
+		dir=$( dirname $f )
+		[[ $dir != $cfg_pre ]] && {
+			#echo $dir
+			basename $dir		# make t/foo into just foo
+			break
+		}
+	done
+)
+wegn_cfg $cfgdir || {		# initial configuration so that "-h" works
+	echo "Configuration failed: aborting."
+	exit 1
+}
+# we may configure again, if the caller used the -c option
+
+infile=
+verbose=
+humb_opt=
+pw=
+extra_wget_args=
+while [[ "$1" =~ ^- ]]
+do
+	case $1 in
+	-v*|--v*)
+		verbose=1
+		shift
+		;;
+	-s*|--s*)
+		cert_bypass=		# don't bypass cert check
+		shift
+		;;
+	-p*|--p*)
+		pw="$2"
+		shift; shift
+		;;
+	-c)
+		cfgopt=$2
+		shift; shift
+		[[ ! -f $src_top/t/$cfgopt/$bstcfg ]] && {
+			echo "Error: CfgDir ($cfgopt) does not contain a" \
+				"$bstcfg file under $src_top."
+			exit 1
+		}
+		[[ $cfgopt != $cfgdir ]] && {
+			cfgdir=$cfgopt
+			wegn_cfg $cfgdir || {		# configure again
+				echo "Configuration failure: aborting."
+				exit 1
+			}
+		}
+		;;
+	-i|--infile)
+		infile="$2"
+		[[ ! -f "$infile" ]] && {
+			echo "Error: $infile: can't open command input file."
+			exit 1
+		}
+		shift; shift		# yyy actually, throw away rest of line
+		;;
+	-h*|--help)
+		usage help
+		exit
+		;;
+	*)
+		extra_wget_args+=" $1"
+		shift
+		;;
+	esac
+done
+
+[[ "$extra_wget_args" ]] && {
+	echo "Passing to wget, but otherwise ignoring, these flag arguments:"
+	echo "   $extra_wget_args"
+}
+
+[[ "$1" =~ @$|@.*@ ]] && {		# if there's a final @ or two @'s
+	humb_opt="$1"			# assume it's a humb_opt
+	shift
+}
+
+[[ "$humb_opt" ]] &&
+	humb_parse "$humb_opt"
+
+# Check host structure for abbreviations.
+[[ ! "$host" =~ \. && ! "$host" =~ ^localhost ]] && {
+	portpart=
+	[[ "$host" =~ : ]] &&
+		portpart=$( sed 's/^.*\(:.*\)/\1/' <<< $host )
+	hostpart=$( sed 's/:.*//' <<< $host )
+	h=def_$hostpart			# use h just as an indirect variable
+	if [[ "${!h}" ]] 		# if we have a def_$hostpart variable
+	then
+		hostpart=${!h}		# use it, else stay with caller's value
+	else
+		echo "Warning: no host mapping found for abbreviation" \
+			"$hostpart."
+	fi
+	host=$hostpart$portpart
+}
+
+# Current settings, fyi.
+[[ $verbose ]] &&
+	echo -e "Eval string: $evalstr\n"
+echo "  minter|binder=$minter|$binder  user=$user  host=$host"
+
+if [[ "$infile" ]]
+then
+	echo			# emit separator line
+	linecnt=0		# line count
+	cmdcnt=0		# command count
+	while read line		# read file one command line at a time
+	do
+		(( linecnt++ ))
+		[[ "$line" =~ ^\ *(#|$) ]] &&	# if blank or comment line
+			continue		# then skip
+		set $line			# parse as if command line
+		(( cmdcnt++ ))
+		echo -n "$cmdcnt. $line -- "
+		wegn_cmd "$@" ||		# invoke actual command
+			echo "wegn: $infile: error on line $linecnt"
+	done < "$infile"
+	echo "Summary: ran $cmdcnt commands from \"$infile\"."
+	exit
+fi
+
+# if we get here, there's no input file; expect normal command arguments
+if [[ $# == 0 ]]		# if no arguments
+then
+	if [[ "${humb[*]}" ]]
+	then
+		echo You overrode one or more defaults,
+		echo "  host: $host"
+		echo "  user: $user"
+		echo "  minter: $minter"
+		echo "  binder: $binder"
+		echo "but you didn't specify a command?"
+		exit 1
+	else
+		usage
+		exit
+	fi
+else
+	wegn_cmd "$@"
+	exit
+fi
+
+exit

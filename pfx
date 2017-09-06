@@ -1,0 +1,2007 @@
+#!/usr/bin/env bash
+
+# xxx fix invalid field from validate shoulders
+# xxx track prefix numbers in CSV file
+
+# xxx n2t.net/xyz: -> passes empty id to remote (xyz's landing page)
+# xxx n2t.net/xyz -> reports on scheme directly from n2t (local info)
+# xxx n2t.net/xyz:/12345 -> reports on naan directly from n2t
+# xxx n2t.net/hdl:10.12345 -> reports on prefix directly from n2t
+# xxx have an inflection that doesn't redirect, but just returns possible
+#     URLs it could redirect to, eg, "abc:12345?/", where "/" suggests "path":
+#     eg, abc:12345>?
+#     eg, abc:12345>
+# and this might match the prefixcommons use case
+#     Overview:
+#       what: resolver-generated target information
+#       resolver: n2t.net
+#       identifier: abc:12345
+#       inflected form: https://n2t.net/<identifier>?/
+#     Default target:
+#       where: a.example.net/xy12345
+#	what:  <title>
+#	who:   <provider>
+#     Alternate target 1:
+#       where: b.example.net/foo?q=12345
+#	what:  <title>
+#	who:   <provider>
+#     Alternate target 2:
+#       where: c.example.net/12345/bar
+#	what:  <title>
+#	who:   <provider>
+
+# X. extra credit: remove pfxcoms entries with no URL in redirect rule
+# X. extra credit: resolve these: scheme, scheme:, scheme:naan
+# X. extra credit: add minter knowlege to shoulders
+
+# XXX prefix database improvements
+#    for ark: prefix, add 12345 probe/tests that are serious objects in
+#       real collections
+#    for most rules:  remove http(s):// so that either can be used
+
+# XXX shouldn't pmid be main name with "pubmed" as alias?
+
+# yyy separate, private repo for warts directories on all host classes?
+
+set -u			# treat unset variables as an error when substituting
+export PFX_redir=redirect
+
+#if [[ ! "${PFX_REDIR-}" ]]
+#then
+#	source set_pfx_db_vars || echo \
+#		"error: can't find PFX_... environment variable settings" 1>&2
+#fi
+
+mainout=prefixes.yaml
+pubout=cdl_ebi_prefixes.yaml
+pubregURL=https://n2t.net/e/$pubout
+requestURL=https://n2t.net/e/prefix_request
+n2tregout=n2t_prefixes.yaml
+me=$( basename $0 )
+function usage {
+	cat << EOT
+
+SYNOPSIS                          ($0)
+    $me - admin tool for the pfx service
+
+USAGE
+    $me [ -f ] [ -d ServerTreeDir ] Command
+
+DESCRIPTION
+
+This script automates common prefix-related tasks for the metaresolver.
+The prefix database is a yaml file built from processed component files.
+A crucial "base" prefix component file lives in and evolves with the
+eggnog source. Ingest of components is staged in order to automate entry
+of prefix changes while protecting the system from errors and instability.
+
+  harvest   Assemble components from external sources (eg, daily via cron)
+            -> these will be used for files missing from \$pfx_import dir
+            won't overwrite newer files unless -f given
+            -> there is one \$pfx_harvest area per HOST
+	    NB: protects import area and running system from harvest activity
+  import    Assemble harvested prefix components into \$pfx_import dir
+            -> these will be used for files missing from \$pfx_build dir
+            won't overwrite newer files unless -f given
+            -> there is one \$pfx_import/ per SERVICE VERSION (see "svu help")
+	    NB: lets harvested components participate in prebuild activity
+  prebuild  Assemble imported prefix components into \$pfx_build dir
+            -> these will be used for the next prefix build
+	    typical edit/test loop: prebuild, validate, build, <test>
+            won't overwrite newer files unless -f given
+            -> there is one \$pfx_build/ per SERVER TREE ("build_server_tree")
+	    NB: protects builds from prefix base source code changes
+  base prebuild|import|harvest [ Base.yaml ]
+            Update ingest stage with Base.yaml (default from eggnog source)
+            -> call this to alter the prefix base for a given stage
+            uses cp -p to preserve mod times
+	    -> -d has no effect except for "prebuild" case
+	    NB: exposes builds to prefix base source code changes
+  updates_ready_in prebuild | import | harvest
+            Return true (shell 0) if there exist any prefix components
+            in the given ingest stage that are newer than their peer files
+            in the next stage (than the prefix database itself if prebuild).
+	    -> -d has no effect except for "prebuild" case
+  validate  Validate component prefix files in \$pfx_build
+	    -> -d strongly recommended
+  build     Combine NAANs, shoulders, prefixes into validated $mainout
+	    -> -d strongly recommended
+	    NB: updates still invisible to running system until "n2t rollout"
+	    (to be fixed).
+  test      Test prefixes lookups and redirect rules (only tests BUILD area)
+	    -> -d strongly recommended
+  pushsync Host harvest|import|both
+	    Copy given area to remote Host (did you test things first?).
+	    NB: this does not alter the service running remotely; for that
+	    you still need to do "n2t rollout" (to be fixed).
+  grok ID ...
+            Print a lexical analysis of each given ID (not ID lookup)
+
+Prefixes are built in a server tree directory given by, in precedence order,
+either the -d option or the EGNAPA_BUILDOUT_ROOT envirnoment variable. If
+both of those are empty, it uses ~/sv/cur/apache2. The -f option forces
+some operations to proceed that would otherwise be conditional.
+
+  rollout     NOPE restart metaresolver service with new prefixes
+  testall     NOPE test all lookups and redirect rules
+  testlinks   NOPE test redirects by pinging external servers
+  rollback    NOPE back out of the last rollout, reverting to the prior rollout
+
+yyyThe first four commands above reflect the normal sequence.
+yyyUse "rollback" only if "test" failed.
+
+EOT
+}
+
+export LC_ALL=C		# to deal with unicode errors
+
+gitpfxURL=https://raw.githubusercontent.com/identifiers-org/prefix/master/prefix.yaml
+gitpfx=gitpfx
+gitpfxFile=$gitpfx.yaml
+ebi_outfile=ebi.anvl
+
+#naanFile=naan_registry.txt
+naanFile=master_naans
+naanURL=http://n2t.net/e/$naanFile
+shdrFile=master_shoulders.txt
+shdrURL=https://n2t.net/e/pop/ezid/$shdrFile
+pfxcomsFile=lsregistry.yml
+pfxcomsURL=http://n2t.net/e/$pfxcomsFile	# xxx kludgy static copy
+#piiFile=prefix_prefixid.csv		# xxx namespaces flagged prefix_in_id
+#pfxinURL=http://n2t.net/e/$piiFile
+
+# "idot" is an abbreviation for "identifiers.org"
+idotURL=http://www.ebi.ac.uk/miriam/main/export/xml/
+idotxml=ids.org.xml
+idotschemaURL=http://www.ebi.ac.uk/miriam/static/main/xml/MiriamXML.xsd
+mirfile=miriam.yaml
+mirfile=miriam.yaml
+
+#n2tadds=n2tadds.yaml
+n2tadds=pfx_base.yaml
+#n2taddsinURL=http://n2t.net/e/$n2tadds   # yyy drop
+
+# xxx obsolete function
+# This function updates a working copy ($wfile, arg 1) of a prefixes file
+# from a file ready to import ($ifile, derived from arg 2).  If no file is
+# ready for import, try to create one from the "defaults" subdirectory.
+# If nothing needs updating, nothing is done.  Returns 0 (success) if
+# a new file was imported, else returns non-zero.
+# NB: currently the to_import directory uses a standard system location.
+
+# xxx change to one arg only, (same name in either subdir)
+# xxx initialize defaults/ files
+
+# function pfx_update_file_obsolete {
+# 
+# 	local wfile=$1				# working file
+# 	local idir=$HOME/prefixes/to_import 	# system import directory
+# 	local ifile=$idir/$2		 	# "ready to import" file
+# 	local updated=				# pessimist
+# 	[[ ! -f $ifile ]] && {
+# 		cp -p defaults/$wfile $ifile || {
+# 		    echo "$ifile: couldn't create from default" 1>&2
+# 			return -1
+# 		}
+# 	}
+# 	# now that $ifile exists, check if $wfile exists
+# 	[[ ! -f "$wfile" ]] && {
+# 		cp -p $ifile $wfile || {
+# 			echo "$wfile: couldn't create from import file" 1>&2
+# 			return -1
+# 		}
+# 		updated=1		# this counts as an update
+# 	}
+# 	# now we know that $wfile exists too, so compare timestamps
+# 	[[ $ifile -nt $wfile ]] && {
+# 		cp -p $ifile $wfile || {
+# 		    echo "$wfile: couldn't update from $ifile" 1>&2
+# 			return -1
+# 		}
+# 		updated=1		# this was an actual update
+# 	}
+# 	[[ "$updated" ]] && {
+# 		echo "Updated $wfile"
+# 		return 0
+# 	}
+# 	return 1
+# }
+
+# # Run from $pfx_build under the eggnog source directory, this function
+# # updates the build directory copy if the candidate import file is newer.
+# # This function updates build copies ($bfile, arg 1) of ingredients for
+# # the prefixes file.  It uses files readied for import (pre_import) and
+# # one special file that lives in the source tree.
+# # If nothing needs updating, nothing is done.
+# # Returns 0 (success) if a new file was imported, else returns non-zero.
+# # NB: the $idir directory is in a standard service version (sv) location.
+# 
+# # uses global $idir directory
+# function pfx_update_file {
+# 
+# 	#local idir=$HOME/prefixes/to_import 	# system import directory
+# 	local bfile=$1			# file to bring in is arg1
+# 	local ifile=$2		 	# from "ready to import" file
+#  	local updated=			# pessimist
+# 	[[ "$2" == "" ]] &&		# if no arg2, use arg1 but
+# 		ifile=$idir/$bfile	# look for it in $idir
+# 
+# 	[[ ! -f "$ifile" ]] && {
+# 		echo "$ifile: no such file to import" 1>&2
+# 		return -1
+# 	}
+# 	# now we know $ifile exists, so check if $bfile exists,
+# 	[[ ! -f "$bfile" ]] && {
+# 		cp -p $ifile $bfile || {
+# 			echo "$bfile: couldn't create from import file" 1>&2
+# 			return -1
+# 		}
+# 		updated=1		# this counts as an update
+# 	}
+# 	# now we know that $bfile exists too, so compare timestamps
+# 	[[ $ifile -nt $bfile ]] && {
+# 		cp -p $ifile $bfile || {
+# 		    echo "$bfile: couldn't update from $ifile" 1>&2
+# 			return -1
+# 		}
+# 		updated=1		# this was an actual update
+# 	}
+# 	[[ "$updated" ]] && {
+# 		echo "Updated $bfile"
+# 		return 0
+# 	}
+# 	return 1
+# }
+# 
+# # Compares file timestamps between $pfx_build and $pfx_current and
+# # returns 1 if the former is newer, else returns 0.
+# 
+# function pfx_is_newer {
+# 
+# 	#local idir=$HOME/prefixes/to_import 	# system import directory
+# 	local bfile=$1			# build file is arg1
+# 	local ifile=$2		 	# "ready to import" file
+#  	local updated=			# pessimist
+# 	[[ "$2" == "" ]] &&		# if no arg2, use arg1 but
+# 		ifile=$idir/$bfile	# look for it in $idir
+# 
+# 	[[ ! -f "$ifile" ]] && {
+# 		echo "$ifile: no such file to import" 1>&2
+# 		return -1
+# 	}
+# 	# now we know $ifile exists, so check if $bfile exists,
+# 	[[ ! -f "$bfile" ]] && {
+# 		cp -p $ifile $bfile || {
+# 			echo "$bfile: couldn't create from import file" 1>&2
+# 			return -1
+# 		}
+# 		updated=1		# this counts as an update
+# 	}
+# 	# now we know that $bfile exists too, so compare timestamps
+# 	[[ $ifile -nt $bfile ]] && {
+# 		cp -p $ifile $bfile || {
+# 		    echo "$bfile: couldn't update from $ifile" 1>&2
+# 			return -1
+# 		}
+# 		updated=1		# this was an actual update
+# 	}
+# 	[[ "$updated" ]] && {
+# 		echo "Updated $bfile"
+# 		return 0
+# 	}
+# 	return 1
+# }
+
+# This function imports prefixes (schemes, shoulders, NAANs, etc) from
+# sources that are post-harvest, meaning they've been staged locally
+# after being harvested (eg, daily) from external sources.  An exit
+# status of zero means something was updated; as a special case, if the
+# installed "pfx" script is newer than the prefixes file, a zero status
+# is returned.
+
+# XXXXXXXXX add test and rollout ability for public prefixes
+# XXXXXXXXX set up import cron jobs to populate ~/prefixes/to_import
+# xxx need way to pull in ebi and pfxcoms updates from production
+#     onto non-production machines!
+
+## yyy kludge to insulate cron-driven process from build processes
+## yyy should update to a "to_test" directory that quarantines things
+## this assumes $idir exists; it only clobbers the $idir prefixes
+#function pfx_pre_import {
+#	(cd $HOME/shoulders/;
+#		# internal registries
+#		cp -p master_shoulders.txt naans/master_naans $idir
+#		# external registries
+#		cp -p ebireg_latest.xml lsregistry.yml $idir
+#	)
+#}
+
+# "live" prefixes are only clobbered upon "pfx rollout"
+
+# Use case 0.1 import prereq files from native locations (ie, from prd for
+#     most files) --> this precedes pfx_updates_ready test
+# Use case 0.2 export prereq files and/or prefixes.yaml to other instances
+# Use case 1. Discover whether prefixes.yaml needs to be rebuilt and if so,
+#     rebuild it and rollout changed file and restart resolver.
+#  - use pfx_updates_ready to test
+#     $pfx_build dir can be anywhere
+# Use case 2. Rollout new prefix files, backing up current files, and do
+#     the same for all instances in replica set.
+# Use case 3. Test prefix files.
+# Use case 4. Rollback prefix files to previous version.
+# Use case 5. Initiate prefix rollout on remote server (esp. production),
+#     after condition met (esp. successful rollout in stage)
+# Prefix products:
+#  $sa/prefixes.yaml
+#  $sa/pfx_work
+#       | build/    # replaces need for quarantine/to_import area
+#       | current/
+#       | previous/
+#  ~/backups/prefixes/current/    yyy should backups happen only on changes?
+#       | 2017.04.01...  (similar to minters)
+# Prefix sources:
+#   $se/t/n2t/pfx_base.yaml
+# External sources are imported directly to
+#  $sa/pfx_work/pfx_build/ on prd, then rsync'd to stg, and case 1 applied.
+
+# Returns shell status 0 (true) if updates to currently installed
+# prefixes ($pfx_current) are present, else returns 1 (false).
+# A separate function actually copies
+# from command line use "pfx updates_ready", as in
+# pfx updates_ready && { ... process updates ... }
+# xxx add -v option to say which file(s) are ready
+
+# Use case 1. Discover whether prefixes.yaml needs to be rebuilt
+#  by comparing it to harvested source files (eg, daily), and if so,
+#     rebuild it and rollout changed file and restart resolver.
+#  - use pfx_updates_ready to test
+#     $pfx_build dir can be anywhere
+# Compare mod dates of pre-requisite files and $master_prefixes
+# *** between $pfx_harvest/* and master prefixes?
+# *** between $pfx_import/* and master prefixes?
+
+function pfx_updates_ready_in {
+
+	# NB: -nt returns false for a non-existent first file arg
+	[[ $# -lt 1 ]] && {
+		echo "Error: missing operation-stage (harvest, import," \
+			"prebuild) to check for updates" 2>&1
+		return 1
+	}
+	local opstage=$1
+	shift
+
+	local ondeck cur
+	case $opstage in
+	prebuild)	ondeck=$pfx_build   cur= ;;
+	import)		ondeck=$pfx_import  cur=$pfx_build ;;
+	harvest)	ondeck=$pfx_harvest cur=$pfx_import ;;
+	*)	echo \
+		"Error: unknown operation-stage ($opstage); should be one" \
+			"of (harvest, import, prebuild)" 2>&1
+		return 1
+		;;
+	esac
+
+	local f file2
+	# yyy maybe needs $verbose to reveal which file is out of date?
+	for f in $pfx_base ${pfx_sources[@]}
+	do
+		[[ ! -r $ondeck/$f ]] && {
+			echo -e "Error: missing prefix source file from" \
+				"$opstage stage: $f\n" 2>&1
+		  return 1
+		}
+		file2=$cur/$f
+		[[ $opstage == prebuild ]] &&
+			file2=$master_prefixes
+		# next is true if file1 exists and file2 doesn't exist
+		[[ $ondeck/$f -nt $file2 ]] &&
+			return 0		# ready update detected
+	done
+	return 1			# else nothing's ready
+}
+
+# use case 0.8. pfx validate & build should be possible under a test
+# server; now: pfx uses $sv/apache2/pfx_work/build as root
+# while build_server_tree uses $buildout_root,
+# and n2t rollout installs it all and restarts (no need for a "pfx
+# rollout")
+
+# globals
+pfx_harvest=~/pfx_harvest			# one harvest area per HOST
+pfx_quarantine=$pfx_harvest/quarantine
+pfx_maint_user=n2t					# who maintains
+pfx_maint_host=$pfx_maint_user@ids-n2t-prd-2a.n2t.net	# where maintained
+ebireg=ebireg		# from http://identifiers.org/service/registryxml
+pfx_base=pfx_base.yaml				# yyy should be pfx_base.yaml
+pfx_sources=(					# yyy normalized names
+	master_naans
+	master_shoulders.txt 
+	ebireg.xml
+	lsregistry.yml
+) # $pfx_base is also a component, but not listed in $pfx_sources
+source_base_prefixes=build/eggnog/t/n2t/$pfx_base
+prd_master_base_prefixes=sv/cur/$source_base_prefixes
+
+
+# xxx drop pfx_update_file?
+# XXX modify build_server_tree and n2t scripts!
+
+# first check for errors in harvested sources; if none move out of
+# quarantine; if there's an error in a quarantined file, it stays
+# in quarantine yyy not well-thought-through
+# don't overwrite newer files unless -f given
+
+function pfx_harvest_validate {
+	[[ ! -d $pfx_harvest || ! -d $pfx_import ]] && {
+		pfx_init || return
+	}
+	[[ ! -r $pfx_harvest/$pfx_base ]] &&	# yyy update previous stage
+		pfx_base harvest		# from default
+
+	local f
+	local errcount=0
+	local msg=''
+	for f in $pfx_base ${pfx_sources[@]}
+	do
+		[[ $pfx_harvest/$f -nt $pfx_quarantine/$f && ! "$force" ]] &&
+			continue		# yyy emit message here?
+		# xxx for now there's no check other than for zero size
+		if [[ -s $pfx_quarantine/$f ]]		# if file size > zero
+		then
+			mv $pfx_quarantine/$f $pfx_harvest/$f
+		else
+			msg+="error: zero size file harvested: $f\n"
+			let errcount++
+		fi
+	done
+
+	if [[ $errcount -gt 0 ]]	# yyy why collect to end? why errcount?
+	then
+		echo -e $msg 2>&1
+		return 1
+	fi
+	return 0
+}
+
+# harvest: bring external files into $pfx_harvest directory (seldom)
+#     - usually called via cron
+# import: bring harvested files into $pfx_import directory (often),
+#     - may call harvest if nothing in $pfx_harvest directory
+
+# Meant to be called less frequently than pfx_import (eg, from cron),
+# copies prefix source files from external locations to a well-known
+# host-specific directory, $pfx_harvest, which serves as a kind of cache
+# for pfx_import. Where possible, we use scp -p to preserve mod times.
+# yyy In the process, filenames are normalized to internal conventions.
+
+function pfx_harvest {
+	[[ ! -d $pfx_quarantine ]] && {
+		mkdir -p $pfx_quarantine || {
+			echo "error: couldn't create $pfx_quarantine" 2>&1
+			return 1
+		}
+	}
+	local n=0		# number of files imported yyy needed?
+
+	# Assume current dir is $pfx_build. xxx needed?
+	# The $master_base_prefixes source is SPECIAL. It lives with the
+	# eggnog source code, is peculiar to the current host, and is
+	# updated in $pfx_import by the developer (eg, build_server_tree).
+	# To keep things complete, we harvest it from the production
+	# host's eggnog source (always in sv/cur/), knowing that normal
+	# dev builds should overwrite it from the developer code repo
+	# (via build_server_tree).
+
+	rfiles=''			# remote files -- globals?
+	# SPECIAL base file, to keep it from being empty
+	rfiles+=" $prd_master_base_prefixes"
+	# INTERNALLY maintained registry
+	rfiles+=' shoulders/master_shoulders.txt'
+	# INTERNALLY maintained registry
+	rfiles+=' shoulders/naans/master_naans'
+	# EXTERNALLY maintained (but on hiatus) registry; this is a snapshot
+	rfiles+=' shoulders/lsregistry.yml'
+	# EXTERNALLY maintained registry, updated daily at 05:30 GMT.
+	ebi_url='http://identifiers.org/service/registryxml'
+
+	scp -qp $pfx_maint_host:"$rfiles" $pfx_quarantine || {
+		echo "Error running scp -qp $pfx_maint_host:\"$rfiles\"" \
+			"$pfx_quarantine" 1>&2
+		return 1
+	}
+	wget -q -O $pfx_quarantine/ebireg.xml $ebi_url || {
+		echo "Error running wget from $ebi_url" 1>&2
+		return 1
+	}
+	# normalize those filenames needing it			# yyy dumb 
+#	mv $pfx_quarantine/{pfx_base.yaml,n2tadds.yaml}		# yyy drop soon
+#	mv $pfx_quarantine/{master_naans,naan_registry.txt}	# yyy drop soon
+#	mv $pfx_quarantine/{ebireg_latest.xml,ebireg.xml}	# yyy drop soon
+
+	pfx_harvest_validate ||	# if ok, moves files up out of quarantine
+		return 1
+
+	return 0
+}
+
+# usage: pfx_base operation-stage [ file ]
+# Allow developer builds to update prefix base without disturbing
+# system build.
+# Allow system build to not use developer prefix base.
+# Allow harvesting to proceed without disturbing system or developer
+# prefix base.
+
+function pfx_base {
+
+	[[ $# -lt 1 ]] && {
+		echo "Error: missing operation-stage (harvest, import," \
+			"prebuild) to copy base into" 2>&1
+		return 1
+	}
+	local opstage=$1
+	shift
+	local dstdir=
+
+	case $opstage in
+	prebuild)	dstdir=$pfx_build ;;
+	import)		dstdir=$pfx_import ;;
+	harvest)	dstdir=$pfx_harvest ;;
+	*)	echo \
+		"Error: unknown operation-stage ($opstage); should be one" \
+			"of (harvest, import, prebuild)" 2>&1
+		return 1
+		;;
+	esac
+
+	# default file with new content default
+	local nfile=$buildout_root/../$source_base_prefixes
+	[[ $# -gt 0 ]] && {
+		nfile=$1
+		shift
+	}
+	[[ ! -r $nfile ]] && {
+		echo "Error: cannot read given update file ($nfile)" 2>&1
+		return 1
+	}
+	cp -p $nfile $dstdir		# need to preserve modtimes
+	return
+}
+
+# "harvest" daily -> ~/pfx_harvest
+# "import" (when?) from ~/pfx_harvest -> $sa/pfx_work/import
+#    test for updates: (any new version of files between harvest and import)?
+# "prebuild" onbuild -> ~/pfx_work/build
+
+# need: protect running system from harvests
+# need: protect running system from source pfx_base changes
+# need: enable $se builds to sense pfx_base changes
+# need: enable n2t rollout to update pfx_base in files imported for builds,
+#       independent of what pfx harvest pulls in
+#       how? pfx_harvest/pfx_base won't change a newer version in .../import?
+#       yes -- and adds nag about harvest file being out of date
+
+# change n2t rollout to overwrite pfx_harvest in case pfx_base is newer?
+# xxx how does pfx harvest work on production?
+# yyy important that harvest and test runs on installed/rolled out
+#     version without being disturbed by what's sitting in $se
+#
+
+# copy (on build) from $sa/pfx_work/import -> $sa/pfx_work/build
+
+# Meant to be called more frequently than pfx_harvest (eg, in building a
+# specific server for testing), copies "to import" files to server-specific
+# ... where what? exactly? to build dir
+
+# $pfx_import directory where building won't disrupt production.
+# Uses cp -p to preserve mod times.
+
+function pfx_import {
+	[[ ! -d $pfx_harvest || ! -d $pfx_import ]] && {
+		pfx_init || return
+	}
+	local f
+	for f in $pfx_base ${pfx_sources[@]}
+	do
+		[[ ! -r $pfx_harvest/$f ]] && {
+			echo -e "Error: missing prefix source file from" \
+				"harvest: $f\n" "- consider running" \
+				'"pfx harvest" first' 2>&1
+		  return 1
+		}
+	done
+# yyy previous stage
+#	[[ ! -r $pfx_harvest/$pfx_base ]] &&	# update previous stage
+#		pfx_base harvest		# from default
+
+	for f in $pfx_base ${pfx_sources[@]}
+	do
+		[[ $pfx_import/$f -nt $pfx_harvest/$f && ! "$force" ]] &&
+			continue		# yyy emit message here?
+		cp -p $pfx_harvest/$f $pfx_import/$f
+	done
+
+	# xxx not dealing with files still in quarantine
+	return 0
+}
+# ???
+# basic.yaml	default: use pfx_base.yaml
+# naans.yaml	default: use ark registry
+# shoulders.txt	default: use very stripped down master_shoulders
+# ebi.xml		default: empty, none?
+# lsregistry.yml	default: empty, none?
+
+function pfx_pushsync {
+
+	[[ $# -lt 1 ]] && {
+		echo "Error: missing remote hostname" 2>&1
+		return 1
+	}
+	local host=$1
+	shift
+	[[ $# -lt 1 ]] && {
+		echo "Error: missing ingest area (harvest, import," \
+			"both) to copy to $host" 2>&1
+		return 1
+	}
+	local area=$1
+	shift
+	case $area in
+	import)		srcdirs=( sv/cur/pfx_work/import ) ;;
+	harvest)	srcdirs=( \~/pfx_harvest ) ;;
+	both)		srcdirs=( $pfx_import $pfx_harvest ) ;;
+	*)	echo \
+		"Error: unknown ingest area ($area); should be one" \
+			"of (harvest, import, both)" 2>&1
+		return 1
+		;;
+	esac
+	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
+		echo "Error: nothing to push" 2>&1
+		return 1
+	}
+	ssh $pfx_maint_user@$host pfx init
+	[[ $area == harvest || $area == both ]] &&
+		scp -pr ~/pfx_harvest $pfx_maint_user@$host:.
+	[[ $area == import || $area == both ]] &&
+		scp -pr ~/sv/cur/apache2/pfx_work/import \
+			$pfx_maint_user@$host:sv/cur/apache2/pfx_work/
+}
+
+function pfx_prebuild {
+	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
+		pfx_init || return
+	}
+	local f
+	for f in ${pfx_sources[@]}
+	do
+		[[ ! -r $pfx_import/$f ]] && {
+			echo -e "Error: missing prefix source file from" \
+				"import area: $f\n" "- consider running" \
+				'"pfx import" (after "pfx harvest"?)' 2>&1
+		  return 1
+		}
+	done
+	[[ ! -r $pfx_import/$pfx_base ]] &&	# yyy update previous stage
+		pfx_base import			# from default
+
+	for f in $pfx_base ${pfx_sources[@]}
+	do
+		[[ $pfx_build/$f -nt $pfx_import/$f && ! "$force" ]] &&
+			continue
+		cp -p $pfx_import/$f $pfx_build/$f
+	done
+	return 0	# yyy no error check
+
+# xxx don't forget to modify n2t rollout
+# xxx don't forget to modify build_server_tree
+#     to call pfx base build [ file ]
+}
+
+function pfx_init {
+	mkdir -p $pfx_import $pfx_build || {
+		echo Could not create prefix work directories. 2>&1
+		return 1
+	}
+	mkdir -p $pfx_harvest || {
+		echo Could not create $pfx_harvest directory. 2>&1
+		return 1
+	}
+}
+
+# function xpfx_harvest {		# placeholder function for the moment
+# 
+# #	echo -n Fetching $n2tadds
+# #	wget -q -O $n2tadds $n2taddsinURL
+# #	echo
+# #	echo -n Fetching $gitpfxFile
+# #	wget -q -O $gitpfxFile $gitpfxURL
+# #	echo
+# #	echo -n Fetching NAANs and shoulders
+# #	wget -q -O $naanFile $naanURL
+# #	wget -q -O $shdrFile \
+# #		--user=ezid --password="$(wegnpw ezid)" $shdrURL
+# #	echo
+# #	echo -n Fetching prefixCommons
+# #	wget -q -O $pfxcomsFile $pfxcomsURL
+# #	echo
+# #	echo -n "Fetching prefix_in_id flagged namespaces..."
+# #	wget -q -O $piiFile "$pfxinURL"
+# #	echo
+# #	echo -n "Fetching new EBI registry..."
+# #	wget -q -O ebireg_latest.xml 'http://identifiers.org/service/registryxml'
+# 	echo
+# 	echo -n "Fetching MIRIAM registry..."
+# 	wget -q -O miriam.xml "$idotURL"
+# #	echo
+# #	echo -n "   and MIRIAM schema..."
+# #	wget -q -O miriam.xsd "$idotschemaURL"
+# 	echo
+# 
+# 	if [[ -e previous/miriam.xsd ]]
+# 	then
+# 		diff miriam.xsd previous/miriam.xsd || {
+# 			echo
+# 			echo "error: new identifiers.org schema differs " \
+# 				"from previous; aborting" 1>&2
+# 			return 1
+# 		}
+# 	else
+# 		mkdir -p previous
+# 		cp -p miriam.xsd previous/	# initialize
+# 	fi
+# 	# XXX to do:
+# 	# - add code to save previous schema versions
+# 	# - add code to save previous registry versions
+# 	# - add code to save do all this in its own admin directory
+# }
+
+# validate EBI registry
+function validate_ebi {
+
+	# Need to strip namespace definition because xmllint --xpath is picky.
+	# Also remove odd \r\n sequences that mess up later ANVL parsing.
+	#
+	< $ebireg.xml \
+		perl -pe '/<miriam/ and s/xmlns="[^"]*"//; s/\r\n/ /gs;' \
+	> $ebireg.clean.xml
+
+	echo "  created $ebireg.clean.xml:" \
+		$( grep -c '<name>' $ebireg.clean.xml ) "<name> entries"
+
+	# yyy separately, collect info about obsolete stuff in order to
+	#     assist redirection of historical pointers
+	local node='collection[not(@obsolete="true")]'
+	local subnode='resource[not(@obsolete="true")]'
+	local xpath="
+		  //$node//name
+		| //$node//definition
+		| //$node//prefixed
+		| //$node//alias
+		| //$node//tag
+		| //$node//synonym
+		| //$node//pattern
+		| //$node//namespace
+		| //$node//$subnode/*
+		| //$node//$subnode/@id
+		| //$node//$subnode/@primary
+	"
+
+	#	//$node//*[self::name or self::definition or self::prefixed]
+	#	| //$node//$subnode/@obsolete
+	#local xpath="
+	#	  //$node//*[self::name or self::definition]
+	#	| //$node//namespace
+	#	| //$node//resource/*
+	#	| //$node//resource/@primary
+	#"
+	#	| //$node//dataEntry/../../../synonyms/synonym
+	xmllint --xpath "$xpath" $ebireg.clean.xml > $ebireg.xpathout ||
+		echo xmllint exited with error status $?
+	echo "  created" $ebireg.xpathout: $( wc -c < $ebireg.xpathout ) chars
+
+	# In replacing newlines with spaces, script assumes no nested XML tags.
+
+	# xxx should probably convert to yaml directly instead of to anvl
+	# This next step assumes and relies on the "name" tag appearing first.
+	# It creates a GRANVL (grep-able ANVL) file, with every element value
+	# fitting on one long line directly after its name.  The resulting file
+	# will consist of records slurpable in Perl paragraph mode and
+	# beginning with the element named "name".
+	#
+	perl -pe '
+	 s, primary="([^"]*)",<primary>$1</primary>,g;		# attr-to-elem
+	 s, id="([^"]*)",<provider_id>$1</provider_id>,g;	# same
+    s,<status state="([^"]*)" reliability="([^"]*)"/>,<state>$2:$1</state>,g;
+	 s,</tag><tag>,; ,g;
+	 s,</alias><alias>,; ,g;
+	 s,</synonym><synonym>,; ,g;
+	 s,(?:\n\s*)?</[^>]*>,\n,g;	# replace closing tags with newlines
+	 s,<([^>/]*)/>,$1: \n,g;	# replace no-value tags appropriately
+	 s,<([^>]*)>,$1: ,g;	# replace opening tags with ANVL tags
+	 s,^name:,\nname:,gm;	# start "paragraph" on name "prefix"
+	 s/&gt;/>/g;
+	 s/&lt;/</g;
+	 s/&amp;/&/g;	# yyy watch out for multiple encodings, eg, &amp;amp;
+	' < $ebireg.xpathout > $ebireg.yaml
+	echo "  created" $ebireg.yaml: $( wc -l < $ebireg.yaml ) lines
+	# This $ebireg.yaml is "pre-anvl yaml", the first yaml conversion of
+	#    the file, eventually to become anvl and then again yaml!
+
+	# s, obsolete="([^"]*)",<obsolete>$1</obsolete>,g;	# attr-to-elem
+
+	# The next step enforces uniqueness of names and creates a new element,
+	# scheme, that must also be unique.  The scheme is derived by taking
+	# the shortest of either the names and synonyms after squeezing out any
+	# non-word chars (spaces, hyphens, etc).
+
+	# Store a big blob of perl we'll be using in the var $perl_prog,
+	# using a "heredoc" (<<) so we don't have worry about quotes
+	# surrounding it.
+	#
+	local perl_prog
+	read -r -d '' perl_prog << 'EOT'
+
+	# start embedded Perl program
+
+	use strict;
+	my ($tag, $value, $name, $namespace, $description,
+		$subject, $synonym, $alias, $prefixed, $pattern);
+
+	# Assign a new field of the form "sort_score: N", which we will use
+	# for sorting. It's a texty field, and rather than sort by extracting
+	# the number N for a <=> sort, we'll do lexical sort (cmp); for that
+	# to work, we need total score N to remain a SINGLE DIGIT.
+
+	sub sort_score { my( $provider_tags )=@_;
+
+		my $score = 1;			# NB: must be a SINGLE digit
+		# default score 1 better than 0, which loose testing turns
+		# into nothing, which sorts before (higher than) non-nothing 
+
+		if (grep /primary: true/, @$provider_tags) {
+			$score = 6;		# primary should always win
+		}
+		elsif (grep /provider_code: ncbi/, @$provider_tags) {
+			$score = 5;		# ncbi preference
+		}
+		elsif (grep /location: .*USA/, @$provider_tags) {
+			$score = 4;		# first preferred n2t funder
+		}
+		elsif (grep /location: .*UK/, @$provider_tags) {
+			$score = 3;		# second preferred n2t funder
+		}
+		unshift @$provider_tags, "sort_score: $score\n";
+		return $provider_tags;
+	}
+
+	RECORD:		# a "record" (paragraph) corresponds to a "collection"
+	while (<>) {				# step through each collection
+		my (@providers, $p);		# array of $p arrayrefs
+		while (m/^([^:]*): (.*)/gm) {	# step through each tag
+			($tag, $value) = ($1, $2);
+			if ($tag eq "name") {
+				# ASSUMPTION - "name" begins a record!
+				($subject, $alias) = ('', '');
+				$name = $value;
+			}
+			elsif ($tag eq "definition") {
+				# changing field name
+				$description = $value;
+			}
+			elsif ($tag eq "pattern") {
+				$pattern = $value;
+			}
+			elsif ($tag eq "namespace") {
+				$namespace = $value;
+			}
+			elsif ($tag eq "prefixed") {
+				$prefixed = $value;
+			}
+			elsif ($tag eq "tag") {
+				# changing field name
+				$subject = $value;
+			}
+			elsif ($tag eq "synonym") {
+				$synonym = $value;
+			}
+			elsif ($tag eq "alias") {
+				$alias = $value;
+			}
+			# The provider_id, when encountered, introduces a
+			# new provider description section.
+			elsif ($tag eq "provider_id") {	# subrecord boundary
+
+				# save to providers list after scoring it
+				push(@providers, sort_score($p)),
+					if $p;
+				$p = [ "$tag: $value\n" ];	# and (re)init
+			}
+			# collect provider-specific tags now preamble is past
+			else {
+				# eg, redirect, test, location, primary, state
+				$p and
+					push(@$p, "$tag: $value\n"),
+					#$p->{ $tag } = $value,
+				1 or
+					print(STDERR "namespace $namespace: ",
+						"no provider_id before ",
+						"tag $tag\n"),
+				;
+			}
+		}
+		# save to providers list after scoring it
+		push @providers, sort_score($p);
+
+		# Now print all resources associated with a "collection" and
+		# continue (outer loop) with the next record. For a resource,
+		# print preamble followed by provider section from @providers.
+		#
+		# NB: order is important, as downstream processors assume that
+		# the first provider is the preferred default for resolution
+		# when the user doesn't specify a provider_code.
+
+		print(	"\n",		# record separator
+			"namespace: $namespace\n",
+			"type: scheme\n",
+			"name: $name\n",
+			"description: $description\n",
+			"subject: $subject\n",
+			($alias ? "alias: $alias\n" : ''),
+			($synonym ? "synonym: $synonym\n" : ''),
+			"prefixed: $prefixed\n",
+			"pattern: $pattern\n",
+			@$_,		# finally print provider fields
+		) foreach (
+			sort { $b->[0] cmp $a->[0]; }	# elem 0 from sort_score
+		@providers);
+
+		undef @providers;
+	}
+	print "\n";	# just make sure last record ends with end-of-record
+
+	# end embedded Perl program
+EOT
+
+	# Now call the script, just saved in $perl_prog, and pass in
+	# any values via environment variables.  The -00 sets input mode
+	# so that <> reads a paragraph at a time.  We capture just stderr
+	# in $err so we can test if duplicate detection is working.
+	#
+	# xxx move -00 and -w into script, where it belongs
+	local err=$( env NOTHING_TO_PASS=niente \
+		perl -00 -we "$perl_prog" \
+			< $ebireg.yaml > ebireg_tmp 2>&1 )
+	[[ $? -ne 0 ]] && {
+		echo "$err"
+		return 1
+	}
+
+	< ebireg_tmp > ebi.yaml \
+	perl -lp \
+	    -e 's/^namespace:/-\n  $&/ and next;	# new record' \
+	    -e '/./ and s/^/  /;		# indent lines' \
+	    -e 's/([\\"])/\\$1/g;		# \-quote all \ and " chars' \
+	    -e 's/^([^:]+: +)(.+)$/$1"$2"/;	# quote every value string' \
+	-e ';'
+
+	# verify YAML
+	perl -e 'use YAML::Tiny "LoadFile"; LoadFile("'ebi.yaml'")' || {
+		echo "ebi.yaml: failed to load YAML"
+		return 1
+	}
+
+	echo "  verified prefix array in ebi.yaml:" \
+		$( grep -c '^  name:' ebi.yaml ) \
+		prefix/provider code combinations
+}
+
+function pfx_validate_prefixes {
+
+	# Store a big blob of perl we'll be using in the var $perl_prog,
+	# using a "heredoc" (<<) so we don't have worry about quotes
+	# surrounding it.
+	#
+	local perl_prog
+	read -r -d '' perl_prog << 'EOT'
+
+	# start embedded Perl program
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	use boolean;		# imports true, false, boolean($scalar)
+	my $verbose = 0;
+
+	sub make_probe { my( $s )=@_;	# scheme hash as arg
+
+		my $probe = $s->{redirect};
+		my $test = $s->{test};
+		! $probe =~ /\$id/ and	# if no \$id string,
+			$probe =~ s/$/\$id/;	# add one at the end
+		$probe =~ s/\$id/$test/;
+		return $probe;
+	}
+
+	# key=redirect rule (xxx should prepend something to make it unique?)
+
+	sub YAMLprefix2anvl { my( $infile )=@_;
+
+		use YAML::Tiny 'LoadFile';
+
+		my $me = 'YAMLprefix2anvl';
+		$infile or
+			print(STDERR "$me: no input file\n"),
+			return undef;
+		my $outfile = $infile;
+		$outfile =~ s/^/pfx_/;		# meh
+		my $pfx_aref = LoadFile( $infile ) or
+			print(STDERR "$infile: $me LoadFile failed\n"),
+			return undef;
+
+		my ($os, $ns);		# refs to old and new scheme hashes
+		my $aref = [];		# array of new per-scheme hashes
+		my (%h, $s);		# for uniqueness and error checking
+		my (@synoms, $a);	# for synoms
+		my $pii = 0;		# count prefixes that are "in id"
+		my $pcode = 0;		# for fabricated provider codes
+				# starting at 11 since 1 looks too prominent
+		for $os (@$pfx_aref) {	# for each old scheme
+
+			@synoms = ();
+			$ns = {};	# get new empty hash, which may be
+					# discarded (not pushed onto
+					# returned array) after error checks
+
+			# Basic copying, with some element name changes.
+			$ns->{scheme} = $os->{namespace} || '';
+			$ns->{provider} = $os->{provider_code} || '';
+			$ns->{redirect} = $os->{redirect} || '';
+			$ns->{test} = $os->{test} || '';
+			$ns->{title} = $os->{title} || '';
+			$ns->{more} = $os->{homepage} || '';
+			$ns->{primary} = $os->{primary} || '';
+			$ns->{prefixed} = $os->{prefixed} || '';
+			$ns->{alias} = $os->{alias} || '';
+			$ns->{pattern} = $os->{pattern} || '';
+			$ns->{state} = $os->{state} || '';
+
+			$ns->{description} = $os->{description} || '';
+			$ns->{subject} = $os->{subject} || '';
+			$ns->{location} = $os->{location} || '';
+			$ns->{synonym} = $os->{synonym} || '';
+			$ns->{provider_id} = $os->{provider_id} || '';
+			$ns->{sort_score} = $os->{sort_score} || '';
+			$ns->{institution} = $os->{institution} || '';
+
+			$s = $ns->{scheme};	# shorthand
+
+			$ns->{provider} =~ /[^\w]/ and $verbose and
+				print(STDERR
+					"warning: $ns->{provider}: provider ",
+					"code contains non-word chars\n");
+			$ns->{scheme} =~ /[^\w.]/ and $verbose and
+				print(STDERR
+					"warning: $ns->{scheme}: scheme name ",
+					"contains non-word, non-. chars\n");
+
+			# After basic copying, fix scheme-embedded-in-id
+			# cases, signaled by prefix_in_id flag. (former
+			# check was whether a ":" was present in "test")
+			#
+			$ns->{redirect_ebi} = $ns->{redirect};	# untouched
+			if ($ns->{prefixed} eq 'true') {
+				#$ns->{scheme} eq 'cabri' and	# xxx exception
+				#	next;			#     broken
+				# xxx .... other exceptions go here
+				if ($ns->{test} =~ s/(\S+)[:=](\S+)/$2/) {
+					$ns->{test} = $2;	# move scheme
+					my $p = $1;		# to redirect
+					$pii++;
+					$ns->{redirect} =~ s/\$id/$p:\$id/g;
+				}
+				else { print(STDERR
+					"warning: $ns->{scheme}: test id (",
+					"$ns->{test}) has no embedded colon\n");
+				}
+				# oddball case of InChI; uses = instead of :
+				$ns->{scheme} =~ /inchi/i and
+					$ns->{redirect} =~ s/inchi:/InChI=/i,
+					$ns->{redirect_ebi} = $ns->{redirect},
+				;
+			}
+			($ns->{forward} = $ns->{redirect})	# ${ac} not $id
+				=~ s/\$id/\${ac}/g;
+
+			# Synthesize easily copy-pasted probe element.
+
+			$ns->{probe} = make_probe $ns;
+
+			# Now output in anvl format.
+			# yyy anvl format is a temporary kludge step
+
+			if ($h{$s}++) {		# if we've already seen scheme,
+				# then if provider is non-empty, check if
+				if ($ns->{provider}) {	# prov/scheme is unique
+					$s = $ns->{provider} . "/$s";
+					$h{$s}++ and print(STDERR "$s: " .
+						"skipping duplicate provider" .
+						"/scheme combination!\n"),
+						next,
+					;
+					$ns->{scheme} = $s;	# save new name
+				}
+				# else empty, so if not primary, fabricate
+				elsif ($ns->{primary} ne 'true') {
+					# fabricate provider codes of the form
+					# zNNN, starting with 11 since 1 looks
+					# too prominent; use 'z' so code sorts
+					# towards the end
+					# xxx bug: after a db change, provider
+					# codes after change will all differ
+					# at next run
+					$ns->{provider} = sprintf "z%03d",
+						11 + $pcode++;
+					$s = $ns->{provider} . "/$s";
+					$h{$s}++ and print(STDERR "$s: " .
+						"skipping duplicate provider" .
+						"/scheme minted combo!\n"),
+						next,
+					;
+					$ns->{scheme} = $s;	# save new name
+				}
+			}
+			# yyy for import, record history of changes
+			#     so I can patch yaml file from xml diffs
+			elsif ($ns->{provider}) {	# if provider non-empty
+				# yyy probably not necessary to check since
+				#     we've never seen the scheme, right?
+				$s = $ns->{provider} . "/$s";	# combo unique?
+				$h{$s}++ and print(STDERR "$s: " .
+					"skipping duplicate provider" .
+					"/scheme synonym combo!\n"),
+					next,
+				;
+				# combination is unique, so set up synonym
+				# under assumption that this first provider 
+				# is preferred.
+				#
+				$a = {	prefix	=> $s,
+					type	=> 'synonym',
+					for	=> $ns->{scheme},
+				};
+				# add to list of possible synonyms
+				push @synoms, $a;
+			}
+			# else unmodified scheme name is now in preferred spot
+
+			# Print anvl format (temporary, will switch to yaml).
+			#
+			print ":: $ns->{scheme}\n",
+				"type: scheme\n",
+				"name: $ns->{title}\n",
+				"alias: $ns->{alias}\n",
+				"provider: $ns->{provider}\n",
+				"provider_id: $ns->{provider_id}\n",
+				"sort_score: $ns->{sort_score}\n",
+				"primary: $ns->{primary}\n",
+				"forward: $ns->{forward}\n",
+				"redirect: $ns->{redirect}\n",
+				#"redirect_ebi: $ns->{redirect_ebi}\n",
+				"description: $ns->{description}\n",
+				"subject: $ns->{subject}\n",
+				"location: $ns->{location}\n",
+				"synonym: $ns->{synonym}\n",
+				"institution: $ns->{institution}\n",
+				"prefixed: $ns->{prefixed}\n",
+				"test: $ns->{test}\n",
+				"probe: $ns->{probe}\n",
+				"pattern: $ns->{pattern}\n",
+				"state: $ns->{state}\n",
+				"more: $ns->{more}\n",
+				# yyy should be able to use {title} element
+				#     to look up more info in miriam.xml
+				"\n";
+
+			map {	print ":: $_->{prefix}\n",
+					"type: $_->{type}\n",
+					"for: $_->{for}\n",
+					"\n";
+			} @synoms;
+			push @$aref, $ns, @synoms;
+		}
+		#close OUT;
+		#my $incnt = scalar(keys @$pfx_aref);
+		my $outcnt = scalar(keys @$aref);
+		print "  ebi.yaml: $outcnt prefixes output\n";
+		print "  ebi.yaml: $pii prefixes \"in id\",",
+			" $pcode fabricated prefixes\n";
+		#	$outcnt - $incnt,
+		#	" added prefixes, of which $pcode were fabricated\n";
+		return $aref;
+	}
+
+	YAMLprefix2anvl( $ARGV[0] ) and
+		exit 0;
+	exit 1;
+	# end embedded Perl program
+EOT
+
+	# Now call the script, just saved in $perl_prog, and pass in
+	# any values via environment variables.  The -00 sets input mode
+	# so that <> reads a paragraph at a time.  We capture just stderr
+	# in $err so we can test if duplicate detection is working.
+	# Use iconv to convert to utf8.
+	#
+	local err=$( env NOTHING_TO_PASS=niente \
+		perl -e "$perl_prog" ebi.yaml |
+			iconv -f ISO-8859-1 -t UTF-8 2>&1 > $ebi_outfile )
+	[[ "$err" ]] &&
+		echo "err: $err"
+}
+
+function validate_n2t_base {
+	# verify YAML
+	# xxx where is this file imported from?
+	# XXX next, add these in _front_ of build process
+	perl -e 'use YAML::Tiny "LoadFile"; LoadFile("'$n2tadds'")' || {
+		echo "$n2tadds: failed to load YAML"
+		return 1
+	}
+}
+
+function pfx_stage_naans {
+
+	local naans=${1-}
+
+	[[ "$naans" ]] || {
+		echo "error: no NAANs file specified"
+		return 0
+	}
+
+	# Store a big blob of perl we'll be using in the var $perl_prog,
+	# using a "heredoc" (<<) so we don't have worry about quotes
+	# surrounding it.
+	#
+	local perl_prog
+	read -r -d '' perl_prog << 'EOT'
+
+	# start embedded Perl program
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	# XXX Note: this does NOT preserve comments or the initial ERC record!
+	#   Also, (a feature) it does NOT preserve private lines beginning '!'.
+
+	local $/ = '';				# read paragraph at a time
+	my ($who, $what, $date, $where, $how);
+
+	while (<>) {
+		#/^erc:.*\nwhen:\s*(\S+)/s and		# skip file description
+		#	print("# Converting input file $naans dated $1\n"),
+		/^erc:/	and				# skip file description
+			next,
+		;
+		($who, $what, $date) =
+			m/\nwho:\s*(.*)\nwhat:\s*(.*)\nwhen:\s*(.*)/ or
+				print(STDERR "Malformed input: $_");
+		($where, $how) = m/\nwhere:\s*(.*)\nhow:\s*(.*)/;
+		! $who || ! $where and			# basic error check
+			s/\n/ /g,
+			print("# error: empty fields for record: $_"),
+		;
+		# now make sure it ends in final /, ready for $id to be appended
+		# when a redirect is called for
+		#$where =~ s|([^/])\s*$|$1/|;
+		$where =~ s|([^/])\s*$|$1/ark:\$id|;
+
+		# The main output
+		print ":: ark:/$what\n",
+			"type: naan\n",
+			"manager: n2t\n",
+			"name: $who\n",
+			"date: $date\n",
+			"$ENV{PFX_redir}: $where\n",
+			"na_policy: $how\n",
+			"\n";
+
+		#print "prefix: ark:/$what\n",
+		#	"- type: naan\n",
+		#	"- manager: n2t\n",
+		#	"- name: $who\n",
+		#	"- date: $date\n",
+		#	"- $ENV{PFX_REDIR}: $where\n",
+		#	"- na_policy: $how\n",
+		#	"\n";
+	}
+	exit;
+
+	#print "numrecs=", scalar(@recs), "\n";
+	# read shoulders.txt format
+	#perl -00 -ne 'push @recs, $_; END { print sort { $b =~ /^date: (.*)/m and $bx = $1; $a =~ /^date: (.*)/m and $ax = $1; $bx cmp $ax } @recs }' < dated > rsdated
+
+	# end embedded Perl program
+EOT
+
+	# Now call the script, just saved in $perl_prog, and pass in
+	# any values via environment variables.  The -00 sets input mode
+	# so that <> reads a paragraph at a time.  We capture just stderr
+	# in $err so we can test if duplicate detection is working.
+	#
+	# xxx move -00 into script, where it belongs
+	local err=$( env NOTHING_TO_PASS=niente \
+		sed '/^[#!]/d' $naans |		# drop comment and private lines
+			perl -00 -e "$perl_prog" \
+		> naans.anvl )
+}
+
+function pfx_stage_shoulders {
+
+	# Shoulders file should already be close to the right format
+	cp $shdrFile shoulders.anvl
+	echo '' >> shoulders.anvl	# make sure it ends in a blank line
+}
+
+function pfx_stage_pfxcoms {
+
+	perl -n \
+	-e 's/&gt;/>/g; s/&lt;/</g; s/&amp;/&/g;' \
+	-e 's/^ *preferredPrefix: "([^"]*)" *$/\n:: \L$1\E\ntype: commonspfx/ and print;' \
+  -e 's/^ *providerHtmlTemplate: "([^"]*)" *$/'$PFX_redir': $1/ and print' \
+		lsregistry.yml > pfxcoms.anvl
+	echo '' >> pfxcoms.anvl		# make sure it ends in a blank line
+# xxx load into yaml and keep other fields: description, title, etc
+#   convert keywords to "subject"
+	local n=$( grep -c '^:: ' pfxcoms.anvl)
+	[[ ${n:-0} -lt 9 ]] && {
+		echo "error: suspiciously low ($n) number of prefixes"
+		return 0
+	}
+#xxx temporarily comment out
+#	echo "Found $n pfxcoms entries"
+	return 1
+}
+
+function pfx_validate {
+
+#	echo "- validate_ebi"
+#		validate_ebi
+#return
+#		pfx_validate_prefixes
+#
+#	echo "- Validating n2t-added prefixes"
+#		validate_n2t_base
+#echo xxx early return
+#return
+	echo - Validating $naanFile
+		admegn validate_naans $naanFile
+	echo - Staging $naanFile, creating naans.anvl
+		pfx_stage_naans $naanFile
+	#echo xxx not yet Validating converted $naanFile
+
+	echo - Validating $shdrFile
+		(cd ~/shoulders
+			./validate-shoulders $pfx_build/$shdrFile)
+
+		echo - Staging $shdrFile, creating shoulders.anvl
+			pfx_stage_shoulders $shdrFile
+
+	echo "- Validating ebi prefixes, staging in $ebi_outfile"
+		validate_ebi
+		pfx_validate_prefixes
+	echo "- Validating n2t base prefixes"
+		validate_n2t_base
+
+	#echo xxx not yet Validating $pfxcomsFile
+#xxx temporarily comment out
+#	echo - Staging $pfxcomsFile, creating pfxcoms.anvl
+		pfx_stage_pfxcoms
+}
+
+function pfx_build {
+
+	# main output
+	cat > $mainout << EOT
+# This file was created by $me, combining $PFX_redir records
+# from the NAANs, EZID shoulders, idot, and PrefixCommmons registries.
+# XXX add high priority schemes before rest
+
+EOT
+	cat $n2tadds >> $mainout		# add first block
+
+	# Perl script to convert anvl to yaml
+	# indent, introduce each with "- prefix" outdented, quote special chars
+
+	read -r -d '' perl_anvl2yaml << 'EOT'
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	local $/ = '';				# read paragraph at a time
+	my ($pfxcount, $dupcount, $stopcount) = (0, 0, 0);
+	my (%h, $key);				# for duplicate detection
+
+	my $stophash;
+	if (scalar(@ARGV) and $ARGV[0]) {
+		use YAML::Tiny "LoadFile";
+		$stophash = LoadFile("$ARGV[0]");
+		print STDERR "Loaded ", scalar(keys %$stophash),
+			" stop prefixes from $ARGV[0]\n";
+		shift @ARGV;		# so <> below won't use it for input
+	}
+	else {
+		$stophash = {};
+	}
+
+	while (<>) {
+		s/^(.)/  $1/gm;		# indent every non-blank line in para
+		s/^  ::\s+(\S+)/$1:/m or	# un-indent first line
+			next;			# and skip comment-only paras
+		$key = $1;
+		$stophash->{$key} and		# skip if in stop file, which
+			$stopcount++,		# may be keys we will pre-empt
+			next;			# via $n2tadds
+		$h{$key}++ and			# if duplicate prefix detected
+			$dupcount++,
+			next;			# skip later-occurring prefix
+		$pfxcount++;
+		s/([\\"])/\\$1/gm;		# \-quote all \ and " chars
+		s/^( +[^:]+: +)(.+)$/$1"$2"/gm;	# quote every value string
+		#s/([[\]{}'"\\])/\\$1/g;	# quote some special chars
+		print;
+	}
+	print "\n# $pfxcount added prefixes\n";
+	print STDERR "Built $pfxcount prefixes (skipped $dupcount dupes).\n"
+EOT
+
+	read -r -d '' perl_mkn2treg << 'EOT'
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	use YAML::Tiny "LoadFile";
+	my $ph = LoadFile("$ARGV[0]");		# pointer to hash
+
+	print STDERR "Loaded ", scalar(keys %$ph), " prefixes from $ARGV[0]\n";
+	my ($e, $type);
+	foreach my $k (sort keys %$ph) {
+		$e = $ph->{ $k };	# prefix info entry
+		! defined($e->{type}) and	# make sure it's defined
+			next;
+		$type = $e->{ type };
+		$type eq 'datacenter' and	# skip datacenters
+			next;
+		$type eq 'commonspfx' and
+			$type = 'scheme';
+		# type == scheme or synonym or naan or shoulder
+		# naan -> name==title
+		print			# for public file use "namespace"
+		    "- $type: \"$k\"\n",
+		    ($e->{alias} ? "  alias: \"$e->{alias}\"\n" : ""),
+		    ($e->{name} ? "  name: \"$e->{name}\"\n" : ""),
+		    "\n";
+	}
+EOT
+
+	export LC_ALL=C			# to deal with unicode errors
+
+	# First expand any stray tabs to spaces because yaml hates tabs.
+	# First arg is $n2tadds to weed out keys that it will override.
+	#expand {naans,shoulders,ebi,pfxcoms}.anvl > expanded
+	#perl -e "$perl_anvl2yaml" $n2tadds < expanded >> $mainout
+	expand {naans,shoulders,ebi,pfxcoms}.anvl |
+		iconv -f ISO-8859-1 -t UTF-8 2>&1 |
+		perl -e "$perl_anvl2yaml" $n2tadds >> $mainout
+	#perl -e "$perl_mkn2treg" $mainout | \
+		#iconv -f ISO-8859-1 -t UTF-8 2>&1 > $n2tregout \
+	perl -e "$perl_mkn2treg" $mainout > $n2tregout || {
+		echo "Error: mkn2treg and iconv: failed to load YAML"
+		return 1
+	}
+	echo "YAML syntax verified for n2t public registry file: $n2tregout" 1>&2
+
+	# xxx sanity check prefix count with panic email for big changes
+	# yyy push these perl scripts into files (with read-only warnings) for
+	#     easier debugging?
+	# I I xxx save obsolete and deprecated stuff separately for completeness
+
+	# This means basically doing a verified load, a sort, and a
+	# print of only a subset of fields for the public registry
+	# Perl script to do that follows.
+
+	read -r -d '' perl_mkpubreg << 'EOT'
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	use YAML::Tiny "LoadFile";
+	my $ph = LoadFile("$ARGV[0]");		# pointer to hash
+
+	print STDERR "Loaded ", scalar(keys %$ph), " prefixes from $ARGV[0]\n";
+	my ($prov, $scheme, $sort_a, $sort_b, $e);
+	my @keys = sort {	# keys come in like chebi, ebi/chebi, ols/chebi
+		($sort_a = $a) =~ s|(.*/)(.*)|$2 $1|;
+		($sort_b = $b) =~ s|(.*/)(.*)|$2 $1|;
+		$sort_a cmp $sort_b;	# compare chebi, chebi ebi/, chebi ols/
+	} grep { ! m|^z\d+/.+$| } keys %$ph;
+	print STDERR (scalar(@keys),
+		" prefixes with non-fabricated provider codes.\n");
+	foreach my $k (@keys) {
+		$e = $ph->{ $k };	# prefix info entry
+		! defined($e->{type}) and	# make sure it's defined
+			next;
+		$e->{ type } ne "scheme" and	#  skip generated synonyms
+			next;	# such as bptl/chebi for main chebi entry
+		$k =~ m|^(([^/]+)/)?(.+)$| or
+			print(STDERR "error: skipping invalid key: $k\n"),
+			next;
+
+		$prov = $2;	# provider code (unused), often undefined,
+				# parsed from indexable prefix, but real
+				# provider should be in the record
+		$scheme = $3;		# scheme
+		print			# for public file use "namespace"
+			"- namespace: $scheme\n",
+			#($prov ? "  provider: $prov\n" : ""),
+			($e->{provider} ? "  provider: $e->{provider}\n" : ""),
+			($e->{alias} ? "  alias: $e->{alias}\n" : ""),
+			"  title: ", ($e->{name} ? $e->{name} : ""), "\n",
+			"  homepage: ", ($e->{more} ? $e->{more} : ""), "\n",
+			"\n";
+	}
+EOT
+
+	# Create public registry of prefixes shared between n2t.net and
+	# identifiers.org based on the set that the latter supports.  For
+	# that we go close to the source (ebi.anvl) imported from them.
+	# First write a preamble explaining what the file is for.
+
+	echo "# Last modified: `date '+%Y.%m.%d_%H.%M.%S'`" > $pubout
+	cat >> $pubout << EOT
+# Updates available at: $pubregURL
+# To request a prefix: $requestURL
+#
+# This is a YAML-format registry that enumerates the identifier prefixes
+# (identifier schemes) jointly recognized by the California Digital Library
+# (CDL) and the European Molecular Biology Laboratory - European
+# Bioinformatics Institute (EMBL-EBI) and their respective meta-resolvers:
+#
+#    n2t.net and identifiers.org.
+#
+# A prefix consists of a namespace, optionally preceded by a provider code
+# and a '/' character, for example, "pdb", "pmid", "taxon", and "rcsb/pdb".
+#
+#    <prefix> := [ <provider> + '/' ] + <namespace>
+#
+# A published compact identifier (compact-id) consists of a prefix, a colon,
+# and a scheme-local identifier (eg, a database accession number):
+#
+#    <compact-id> := <prefix> + ':' + <prefix-specific-identifier>
+#
+# A compact-id is made actionable by using it for the path part of a URL
+# and using one of the meta-resolvers for the hostname, for example,
+#
+#     n2t.net/pmid:1234567
+#     identifiers.org/pmid:1234567
+# 
+# This registry file is a series of YAML blocks, each ending in a blank line.
+# The elements in a block are defined as follows:
+#
+# namespace (required)
+#   A string of lowercase letters and digits defining the identifier
+#   collection, typically for a given database. The combination of
+#   namespace prefix and provider (below) must be unique across the
+#   registry.
+#
+# provider (optional)
+#   A string of lowercase letters and digits defining one provider for an
+#   identifier namespace prefix. The combination of namespace prefix and
+#   provider (above) must be unique across the registry.
+#
+# alias (optional)
+#   A string of lowercase letters and digits specifying an alternate name for
+#   the namespace. The combination of alias prefix, or namespace prefix, and
+#   provider (below) must be unique across the registry.
+#
+# title (required)
+#   A text string containing the full name of the prefix.
+#
+# homepage (required)
+#   A URL that leads to a web page with more information about the prefix. If
+#   the page contains schema.org tags, the meta-resolver may exploit them for
+#   descriptive information.
+#
+# note (optional, repeatable)
+#   A text string containing arbitrary annotations.
+#
+
+EOT
+	# Expand any stray tabs to spaces because yaml hates tabs.
+	expand ebi.anvl | perl -e "$perl_anvl2yaml" > pre_pub.yaml
+	perl -e "$perl_mkpubreg" pre_pub.yaml |
+		iconv -f ISO-8859-1 -t UTF-8 2>&1 >> $pubout \
+	|| {
+		echo "Error: pre_pub.yaml: failed to load YAML"
+		return 1
+	}
+	echo "YAML syntax verified for public registry file: $pubout" 1>&2
+
+	perl \
+		-e 'use YAML::Tiny "LoadFile"; $p = LoadFile("'$pubout'");' \
+		-e 'print STDERR ' \
+		-e '    "Verify-loaded ", scalar(@$p), " public prefixes.\n"' \
+	|| {
+		echo "Error: $pubout: failed to load public prefixes YAML"
+		return 1
+	}
+
+# xxx use something like this to create sorted output file
+#	perl -e "$perl_mkpubreg" $mainout |
+#		iconv -f ISO-8859-1 -t UTF-8 2>&1 > sorted_out \
+#	|| {
+#		echo "Error: $mainout: failed to load YAML"
+#		return 1
+#	}
+	echo "YAML syntax verified for main output file: $mainout" 1>&2
+	echo "Derived public registry file: $pubout" 1>&2
+
+	perl \
+	  -e 'use YAML::Tiny "LoadFile"; $p = LoadFile("'$pubout'");' \
+	  -e 'print STDERR "Verify-loaded ", scalar(@$p), " public prefixes.\n"' \
+	|| {
+		echo "Error: $pubout: failed to load public prefixes YAML"
+		return 1
+	}
+	# If we get here, there were no build errors. The products of
+	# the build are ready to be copied to $buildout_root.
+
+	cp -p $mainout $pubout $n2tregout $buildout_root/
+
+	# XXX in resolver verify to make sure that UCSD, UCB, etc. ARKs
+	#     don't get sent to the campuses when n2t should handle them,
+	#     but maybe use them as backup if n2t doesn't know about them
+	# XXX rigid rule to address that problem: ALWAYS
+	#     look up verbatim submitted identifier in n2t before
+	#     secondary processing, ie, before splitting out prefixes and
+	#     doing chopback
+	#   - that strategy should work for UCSD, for escholarship, DSC, too
+}
+
+function pfx_grok {
+
+	# Perl script to manipulate $mainout
+	#
+	read -r -d '' perl_grok << 'EOT'
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	use File::Resolver ':all';
+	#use YAML::Tiny 'LoadFile';
+	use Try::Tiny;		# for exceptions
+	use Safe::Isa;		# provides $_isa (yyy remind for what purpose?)
+
+	## return ref to HASH of hardwired prefixes, called only in emergency
+	#sub hardwired_prefixes {
+	#	return {};	# XXXXX empty!
+	#}
+
+	# return printable indented string of details
+	sub pfx_details { my( $pfxs_hash, $pfx )=@_;
+
+		my $h = $pfxs_hash->{ $pfx };
+		$h or
+			return "\n";
+		my $s = "$pfx\n";
+		$s .= "  $_: " . ($h->{$_} || '') . "\n"
+			for (sort keys %$h);
+		return $s;
+	}
+
+	my $pfxfile = $ARGV[0];
+	my $pfxs;
+	try {
+		my $msg;
+		$pfxs = File::Resolver::load_prefix_hash($pfxfile, \$msg);
+		my $intro = $pfxs ? 'Warning' : 'Error';
+		$msg and
+			print(STDERR "$intro from load_prefix_hash: $msg\n");
+		! $pfxs and
+			exit 1;
+	}
+	catch {
+		print "error loading $pfxfile: $_\n";
+		exit 1;
+	};
+	shift;
+	print "Loaded ", scalar(keys %$pfxs), " prefixes.\n\n";
+
+	my ($q, $h, $key);	# $q is an identifier, shoulder, or scheme
+	my $dt = '  ';				# indent is 2 spaces
+	my $idx;
+	while ( $q = shift ) {
+		print "- id: $q\n";
+		$idx = id_decompose($pfxs, $q);	# $q is the "identifier"
+		$idx or
+			print("${dt}Error: id_decompose failed\n"),
+			next;
+
+		if ($idx->{scheme} eq 'datacite') {	# weirdo scheme
+			print "${dt}name: $pfxs->{$q}->{name}\n";
+			next;
+		}
+		my $fqnaan = $idx->{fqnaan};
+		my $fqshoulder = $idx->{fqshoulder};
+		print	"${dt}normalized id: $idx->{full_id}\n",
+			"${dt}scheme: $idx->{scheme}\n",
+			"${dt}query: $idx->{query}\n",
+			"${dt}naan: $idx->{naan}\n",
+			"${dt}fully qualified shoulder: $fqshoulder\n",
+			;
+
+		# xxx bug in cdlib.org redirect for 13030 NAAN; it
+		#     thwarts eschol apache rewrite because $blade subst
+		#     not working and redirect to cdlib.org/ark:... would
+		#     happen
+		# XXXXXX fix by changing cdlib.org redirect to n2t.net!
+
+		# xxx bug in normalize, that pmid normalizes to oba:pmid
+		#     normalize_id should look ids to see if they're
+		#     scheme names before deciding that they're "oba"
+		my $redirect_rule =
+			$pfxs->{ $fqshoulder }->{ redirect } ||
+			$pfxs->{ $fqnaan }->{ redirect } ||
+			$pfxs->{ $idx->{scheme} }->{ redirect } ||
+			$pfxs->{ $idx->{full_id} }->{ redirect } ||
+			$pfxs->{ $q }->{ redirect } ||	# due to oba: normalize
+			'';		# never undefined
+		print "${dt}redirect rule: $redirect_rule\n";
+		#$scheme eq 'ark' || $scheme eq 'doi' and
+		#	next;
+	}
+EOT
+	# xxx but not -Mblib all the time, right? make it a var?
+#	local srcdir=~/sv/cur/build/eggnog
+	cd $pfx_build || {
+		echo Could not chdir to $pfx_build. 2>&1
+		exit 1
+	}
+	#perl -Mblib -e "$perl_grok" $mainout "$@"
+	perl -e "$perl_grok" $mainout "$@" || {
+		echo "Error: pfx_grok failed" 2>&1
+		exit 1
+	}
+}
+
+#==========================
+
+# MAIN
+
+guard=			# guard against production prefix changes
+force=			# disregard gaurdup setting
+verbose=		# unused
+yes=			# unused
+no_exec=		# unused
+cmd=help		# default
+
+# Check environment in case we're called from eggnog's build_server_tree.
+# This is an important way to prevent prefix building from disrupting a
+# currently running production service. Overridden with the -d option.
+
+buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
+# xxx pfx_base
+
+while [[ $# -gt 0 && "$1" =~ ^- ]]
+do
+	case $1 in
+	-d)
+		shift
+		buildout_root=$1
+		shift
+		[[ ! "$buildout_root" ]] && {
+			echo "Error: -d option requires an additional " \
+				"directory argument" 2>&1
+			usage
+			exit 1
+		}
+		;;
+	-f|--force)	# unused?
+		shift
+		force=1
+		;;
+	-h*|--h*)
+		shift
+		cmd=help
+		;;
+	-v*|--v*)	# yyy unused
+		shift
+		verbose=1
+		;;
+	-y)		# yyy unused
+		shift
+		yes=1
+		;;
+	-n)		# yyy unused
+		shift
+		no_exec=1
+		;;
+	*)
+		echo "Error: unknown option: $1" 2>&1
+		shift
+		usage
+		exit 1
+	esac
+done
+
+if [[ $# -gt 0 ]]
+then
+	cmd=$1		# first command word names the operation
+	shift
+fi
+
+# test for help request before all else, eg, initializing directories
+[[ "$cmd" == help ]] && {
+	usage
+	exit
+}
+
+if [[ "$cmd" == help ]]
+then
+	usage
+	exit
+fi
+
+# If $buildout_root was not specified either by the -d option or by the
+# EGNAPA_BUILDOUT_ROOT environment variable, we'll assume the place to
+# build out prefixes is given by the current $sv setting.
+
+[[ "$sv" ]] || {
+	echo 'An SVU mode must be in effect, eg, "svu cur" ' \
+		'or "svu new".' 2>&1
+	exit 1
+}
+[[ -d $sv ]] || {
+	echo "Service version directory doesn't exist: $sv" 2>&1
+	exit 1
+}
+
+buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
+[[ ! "$buildout_root" ]] &&
+	buildout_root=$sv/apache2
+
+# If we get here, $buildout_root is defined.
+
+#master_prefixes=$sv/apache2/prefixes.yaml
+#master_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml    # from source dir
+#master_prefixes=$buildout_root/prefixes.yaml
+#
+# xxx xxx; fix next line
+#master_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml    # from source dir
+#pfx_work=$sv/apache2/pfx_work		# prefixes parent dir
+
+
+pfx_import=$sv/apache2/pfx_work/import	# one import area per SERVICE VERSION
+pfx_build=$buildout_root/pfx_work/build	# one build area per BUILT SERVER TREE
+master_prefixes=$buildout_root/prefixes.yaml
+
+
+#idir=$pfx_build			# xxx drop synonym soon
+# yyy needed?
+#pfx_current=$pfx_work/current		# running ("built") prefixes subdir
+#pfx_previous=$pfx_work/previous		# previous running prefixes subdir
+
+# yyy should put this init stuff in a function and not call it on
+#     nonsense commands or bad options
+
+[[ ! -d $pfx_import ]] && {	# make sure we're initialized yyy needed here?
+	pfx_init || exit
+}
+
+case $cmd in
+
+updates_ready_in)			# test if prefix updates are ready
+	pfx_updates_ready_in "$@"
+	exit
+	;;
+harvest)
+	pfx_harvest "$@"
+	exit
+	;;
+harvest_validate)
+	pfx_harvest_validate "$@"
+	exit
+	;;
+base)
+	pfx_base "$@"
+	exit
+	;;
+prebuild)			# copy import to build dir
+	pfx_prebuild "$@"
+	exit
+	;;
+import)
+	pfx_import "$@"
+	exit
+	;;
+pre_import)		# xxx kludge ? drop?
+	pfx_pre_import  "$@"
+	exit
+	;;
+validate)
+	cd $pfx_build || {
+		echo Could not chdir to $pfx_build. 2>&1
+		exit 1
+	}
+	echo "$me process running now in $pfx_build directory"
+	pfx_prebuild "$@" && pfx_validate "$@"
+	exit
+	;;
+build)
+	cd $pfx_build || {
+		echo Could not chdir to $pfx_build. 2>&1
+		exit 1
+	}
+	echo "$me process running now in $pfx_build directory"
+	pfx_build "$@"
+	exit
+	;;
+test)
+	# yyy odd: build_server_tree calls its own "assemble_prefixes"
+	#      and its own "rebuild_prefixes" -- shouldn't "pfx" provide
+	#      these? and cron calls import and build_server_tree to do
+	#      auto testing of new prefixes -- how should that fit in?
+	# -> by calling "pfx test" you get all that by side-effect via
+	#      build_server_tree's work, again by side-effect of running
+	#      the t/prefixes_n2t.t file
+	echo "Warning: only testing build area, not installed prefixes."
+	pfx_test=$buildout_root/../build/eggnog
+	cd $pfx_test || {
+		echo Could not chdir to $pfx_test. 2>&1
+		exit 1
+	}
+	rm -fr td_egnapa	# remove temp dir to force re-build
+	perl -Mblib t/prefixes_n2t.t
+	exit
+	;;
+pushsync)
+	pfx_pushsync "$@"
+	exit
+	;;
+init)
+	pfx_init "$@"
+	exit
+	;;
+grok)
+	pfx_grok "$@"
+	exit
+	;;
+rollout)
+	echo not yet
+	exit
+	;;
+testall)
+	echo not yet
+	exit
+	;;
+testlinks)
+	echo not yet
+	exit
+	;;
+-*)
+	echo "Error: options go after the subcommand"
+	exit 1
+	;;
+*)
+	echo "Error: unknown subcommand: $cmd"
+	exit 1
+	;;
+esac
+

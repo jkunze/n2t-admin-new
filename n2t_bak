@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+function usage {
+	[[ "$1" != "" ]] &&	# if any args are present, treat them
+		echo "$0: $*"	# as an error message to be printed
+	cat << EOT
+Usage: $0 Binder ...
+
+XXX this script is obsolete
+
+DO NOT RUN THIS SCRIPT WITHOUT doing this on EZID production:
+
+    client p admin:password pause monitor
+
+when non-monitor requests come in -- IT WILL BLOCK ALL DATABASE REQUESTS.
+("tail -f ~/logs/access_log" only gives timeout info after timing out.)
+
+This script backs up one or more Binders, for example,
+
+    $0 ezid
+
+EOT
+}
+
+[[ $1 == "" ]] && {
+	usage
+	exit 0
+}
+
+source ~/.bashrc			# define svu
+svu cur	> /dev/null			# run svu to get right PATH, etc.
+
+cd ~n2t/binders || {
+	echo No such directory: ~n2t/binders
+	exit 1
+}
+
+bakdir=~n2t/backups
+date=$( date '+%Y.%m.%d' )
+
+for b in $*
+do
+	[[ -e $b/egg.bdb ]] || {
+		echo "$b doesn't appear to be a binder -- skipping"
+		continue
+	}
+	d=$bakdir/$b/$date
+	mkdir -p $d || {
+		echo "Cannot mkdir $d"
+		exit 1
+	}
+	echo "Backing up $b..."
+	time egg -d $b dbsave $d/egg.bdb
+done

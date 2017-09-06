@@ -1,0 +1,125 @@
+#!/bin/bash
+
+me=$( basename $0 )	# short name of this script
+bak='crontab-l.bak'	# back file where old crontab is saved
+mark='===>'		# visual marker to set off displayed messages
+
+function usage {
+	[[ "$1" != "" ]] &&	# if any args are present, treat them
+		echo "$me: $*"	# as an error message to be printed
+	cat << EOT
+
+Usage: $me go
+       $me check
+
+This script defines crontab settings for automatically scheduling various
+admin processes, such as database backup, log rotation, etc.  Currently,
+these actions, hardwired into the script, are commented out in crontab.
+
+The first form overwrites any existing crontab file after saving the output
+of "crontab -l" in the file "$bak".  The second form merely prints
+what the crontab file would be set to without overwriting it.
+
+EOT
+}
+
+function current_crontab {
+
+	#crontab -l | egrep -v '^ *(#|$)' > .curct
+	crontab -l > .curct
+	if [[ ! -s .curct ]]
+	then
+		echo current crontab is empty.
+	else
+		echo current crontab defines:
+		cat .curct
+		echo
+	fi
+}
+
+bin=/apps/n2t/local/bin
+
+# Old instructions for weekly backup (now see n2t_bak):
+# cd ~/binders; time egg -d ezid dbsave ~/backups/ezid/2014.05.18/egg.bdb
+# XXX doc: warn against risks of using dbsave and shutting out access for
+#     many minutes at a time
+
+function new_crontab {
+	cat << EOT > .newct
+#
+# The entries in this file are automatically created by $me.
+# Everything is commented out for now.
+
+# Every 2 minutes check that local resolution is working.  If not, an alert
+# email is sent and apache restarted; this mitigates the "off-by-one" error.
+# We rely on "admegn rcheck" to send an email on failure and then exit with
+# non-zero status, which we test (via ||) to trigger an apache restart.
+#
+#*/2 * * * * bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
+
+# Resolver shared memory bug mitigation. XXX
+# We reboot the server many times a day to quell resolver bugs.
+# Except for one 10-min gap from 36-46 mins after 0200 and 1400, which is
+# coordinated with the backup schedule below, restart server every 4 mins.
+# The gap leaves room for db_hotbackup to complete undisturbed by server
+# restart, which correlates with invalid backups, per db_verify.
+#
+#2,6,10,14,18,22,26,30,34,38,42,46,50,54,58 0-1,3-13,15-23 * * * (echo -n "`date`  "; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1
+# Difference is here     ^^^^^
+#                        vv
+#2,6,10,14,18,22,26,30,34,36,46,50,54,58 2,14 * * * (echo -n "`date`  "; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1
+
+#### Replication
+#*/3 * * * * local/bin/replicate ezid n2tlx.edina.ac.uk >> logs/replicate_log 2>&1
+
+#### Backup twice daily -- first time with rotation, second time without.
+# Use bash -l so "svu cur" is in effect and ~/local/bin is in the PATH.
+#37 2 * * * bash -lc "admegn backup; admegn backup_rotate" >> logs/backup_log 2>&1
+#37 14 * * * bash -lc "admegn backup" >> logs/backup_log 2>&1
+# XXX Do one extra backup during EZID maintenance window until BDB bug
+# fixed.
+#17 08 * * 0 bash -lc "admegn backup" >> logs/backup_log 2>&1
+
+#### Sunday at 4:03 am, delete log files older than 6 months.
+#03 4 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
+
+#### Update operating system automatically (dev Mon-1, stg Thurs-4, wf Sat-6)
+# On production and stage, use "admegn pingwhen" to avoid excess downtime.
+#38 5 * * 1 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
+#38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
+#38 5 * * 6 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
+EOT
+
+}
+
+############### main ###############
+
+cmd=$1
+[[ "$cmd" != go && "$cmd" != check ]] && {
+	msg=
+	[[ "$cmd" ]] &&
+		msg="unknown command: $cmd"
+	usage $msg
+	echo -n "$mark FYI, your "
+	current_crontab
+	exit 1
+}
+
+echo -n "$mark Your "
+current_crontab
+
+newct=$( new_crontab )
+[[ "$cmd" == check ]] && {
+	echo $mark Your crontab WOULD be set to:
+	cat .newct
+	exit
+}
+
+# If we get here, $cmd was "go".  First backup old crontab.
+
+crontab -l > $bak
+
+crontab .newct			# this overwrites your crontab
+echo $mark Your new crontab now defines:
+crontab -l
+echo

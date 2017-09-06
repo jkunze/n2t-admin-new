@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+
+echo "DON'T USE.  Instead use getrawprefix in \$se"
+exit 1
+
+me=$( basename $0 )
+cmd="$1"
+[[ "$cmd" ]] || {
+	echo "$me - extract redirect rules from MIRIAM registry
+
+Usage: $me [ go | fetch ]
+
+where \"fetch\" means \"go\", but after fetching remote files first"
+	exit
+}
+
+remoteHost=www.ebi.ac.uk
+remoteURL=http://$remoteHost/miriam/main/export/xml/
+localxml=ids.org.xml
+
+[[ "$cmd" == fetch ]] && {
+	echo -n Fetching MIRIAM registry from $remoteHost...
+	wget -q -O miriam.xml $remoteURL
+	echo
+	echo -n Fetching MIRIAM schema from $remoteHost...
+	wget -q -O miriam.xsd $remoteURL/MiriamXML.xsd
+	echo
+
+	diff miriam.xsd previous/miriam.xsd || {
+		echo
+		echo "ERROR: new schema differs from previous schema?" 1>&2
+		exit
+	}
+	# XXX to do:
+	# - add code to save previous schema versions
+	# - add code to save previous registry versions
+	# - add code to save do all this in its own admin directory
+}
+
+# We need to strip the namespace definition because xmllint --xpath is picky.
+# Also remove odd \r\n sequences because they'll mess up later ANVL parsing.
+#
+< miriam.xml \
+	perl -pe '/<miriam/ and s/xmlns="[^"]*"//; s/\r\n/ /gs' \
+> $localxml
+#diff miriam.xml $localxml
+
+node='datatype[not(@obsolete="true")]'
+xpath="
+	  //$node//*[self::name or self::definition]
+	| //$node//dataEntry/../../../synonyms/synonym
+	| //$node//resource/*
+"
+xmllint --xpath "$xpath" $localxml > $localxml.xpathout ||
+	echo xmllint exited with error status $?
+
+# In replacing newlines with spaces, this script assumes no nested XML tags.
+
+# This next step assumes and relies on the "name" tag appearing first.
+# It creates a GRANVL (grep-able ANVL) file, with every element value
+# fitting on one long line directly after its name.  The resulting file
+# will consist of records slurpable in Perl paragraph mode and beginning
+# with the element named "name".
+#
+perl -pe '
+	s,</[^>]*>,\n,g;	# replace closing tags with newlines
+	s,<([^>/]*)/>,$1: \n,g;	# replace no-value tags appropriately
+	s,<([^>]*)>,$1: ,g;	# replace opening tags with ANVL tags
+	s,^name:,\nname:,gm;	# start "paragraph" on name "name"
+' < $localxml.xpathout > $localxml.anvl
+
+# Now we add some dummy duplicates in order to test that our duplicate
+# detection logic and character normalization is working.  There are two
+# two test strings used after processing.
+#
+testS='ERROR: scheme DOI appears more than once'
+testN='ERROR: name DOI appears more than once'
+
+echo "
+name: Dummy Duplicate
+synonym: ///DOI///
+definition: dummy duplicate synonym
+
+name: DOI
+definition: dummy duplicate name
+" >> $localxml.anvl
+
+# The next step enforces uniqueness of names and creates a new element,
+# scheme, that must also be unique.  The scheme is derived by taking the
+# shortest of either the names or synonyms after squeezing out any
+# non-word chars (spaces, hyphens, etc).
+
+# Temporarily put the perl program we'll use in the var $perl_prog,
+# using a "heredoc" (<<) so we don't have worry about quotes
+# surrounding it. Use the var right afterwards with perl -ne.
+#
+read -r -d '' perl_prog << 'EOT'
+
+# start embedded Perl program
+
+use strict;
+my (%s, %n);	# use scheme and name hashes to enforce uniqueness of both
+my ($tag, $value, $sqvalue, $abbrev, $normscheme);
+
+RECORD:
+while (<>) {				# step through each record
+	while (m/^([^:]*): (.*)/gm) {		# step through each tag
+		($tag, $value) = ($1, $2);
+		$sqvalue = $value;
+		$sqvalue =~ s/\W+//g;		# squeeze out non-word chars
+		#print "tag=$tag, value=$value\n";
+		if ($tag eq "name") {
+			#print("XXXXX name $value -> "),
+			$n{$value}++;
+			$n{$value} > 1 and	# complain if it's not unique
+				print(STDERR "ERROR: name $value " .
+					"appears more than once\n"),
+				next RECORD;	# skip this record
+			$abbrev = $sqvalue;	# initialize scheme name
+		}
+		$tag eq "synonym" and length($sqvalue) < length($abbrev) and
+			$abbrev = $sqvalue;	# save shorter scheme name
+		if ($tag eq "definition") {	# if we get this far, we have
+			$s{$abbrev}++;		# the shortest scheme name
+			$s{$abbrev} > 1 and	# complain if it's not unique
+				print(STDERR "ERROR: scheme $abbrev " .
+					"appears more than once\n"),
+				next RECORD;	# skip this record
+		}
+	}
+	# If above loop exits normally, print record with new scheme element.
+	$normscheme = lc $abbrev;
+	print ":: $normscheme\ntype: scheme\n";
+	print or
+		die "output error: $!\n";
+}
+
+# end embedded Perl program
+EOT
+
+	# Now call the script, just saved in $perl_prog, and pass in
+	# any values via environment variables.  The -00 sets input mode
+	# so that <> reads a paragraph at a time.  We capture just stderr
+	# in $err so we can test if duplicate detection is working.
+	#
+	err=$( env NOTHING_TO_PASS=niente \
+		perl -00 -we "$perl_prog" \
+			< $localxml.anvl 2>&1 > schemes.anvl )
+	grep "$testS" <<< $err > /dev/null || {
+		echo "ERROR: duplicate scheme detection failure" 1>&2
+		exit
+	}
+	grep "$testN" <<< $err > /dev/null || {
+		echo "ERROR: duplicate name detection failure" 1>&2
+		exit
+	}
+	realerr=$( sed -e "s/$testS//" -e "s/$testN//" <<< "$err" )
+	[[ "$realerr" ]] && {
+		echo "ERROR: $realerr" 1>&2
+		exit 1
+	}
+
+exit	# normal exit
+
+# Mandatory XML tags
+#dataResource
+#dataEntry
+#dataInfo
+#dataInstitution
+#dataLocation
+#uri
+#annotation/format
+#tagDefinition/name
+#tagDefinition/definition
+#datatype/name
+#datatype/definition
+#datatype/uris
+#datatype/resources

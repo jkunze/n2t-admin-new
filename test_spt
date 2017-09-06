@@ -1,0 +1,9 @@
+./weggnog ark:/99999/fk1234.set _t "http://www.cdlib.org/services"
+# try:    http://n2t-stg-pre.cdlib.org/ark:/99999/fk1234/uc3/ezid/
+
+./weggnog ark:/99999/fk1235.set _t "http://en.wikipedia.org/wiki"
+# try:    http://n2t-stg-pre.cdlib.org/ark:/99999/fk1235/Persistent_identifier
+
+./weggnog ark:/99999/fk3.set _t "http://www.google.com/%23q="
+# try:    http://n2t-stg-pre.cdlib.org/ark:/99999/fk3pqrst
+# %23 = #

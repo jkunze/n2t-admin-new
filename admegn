@@ -1,0 +1,1848 @@
+#!/bin/bash
+
+# xxx make validate_naans enforce acronym uniqueness
+
+# defined service/deployment classes and hostnames
+classfmt="CLASS CANONICAL_NAME OTHER_NAMES ..."
+hostclass=(
+    -dev    n2t-dev.n2t.net ids-n2t-dev.n2t.net
+    -stg    n2t-stg.n2t.net ids-n2t-stg-2{a,b,c}.n2t.net
+    -prd    n2t.net ids-n2t-prd-2{a,b,c}.n2t.net
+    -mac    jak-macbook.local
+)
+
+# xxx do a system version of this, eg, EGNAPA_NOTIFY?
+notify=jak@ucop.edu	# xxx backup, sysupdate, or other failure
+
+me=$( basename $0 )
+function usage {
+
+summary="
+     $me mong [-v] [status | [hard-]stop | [re]start | start1 | repltest [N]]
+     $me class [ Host | list ]
+     $me mdump [ -v ] [ Minter/nog.bdb ... ] [ > MinterStates ]
+     $me mload [ -nv ] Dir [ < MinterStates ]
+     $me validate_naans [ NAANsFile ]
+     $me rcheck [ -v ]
+     $me rstat IdPattern Logfile ...
+     $me bootwatch [ -n ] Server [ WebServer ]
+     $me sysupdate [ -y ]
+     $me patch_check [ email_notification_address ]
+     $me pingwhen
+     $me logdelete [ N ]
+     $me logscrub Logfile ...
+     $me backup
+     $me backup_rotate"
+
+	cat << EOT
+
+SYNOPSIS                          ($0)
+       $me - admin tool for eggnog
+
+USAGE $summary
+
+DESCRIPTION
+       The $me tool performs various administrative tasks for the eggnog
+       server database running under the "svu" service version that is
+       currently in effect (or "cur" if none -- type "svu" for details).
+       The -v option makes it more verbose for some forms.  A non-zero
+       exit status indicates an error.
+
+       The "mong" form takes one argument to deal with the Mongo DB service.
+       Given "status" it reports if the service (daemon) is up or down, and
+       returns a testable process status.  With "repltest", it starts up
+       and tests a number of replicas.  With "start1", it starts the service
+       as a single, non-replicated instance, suppressing any default replica
+       set configuration.  Otherwise the argument instructs the script to
+       start, stop, or restart the service.  Use -v to make it verbose.
+
+       The "class" form prints the service class (dev, stg, prd, mac) and
+       canonical hostname of the given Host (the current host by default).
+       If the first argument is "list", it prints a list of known hosts
+       and classes.
+
+       The "mdump" form writes minter states in ANVL format to stdout.
+       If no minters are specified, it looks for minters in a "minters"
+       directory under the Apache server root.  If a Minter path is given,
+       it should include the eggnog populator, eg, ezid, as in
+
+            \$ $me mdump minters/ezid/ark/?????/*/nog.bdb
+
+       The "mload" form reads a minter state file written by mdump from
+       stdin and brings minters under directory Dir up to date, creating
+       minters as need be.  If -n is given no states will be changed, but
+       proposed changes will be reported.  Dir should have populator
+       subdirectories (ezid, oca, yamz, etc) as immediate descendants.
+
+       The "validate_naans" form performs consistency and uniqueness checks
+       on a NAANsFile containing ANVL-formatted NAAN records, returning a
+       zero exit status if all checks pass.  The default file to check is
+       $NAANsFile.
+
+       The "rcheck" form tests that resolution is working correctly for a
+       small number of well-known identifier/target pairs.  If resolution
+       fails for any one of those pairs, an email is generated and the
+       script exits with non-zero status.  The -v option makes it verbose.
+
+       The "rstat" form summarizes resolution counts per month found in
+       the Logfile arguments.  If IdPattern (a Perl regexp) is the empty
+       string, all resolutions are counted, otherwise just matching
+       resolutions are counted.  Logfiles may be in Eggnog transaction_log
+       or (for older logs) or Apache access_log formats.
+       xxx see "runoldrstat" script to scan over old actual data
+
+       The "bootwatch" form is unusual in that it affects a REMOTE system.
+       Use it to monitor an HTTP connection while trying to reboot the
+       remote Server's OS (by connecting to it via a background ssh process
+       -- best to set up password-less access).  It still monitors if it
+       cannot reboot the Server, assuming you prefer to reboot it manually.
+       If a WebServer host is specified, its HTTP connection is monitored
+       instead of Server's, which is useful if WebServer is, for example,
+       a load balancer in front of Server.  The monitoring process checks
+       the external non-availability of the Server being rebooted by
+       requesting the home page every second and printing a timestamp
+       along with evidence of success or failure.  With the -n option, it
+       does everything but reboot the remote system.
+
+       The "sysupdate" form automatically updates the operating system
+       of the current machine instance, but before doing so, warns of
+       potentially de-stabilizing updates.  It buffers most output until
+       finished, which may fool you into thinking it's not working.  For 
+       optimistic or non-interactive operation, use -y to proceed past
+       each question (continue? yes).(work in progress)
+
+       The "patch_check" form, usually started via crontab, checks for
+       critical OS updates. If there is an argument, it is taken to be an
+       email address to which to send patch information, which is otherwise
+       listed on stdout.
+
+       The "pingwhen" form shows the last 15 times that the web server's
+       home page was requested.  This is a crude way of helping you guess
+       at what time a health check monitor is probing the server.  It can
+       be useful for avoiding negative health checks when scheduling system
+       updates, because sometimes they will make an instance appear to be
+       down to load balancer users longer than it really is.
+
+       The "logdelete" form, usually started via crontab, removes Apache log
+       files older than the newest N access_log files (N=$logmax by default).
+
+       The "logscrub" form anonymizes IP addresses in the given Apache
+       access_log files by editing the files "in place", saving backup
+       copies with a ".orig" suffix.  This doesn't work on error_log files,
+       which may be retained to support business processes (see "logdelete").
+
+       The "backup" form creates backups -- db_hotbackup for binders,
+       admegn dumps for minters, and directory copies for shoulders.
+
+       The "backup_rotate" form ages out surplus backups from dailies to
+       weeklies to monthlies.  This and "backup" will likely be started
+       via crontab.
+
+EXAMPLES
+       These commands could be used to migrate all the minters from one
+       system to another.
+
+            \$ $me mdump > local_state
+            \$ ssh n2t@ids-n2t-prd-2a.n2t.net < local_state \\
+                  "$me mload ~/sv/cur/apache2/minters; $me mdump" \\
+                        > remote_state
+            \$ diff local_state remote_state
+
+       This command reboots a host with a server on port 18880.
+       xxx bug? this requires port 18880 to be open
+
+            \$ $me bootwatch ids-n2t-prd-2a.n2t.net:18880
+
+       This command reboots a remote server behind a load balancer.
+
+	    \$ $me bootwatch ids-n2t-prd-2a.n2t.net n2t.net
+
+
+SUMMARY $summary
+
+EOT
+}
+
+# Usage: out_if exitcode [ error | stderr | any ] [ message ]
+#
+# Output message based on exitcode and condition:
+#   error - on error print message on stdout for non-zero exitcode
+#   stderr - on error print message on stderr for non-zero exitcode
+#   any - always print message on stdout
+#
+function out_if {
+	local ecode=$1 condition=$2 message=$3
+	[[ "$ecode" ]] || ecode="no exit code for out_if?"
+	[[ "$condition" ]] || condition=error
+	[[ "$message" ]] || message="no message"
+	local msg
+	if [[ $ecode == 0 ]]		# if previous command had no error
+	then
+		msg="Success:"
+	else
+		msg="Error: exit code $ecode:"
+	fi
+	if [[ "$condition" == any ]]
+	then
+		echo "$msg" "$message"
+		return
+	elif [[ $ecode == 0 ]]		# else only print errors, so if none
+	then
+		return			# then return
+	fi
+	# If we get here, then $ecode detected an error.
+	case "$condition" in
+	error)
+		echo "$msg" "$message"
+		;;
+	stderr)
+		echo "$msg" "$message" 1>&2
+		;;
+	*)
+		echo "$msg" "out_if: unrecognized condition ($condition):" \				"$message" 1>&2
+		;;
+	esac
+	return
+}
+
+function repltest {
+	local n=$1 setname=$2		# setsize and setname
+	[[ "$n" == '-' ]] &&		# default number of replicas
+		n=5
+	[[ "$setname" == '-' ]] &&	# default replica set name
+		setname=$tmongo_replset
+	local max=20			# max number of replicas
+	[[ $n == clean ]] && {		# XXXX do this
+		# to purge replica set config completely (leaving user
+		# database), restart each instance/daemon without --replSet
+		# option (and on different port?) and drop the
+		# local.system.replset collection
+		#     mongo local --eval "db.system.replset.drop()"
+		# see http://serverfault.com/questions/424465/how-to-reset-mongodb-replica-set-settings
+		echo rm -fr $tmongo_dbdir
+		rm -fr $tmongo_dbdir	# XXX far too crude? better above?
+		return
+	}
+	# XXX drop the above given that we clan up before every run?
+	echo REMOVING OLD REPLICA SET
+	echo rm -fr $tmongo_dbdir
+	rm -fr $tmongo_dbdir	# XXX far too crude? better above?
+	if [[ ! "$n" =~ ^[0-9][0-9]*$ || $n -ge $max || $n -lt 1 ]]
+	then
+		echo "error: replica count ($n) should be 'clean' or an odd" \
+			"positive integer < $max"
+		return 1
+	fi
+
+	mkdir -p $tmongo_dbdir
+	local port out args instance
+	local host=$( hostname -f )	# host where daemon will run
+	local repSetHosts=''		# list of servers in replica set
+	local members=''		# server members of replica set
+	# members needed?
+
+	echo Starting $n servers with --replSet $setname
+	local i=1
+	while [[ $i -le $n ]]	# start up all replicas
+	do
+		(( port=$tmongo_port + $i ))
+		dbpath=$tmongo_dbdir/d$i
+		args="$port $dbpath $tmongo_dblog $tmongo_replset $n"
+		[[ "$verbose" ]] &&
+			echo "Instance $i: mongodaemon start $args"
+		mongodaemon start $args		# start daemon
+		instance="$host:$port"
+		repSetHosts+=",$instance"	# push onto replica list
+		#[[ $i -ne $n ]] &&		# if not final, push onto
+		#	repSetAdd+=";rs.add('$instance')"	# add list
+		repSetAdd+=";rs.add('$instance')"	# add to list
+		(( i++ ))
+	done
+
+	# At this point, $port is the port number of the final instance
+	# (all on localhost right now).  Now initiate the replica set by
+	# connecting to that final instance and running rs.initiate().
+	#
+	local final=$port rsinit
+
+	#members+="
+	#	{'_id' : $j, 'host' : '$instance', 'stateStr' : 'PRIMARY'},"
+	#rsinit="rs.initiate({ '_id' : '$setname', 'members' : [ $members ] })"
+
+	echo "Doing rs.initiate() on server at $host:$final"
+	out=$( mongo --port $final --eval "rs.initiate()" )
+	out_if $? error "$out"
+	[[ "$verbose" ]] && {
+		echo "rs.intiate():"
+		echo "$out"
+	}
+
+	echo "Doing $n calls to rs.add(...)"		# ... in a long string
+	[[ "$verbose" ]] &&	echo "$repSetAdd"
+	out=$( mongo --port $final --eval "$repSetAdd" )
+	out_if $? error "$out"
+	[[ "$verbose" ]] && {
+		echo "$repSetAdd:"
+		echo "$out"
+	}
+
+	[[ "$verbose" ]] && {
+		echo === Replica set status after adding replicas ===
+		mongo --port $final --eval "rs.status()"
+	}
+
+	# yyy need to pause really?
+	local s=2	# number of seconds to pause while replicas wake up
+	echo Sleep $s seconds to let servers stand up...
+	sleep $s
+
+	# To add data, construct the connection string, repSetURL.
+	#
+	local readpref=nearest
+	#local readpref=primaryPreferred
+	local repSetURL='mongodb://'	# build replica set URL in pieces
+	repSetURL+=${repSetHosts/,/}	# strip initial comma from set list
+	repSetURL+="/?replicaSet=$tmongo_replset"	# specify set name
+	repSetURL+="&socketTimeoutMS=30000"	# wait up to 30 secs for reply
+	# XXX commented out maxTimeMS setting for now because it triggers
+	#     and error message even though the connection seems to succeed
+	#     The perl module docs say this is an important attribute to
+	#     set, so we want to uncomment this next line when we figure
+	#     out what's wrong (eg, a module bug gets fixed?)
+	#repSetURL+="&maxTimeMS=15000"	# wait up to 15 secs to do DB command
+			# NB: maxTimeMS must be shorter than socketTimeoutMS
+	repSetURL+="&readPreference=$readpref"	# replica to read from
+
+	# generate data ($fate) containg date to get different data each run
+	local fate="timely data $( date )"
+	local perl_add_data
+	read -r -d '' perl_add_data << 'EOT'
+
+	# start embedded Perl program
+	# takes two arguments: connection_string and test data_string
+	use strict;
+	use MongoDB;
+	use Try::Tiny;		# for exceptions
+	use Safe::Isa;		# provides $_isa
+	# use Try::Tiny::Retry	# yyy (one day) for automatic retries
+
+	my $connection_string = $ARGV[0] || '';
+	my $data_string = $ARGV[1] || '';
+	my $client;
+	try {
+		$client = MongoDB::MongoClient->new(
+			host => $connection_string,	# mongodb://...
+		);
+	}
+	catch {
+		print STDERR "error: $_\n";
+
+	};
+	# xxx add these attributes when support is ready
+		#ssl => {		# XXX enable SSL!!
+		#	SSL_ca_file	=> "xxx",
+		#	SSL_cert_file	=> "xxx",
+		#}
+	$client or
+		print(STDERR "error: couldn't connect to $connection_string"),
+		exit 1;
+	my ($pfx, $docs);
+	try {		# xxx wrong ns
+		$pfx = $client->ns("test.prefixes");	# "prefixes" collection
+		$pfx->insert({ name => "JDoe", fate => "$data_string" });
+		$docs = $pfx->find();
+	}
+	catch {
+		print STDERR "error: $_\n";
+	};
+	while (my $doc = $docs->next) {
+		print "$doc->{'fate'}\n";	# save for testing replicas
+	}
+	# end embedded Perl program
+
+EOT
+
+	# Now call the script, just saved in $perl_add_data, pass in values
+	# via command line arguments.
+	#
+	out=$( perl -we "$perl_add_data" "$repSetURL" "$fate" )
+	local doclen=${#fate}
+	[[ "$out" != "$fate" ]] && {
+		echo "Warning: doc stored (len $doclen) not read from" \
+			"$readpref replica (len ${#out})"
+	}
+
+	local stored_doc
+	if [[ $? -eq 0 ]]
+	then
+		stored_doc=$fate
+		echo "Test document data of length $doclen added:"
+		sed 's/^/    /' <<< "$stored_doc"	# indent data
+	else
+		echo "problem adding test document via $repSetURL"
+		echo "$out"
+	fi
+
+	[[ "$verbose" ]] && {
+		echo === Replica set status after inserting document ===
+		mongo --port $final --eval "rs.status()"
+	}
+
+	echo Sleep 5 to let data propagate
+	sleep 5
+	# now stop each replica after proving data written to each one
+	i=1; while [[ $i -le $n ]]
+	do
+		(( port=$tmongo_port + $i ))
+		out=$( mongo --port $final --quiet \
+			--eval "db.prefixes.find()" test )
+
+		if [[ $? -eq 0 ]]
+		then
+			fgrep -sq "$stored_doc" <<< "$out"
+			if [[ $? -eq 0 ]]
+			then
+				echo -n "Replica $port has doc copy, "
+			else
+				echo -n "Replica $port does not" \
+					"have doc copy, "
+			fi
+		else
+			echo "problem fetching test docs (port $final)"
+			echo "$out"
+		fi
+
+		dbpath=$tmongo_dbdir/d$i
+		#args="$port $dbpath $tmongo_dblog $tmongo_replset $n"
+		args="$port $dbpath $tmongo_dblog"
+		[[ "$verbose" ]] &&
+			echo "Instance $i: mongodaemon stop $args"
+		# We don't need most of those args for "stop" except $port,
+		# but we supply them to satisfy mongodaemon syntax checker.
+		#
+		out=$( mongodaemon stop $args )
+		if [[ $? -ne 0 ]]
+		then
+			echo error: problem stopping server with \
+				mongodaemon stop $args:
+			echo "$out"
+			echo Trying hard-stop
+			out=$( mongodaemon hard-stop $args )
+			if [[ $? -ne 0 ]]
+			then
+				echo error: problem stopping server
+				echo "$out"
+				echo Giving up
+			else
+				echo "$out"
+			fi
+		else
+			echo "$out"
+		fi
+		(( i++ ))
+	done
+	# yyy now purge replica set config completely?
+}
+
+# Mongo database settings
+#
+#mongo_dbpath=$HOME/sv/cur/apache2/pfx
+mongo_dbdir=$HOME/sv/cur/apache2/mongo_dbdir		# XXX not used!
+mongo_dbpath=$mongo_dbdir				# data goes here
+mongo_dblog=$HOME/sv/cur/apache2/logs/mongod_log	# logs go here
+mongo_port=27017					# daemon port
+mongo_replset=rs0					# replica set name
+mongo_other="--fork --logappend"			# other flags
+mongo_other+=" --storageEngine wiredTiger"
+#--bind_ip 'localhost,172.31.23.24'	# no space after comma
+#--rest		# deprecated since 3.2: admin UI: http://localhost:28017
+
+# Test Mongo database settings
+#
+tmongo_dbdir=$HOME/sv/cur/apache2/tmongod
+tmongo_dbpath=
+tmongo_dblog=$tmongo_dbdir/log
+tmongo_replset=rst			# test replica set name
+tmongo_port=47017			# 20K more than standard port
+tmongo_other="$mongo_other"
+
+# Single port argument required.
+# quietly tests if mongod is running, returns via process status
+function is_mongo_up () {
+	local port=$1
+	nohup mongo --port $port < /dev/null > /dev/null 2>&1
+}
+
+# Arguments described in comments
+# first arg is action, eg, start, stop
+#	--dbpath $mongo_dbpath		# data goes here
+#	--logpath $HOME/sv/cur/apache2/logs/mongod_log	# logs go here
+#	--port $mongo_port
+#	--replSet $mongo_replset	# replica set "rs0"
+#	#dbpath logpath port replset
+function mongodaemon () {
+	local cmd=$1
+	if [[ "$cmd" == repltest ]]
+	then
+		# yyy $setname is an undocumented arg in $3
+		local setsize=$2 setname=$3
+		# The repltest function calls back to this function.
+		repltest "$setsize" "$setname"
+		return
+	fi
+	local port=$2 dbpath=$3 dblog=$4 setname=$5 setsize=$6
+	[[ "$cmd" && "$port" && "$dbpath" && "$dblog" ]] || {
+		echo "error: usage:" \
+			"mongodaemon cmd port dbpath dblog [replsetname [n]]"
+		return 1
+	}
+
+	[[ "$port" == '-' ]]	&& port=$mongo_port	# default port
+	[[ "$dbpath" == '-' ]]	&& dbpath=$mongo_dbpath	# default dbpath
+	[[ "$dblog" == '-' ]]	&& dblog=$mongo_dblog	# default dblog
+
+	# XXX plan to change to using REPLICAS BY DEFAULT
+	local replicas=		# default: no replicas
+	[[ "$setname" ]]	&& replicas="--replSet $setname"
+
+	[[ "$cmd" == start1 ]] &&			# if start1 command
+		replicas=''				# force no replicas
+
+	[[ "$port" =~ ^[0-9][0-9]*$ ]] || {
+		echo "error: port ($port) must be a number or '-'"
+		return 1
+	}
+	[[ -d $dbpath ]] || mkdir $dbpath || {
+		echo "error: cannot create directory $dbpath"
+		return 1
+	}
+	local flags=(			# inline mongod config file
+		--dbpath $dbpath --logpath $dblog --port $port
+		$replicas $mongo_other
+	)
+
+	local out=
+	ulimit -n 4096		# set a higher limit than mongod assumes
+
+	case $cmd in
+	start*)				# matches start or start1
+		is_mongo_up $port
+		if [[ $? -eq 0 ]]
+		then
+			echo "mongod appears to be up already"
+			return
+		fi
+		# start in background
+		out=$( mongod ${flags[*]} )
+		if [[ $? -eq 0 ]]
+		then
+			echo "mongod OK (port $port) -- started"
+			return 0
+		else
+			echo "mongod $cmd NOT OK"
+			echo "$out"
+			return 1
+		fi
+		;;
+
+	stop|graceful-stop|hard-stop)
+		local force= stopped=stopped
+		[[ "$cmd" == hard-stop ]] && {
+			force="{ 'force' : 'true' }"
+			stopped=hard-stopped
+		}
+		cmd=stop
+		is_mongo_up $port
+		if [[ $? -ne 0 ]]
+		then
+			echo "mongod (port $port) appears to be down already"
+			return
+		fi
+		#local try1 try2
+		out=$( mongo --port $port \
+			--eval "db.shutdownServer($force)" admin )
+		if [[ $? -eq 0 ]]
+		then
+			echo "mongod OK (port $port) -- $stopped"
+			[[ $verbose ]] && echo "$out"
+			return 0
+		else
+			echo "problem shutting down mongod (port $port)"
+			echo "$out"
+			return 1
+		fi
+		;;
+
+	restart|graceful|hard-restart)
+		cmd=restart
+		is_mongo_up $port
+		if [[ $? -ne 0 ]]
+		then
+			echo "mongod (port $port) appears to be down"
+		else
+			# xxx change echo pipe to --eval opt
+			out=$( echo -e "use admin \n db.shutdownServer()" |
+				mongo --port $port )
+			if [[ $? -eq 0 ]]
+			then
+				echo "mongod OK (port $port) -- stopped"
+			else
+				echo "mongod shutdown NOT OK"
+				echo "$out"
+			fi
+		fi
+		sleep 1		# pause seems to help here under Linux
+		mongod ${flags[*]} > /dev/null	# start in background
+		if [[ $? -eq 0 ]]
+		then
+			echo "mongod OK (port $port) -- restarted"
+			return 0
+		else
+			echo "mongod $cmd NOT OK"
+			return 1
+		fi
+		;;
+
+	status)
+		pidcount=`netstat -an | grep -c "mongodb.*$port"`
+		is_mongo_up $port
+		local status=$?
+		if [[ $status -eq 0 ]]
+		then
+			echo "OK -- running (mongod, port $port)"
+			[[ "$pidcount" -eq 0 ]] &&
+				echo "WARNING: but the pidcount is $pidcount?"
+			[[ "$verbose" ]] && {
+				echo "=== Mongo Configuration ==="
+				mongo --port $port --eval "db.serverStatus()"
+				echo "=== Mongo Replica Set Configuration  ==="
+				mongo --port $port --eval "rs.conf()"
+				echo "=== Mongo Replica Set Status  ==="
+				mongo --port $port --eval "rs.status()"
+			}
+				
+		else
+			echo "NOT running (mongod, port $port)"
+			[[ "$pidcount" -ne 0 ]] &&
+				echo "WARNING: but the pidcount is $pidcount?"
+		fi
+		return $status
+		;;
+
+	*)
+		[[ "$cmd" ]] &&
+			echo "mong: $cmd: unknown argument"
+		echo "Use one of these as an argument:" \
+			"status, start[1], stop, restart, or repltest."
+		return 1
+		;;
+
+	esac
+}
+
+function mdump {
+
+	if [[ $# -gt 0 ]]
+	then
+		minters=( $@ )
+	else
+		[[ "$ap_top" ]] || {
+			echo "Error: no apache server root found. You must" \
+				"specify minter paths explicitly."
+			exit 1
+		}
+		minters=( $ap_top/minters/*/ark/?????/*/nog.bdb )
+	fi
+	# First line of output identifies time and server.
+	# xxx Probably should use xargs
+	echo "# $( hostname -f ) | mdump | $( date +%Y.%m.%d_%H:%M:%S )"
+	echo
+	bdbkeys --get :/basecount :/oacounter \
+		:/template :/original_template \
+		:/type :/oklz :/germ :/atlast \
+			-- ${minters[@]}
+	echo "# ${#minters[@]} minters harvested"
+}
+
+function mload {
+
+	# XXXXXX temporarily assume all ANVL records (which start ^::) are
+	#        actually blank-line-separated paragraphs (hence -00)
+	# typical entry looks like this:
+	#    :: 13030/c7/nog.bdb
+	#    %3a/oacounter: 276
+	#    %3a/template: 13030/c7{eedeedk}
+	Dir="$1"
+	[[ "$Dir" ]] || {
+		echo "Error: no Dir argument given"
+		exit 1
+	}
+	[[ -d $Dir ]] || {
+		echo "Error: given Dir argument ($Dir) doesn't exist"
+		exit 1
+	}
+
+	# Temporarily put the perl script we'll use in the var $perl_mload,
+	# using a "heredoc" (<<) so we don't have worry about quotes
+	# surrounding it. Use the var right afterwards with perl -ne.
+	#
+	local perl_mload
+	read -r -d '' perl_mload << 'EOT'
+
+	# start embedded Perl program
+
+	use strict;
+	my $line = __LINE__;
+	# look for next record beginning with exactly two colons "::"
+	/^::($|[^:])/ or
+		next;
+	my ($header) = /^::\s*([^:][^\n]*)\n/m or
+		print("Error line $line: bad header: $_\n"),
+		next;
+	my ($populator, $naan, $shdr) = $header =~
+			m{([^/]+)/ark/(\w\w\w\w\w)/(\w*)/nog\.bdb$} or
+		print("Error line $line: header must be of form ",
+				"Populator/ark/NAAN/Shoulder: $header\n"),
+		next;
+	my ($basecount) = m{^%3a/basecount:\s*(\d+)$}m or
+		print("Error: no basecount in record $header\n"), next;
+	my ($oacounter) = m{^%3a/oacounter:\s*(\d+)$}m or
+		print("Error: no oacounter in record $header\n"), next;
+	my $totalspings = $basecount + $oacounter;
+	my ($template) = m{^%3a/template:\s*(.+)$}m or
+		print("Error: no template in record $header\n"), next;
+	my ($original_template) = m{^%3a/original_template:\s*(.+)$}m or
+		print("Error: no original_template in record $header\n"), next;
+	my ($type) = m{^%3a/type:\s*(.+)$}m or
+		print("Error: no type in record $header\n"), next;
+	#my ($oklz) = m{^%3a/oklz:\s*(.+)$}m or
+	#	print("Error: no oklz in record $header\n"), next;
+	#$oklz eq '<undef>' and		# XXXX interim code
+	#	$oklz = '';
+
+	my $oklz;
+	($oklz) = m{^%3a/oklz:\s*(.+)$}m or
+		$oklz = '';	# xxxzzz interim minter version upgrade
+
+	my ($atlast) = m{^%3a/atlast:\s*(.+)$}m or
+		print("Error: no atlast in record $header\n"), next;
+	my ($germ) = m{^%3a/germ:\s*(.+)$}m or
+		print("Error: no germ in record $header\n"), next;
+	$germ and $type eq "seq" and
+		print("Error: 'germ' defined for 'seq' minter in $header\n"),
+		next;
+	$ENV{ADMEGN_VERBOSE} and $original_template ne $template and
+		print("Original template ($original_template) differs from ",
+		  "current template ($template), probably due to expansion.\n");
+
+	# These vars concern the location of the minter to be updated.
+	#
+	my $mbase = $ENV{MINTERS_TOP};
+	my $shdrdir = "$mbase/$populator/ark/$naan/$shdr";
+	my $nogfile = "$shdrdir/nog.bdb";
+
+	# If we get here, we are done processing the ANVL entry and we
+	# now need to figure out the minter file location of the minter
+	# that we want to bring up to date with the entry.  We will
+	# create a new minter if necessary.
+	#
+	# There is a special case when the minter template has any empty
+	# shoulder string.  Mkminter is deficient (xxx) at handling this,
+	# requiring the admin setting it up to have moved the minter into a
+	# manually created shoulder directory, which is $shdr.  So the
+	# remedy here is to create the new minter in a temporary directory
+	# and move it to the same name as the manually created directory
+	# name ($shdr).
+	#
+	my ($cmd, $out, $tbase, $empty_shdr);
+	if (! -e $shdrdir) {		# create minter if it does not exist
+		$tbase = "$mbase/$populator/ark";	# template base
+		$empty_shdr = "";			# special case, for
+		if ($original_template =~ m,(^{|/{),) {	# ... an empty shoulder
+			$empty_shdr = $tbase;		# original $tbase
+			$tbase .= "/tmp";		# temporary subdir
+		}
+		my $opts = ' ';
+		$germ and $opts .= "--germ $germ ";
+		$oklz and $opts .= "--oklz $oklz ";
+		$cmd = "nog mkminter --type $type --atlast $atlast " .
+			"$opts -p $tbase \"$original_template\"";
+		#$cmd = "nog mkminter --type rand --atlast add3 " .
+		#	"-p $tbase \"$original_template\"";
+		print "$cmd\n";		# show command that will be exectuted
+	}
+	if (! -e $shdrdir and ! $ENV{ADMEGN_NO_EXEC}) {
+		# create minter if it does not exist
+		use File::Path qw(make_path);
+		make_path($tbase);	# any error will come out in the wash
+		$out = ` $cmd `;	# actual creation of the minter
+		$out =~ m/^\n*$/s or
+			print("Warning: nog mkminter returned: $out");
+		if ($empty_shdr) {
+			# Clean up special case, which normally would have
+			# created a minter directly under the $naan directory,
+			# but didn't in this case.  So we now rename it to
+			# match the manually created directory name, ie,
+			#     mv .../ark/tmp/$naan .../ark/$naan/$shdr
+			#
+			my $dstdir = "$empty_shdr/$naan/$shdr";
+			print("... special handling for empty shoulder: ",
+				"running make_path($tbase)\n");
+
+			# The next two calls look weird but are necessary.
+			# The first makes a full path to $dstdir and the
+			# second removes just the leaf directory of $dstdir
+			# so that the subsequent _directory_ rename will work.
+			#
+			make_path($dstdir) && rmdir($dstdir) or
+				print("Error: skipping due to problem with ",
+				  "make_path($dstdir) or rmdir($dstdir): $!\n"),
+				next;
+			rename("$tbase/$naan", $dstdir) or
+				print("Error: skipping, as rename $tbase/$naan",
+				  " -> $empty_shdr/$naan/$shdr failed: $!\n"),
+				next;
+			rmdir($tbase) or
+				print("Warning: could not remove $tbase: $!\n");
+		}
+		-e $shdrdir or
+			print("Error: mkminter failed -- skipping\n"),
+			next;
+	}
+
+	# Now open the minter file to extract its "overall counter"
+	# (for the current template) and "basecount" values, the sum of
+	# which is the total number of spings minted.
+	#
+	use DB_File;
+	my ($hash, $db, $curcnt, $n);
+	$db = tie(%$hash, "DB_File", $nogfile, O_RDONLY, 0666, $DB_BTREE);
+	$db or $ENV{ADMEGN_NO_EXEC} or
+		print("Error: skipping, as tie failed on $nogfile: $!\n"),
+		next;
+	$n = $hash->{":/oacounter"};
+	defined($n) or $n = 0;
+	$curcnt = $n;
+	$n = $hash->{":/basecount"};
+	defined($n) or $n = 0;
+	$curcnt += $n;
+	#$curcnt = $hash->{":/oacounter"};
+	#defined($curcnt) or
+	#	$curcnt = 0;
+	##	$curcnt = "<undef>";
+	undef $db;
+	untie %$hash;
+
+	# Got the current value.  Bring it up to date if necessary.
+	$curcnt =~ /^\d+$/ or
+		print("Warning: skipping, as curcnt ($curcnt) not a number\n"),
+		next;
+	if ($curcnt < $totalspings) {
+		my $diff = $totalspings - $curcnt;
+		my $cmd = "nog -d $shdrdir mint $diff";
+		print "$cmd\n";
+		$ENV{ADMEGN_NO_EXEC} or
+			$out = ` $cmd `;
+		$ENV{ADMEGN_VERBOSE} and
+			print "Counter for $populator/ark/$naan/$shdr would ",
+				"now be up to date ($totalspings).\n";
+	}
+	elsif ($curcnt > $totalspings) {
+		print "Warning: the current counter ($curcnt) is already ",
+			"greater than the target value to update it to ",
+			"($totalspings); leaving it untouched.\n";
+	}
+	else {
+		$ENV{ADMEGN_VERBOSE} and
+			print "No action on $populator/ark/$naan/$shdr since ",
+				"counter ($curcnt) is up to date.\n";
+	}
+	# end embedded Perl program
+EOT
+
+	# Now call the script, just saved in $perl_mload, and pass in
+	# values via environment variables.
+	#
+	env ADMEGN_NO_EXEC=$no_exec ADMEGN_VERBOSE=$verbose MINTERS_TOP=$Dir \
+		perl -00 -wne "$perl_mload"
+}
+
+NAANsFile=~/shoulders/naans/master_naans	# default
+function validate_naans {
+
+	[[ "$1" ]] &&
+		NAANsFile="$1"
+	perl -00 - $NAANsFile << 'EOT'
+
+	# start embedded Perl program
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	use Encode;		# to deal with unicode chars
+	my $lcnt = 0;		# current line number (line count)
+	my $ecnt = 0;		# current entry (count)
+	my $errs = 0;		# error count
+	my ($badseq1, $badseq2, %naans, %elems);
+
+	sub perr {
+		print(STDERR "Entry starting line $lcnt: ",
+			join('', @_), "\n");
+		$errs++;
+	}
+
+	sub element_check { my( $k, $v )=@_;	# one key, value pair
+
+		$k ||= '';
+		$k or
+			perr("missing key!"),
+			return
+		;
+		$v ||= '';
+		my ($year, $month, $day);
+		$k =~ s/^\s*(.*?)\s*$/$1/;
+		$v =~ s/^\s*(.*?)\s*$/$1/;
+		++$elems{$k} > 1 and $k ne '!contact' and
+			perr("multiple instances of element '$k'");
+		if ($k eq 'naa') {
+			$v and
+				perr("element 'naa' should not have ",
+					"a value");
+			return;
+		}
+		$k and ! $v and
+			perr("missing value for $k");
+		# Type-specific checks, with $k known to be defined.
+		#
+		if ($k eq 'what') {		# duplicate check
+			++$naans{$v} > 1 and
+				perr("NAAN $v duplicated!");
+			$v =~ /^(\d\d\d\d\d)$/ or
+				perr("malformed NAAN ($v): ",
+					"should be NNNNN");
+		}
+		elsif ($k eq 'when') {
+			$v =~ /^(\d\d\d\d)\.(\d\d)\.(\d\d)$/ or
+				perr("malformed date ($v): ",
+					"should be NNNN.NN.NN"),
+				return
+			;
+			($year, $month, $day) = ($1, $2, $3);
+			$year and $year !~ /^(?:19|20)/ and
+				perr("malformed year ($year): ",
+					"should be 19NN or 20NN");
+			$month and $month < 1 || $month > 12 and
+				perr("malformed month ($month): ",
+					"should be between 01 and 12");
+			$day and $day < 1 || $day > 31 and
+				perr("malformed day ($day): ",
+					"should be between 01 and 31");
+		}
+		elsif ($k eq 'where') {
+			$v =~ m|/$| and
+				perr("URL should not end in /");
+		}
+	}
+
+	my $file = $ARGV[0];
+	my $contact_info =		# peek to see if file is anonymized
+		`grep -q '^\!contact' $file && echo 1`;
+	chop $contact_info;
+	my ($c, $s, @uchars);
+	while (<>) {		# read file an entry (block) at a time
+		$badseq1 = $badseq2 = 0;
+		if ($. == 1 and ! /^erc:/m) {
+			print STDERR
+				"First entry missing \"erc:\" header\n";
+			$errs++;
+		}
+		# if entry is first or is just all comment and blank lines
+		# yyy . matches \n in -00 mode even without /s flag ?
+		if ($. == 1 or /^(?:\s*#.*\n|\s*\n)*$/) {
+			$lcnt += tr|\n||;	# counts \n chars
+			next;
+		}
+		$ecnt++;
+
+		# Need to validate either the full file (internal only,
+		# with contact info) or anonymized file (no "!" fields).
+		#
+		$badseq1 = $. != 1 && ! m{	# not first entry and
+			who:\s+.*?\s*\n		# not in proper order
+			what:\s+.*?\s*\n
+			when:\s+.*?\s*\n
+			where:\s+.*?\s*\n
+			how:\s+.*?\s*\n
+		}xs;
+		$contact_info and $badseq2 = $. != 1 &&
+					/^!/m && ! m{	# if any "!" fields,
+			how:\s+.*?\s*\n			# check their ordering
+			!why:\s+.*?\s*\n
+			!contact:\s+.*?\s*\n
+		}xs;
+		$badseq1 and
+			perr("bad who-what-when-where-how-... sequence");
+		$contact_info and $badseq2 and
+			perr("bad how-why-contact... sequence");
+
+		undef %elems;			# reinitialize
+		# This loop will eat up the entry we're working on.  We
+		# assume 1 elem per line (ie, no ANVL continuation lines).
+		while (s/^(.*?)\n//) {	# process entry a line at a time
+			$lcnt++;
+			$s = $1;		# $s is line just removed
+			$s =~ /^\s*#/ and	# skip comment lines
+				next;
+			$s =~ /^\s*$/ and	# skip blank lines
+				next;
+			# yyy don't yet do strict \t-only this version
+			unless ($s =~ /^
+				\s*(!?.[^:\n]*)\s*	# key
+				:
+				\s*([^\n]*)\s*		# value
+				$/x) {
+				#\s*?([^\n]*?)\s*?\n	# value
+				print STDERR
+					"Line $lcnt: missing colon\n";
+				$errs++;
+			}
+			element_check($1, $2);
+			$s =~ /\P{ascii}/ or	# if there's no non-ascii
+				next;		# present, skip the rest
+
+			# check for annoying non-ascii punctuation
+			@uchars = split '', decode('utf8', $s);
+			/\P{ascii}/ && /\p{Punctuation}/ && print(STDERR
+				"Line $lcnt: non-ascii punctuation: ",
+				encode('utf8', $_), "\n") && $errs++
+							for (@uchars);
+		}
+	}
+	if ($errs) {
+		print("NOT OK - $file: $ecnt entries, $errs errors\n");
+		exit 1;
+	}
+	print("OK - $file: $ecnt entries, $lcnt lines\n");
+	exit;
+	# end embedded Perl program
+EOT
+	return
+}
+
+function rcheck {
+
+	local i t itcnt got errcnt=0 msg=''
+	local array i_t_pairs=(			# identifier/target pairs
+	  'ark:/12345/fk1234'
+		'http://www.cdlib.org/services'
+	  'ark:/12345/fk1235'
+		'http://en.wikipedia.org/wiki'
+	  'ark:/12345/fk3'
+		'http://www.google.com/#q='
+	)
+	(( itcnt=(${#i_t_pairs[@]} / 2) ))
+
+	# A real user ARK.  Don't test long-term because we don't know what
+	# their commitment to it is, and we don't want to skew resolution
+	# stats with lots of tests.  (2017.01.16)
+	#  'ark:/87925/h1mw2f29'
+	#	'http://www.ucd.ie/specialcollections'
+	while [[ 1 ]]
+	do
+		[[ "${#i_t_pairs}" -eq 0 ]] &&		# if list now empty
+			break				# we're done
+		i="${i_t_pairs[0]}"
+		t="${i_t_pairs[1]}"
+		i_t_pairs=( ${i_t_pairs[@]:2} )
+		got=$( wegn locate "$i" |
+			sed -ne 's/^Location: *//p' -e '/[Ee]rror/p' )
+		[[ "$verbose" ]] && {
+			echo For: "$i"
+			echo Got: "$got"
+		}
+		grep -q "$t" <<< $got || {
+			(( errcnt++ ))
+			msg+="error: resolution failed for id $i
+expected: $t
+     got: $got
+"
+		}
+	done
+
+	[[ "$verbose" ]] && {
+		msg+="rcheck: $itcnt resolution attempts, $errcnt failures"
+	}
+	[[ "$msg" ]] && {
+		local subject="resolver health check report"
+		[[ $errcnt -gt 0 ]] &&
+			subject="CRITICAL: $errcnt resolver errors"
+		mail -s "$subject" $notify <<< "$msg"
+	}
+	[[ $errcnt -eq 0 ]] &&
+		exit 0
+	echo "$errcnt errors:
+$msg"
+	exit 1
+}
+
+function rstat {
+
+	local IdPattern="$1"
+	shift
+
+# NB: the 4 files below present a sort of uniform format for access_log
+# files with a simple record of resolution attempts.  The transaction_log
+# introduced in July 2015 presents the best record going forward.
+#
+#      See "runoldrstat" for more.
+#
+#noidlog=$logdir/noid_logs/anonoid.access_log.060711_150630
+#n2tprdlog=$logdir/n2tprd_logs/anon.n2tprd_access_log.2015.02.15-2015.07.02
+#n2preprodlog=$logdir/n2preprod_logs/anon.access_log.to_2015Dec2
+#awsAugDec2015log=$logdir/anon.alog2015.08.06-2015.12.30 # missing July?
+
+	# Temporarily put the perl script we'll use in the var $perl_rstat,
+	# using a "heredoc" (<<) so we don't have worry about quotes
+	# surrounding it. Use the var right afterwards with perl -ne.
+	#
+	local perl_rstat
+	read -r -d '' perl_rstat << 'EOT'
+
+	# start embedded Perl program
+	use strict;
+
+	# XXXXXXXXXXXXXXXX use of __LINE__ all wrong in mload?
+	#my $line = __LINE__;	#???? what does that mean?
+	my %mnum = ( qw(
+		Jan 01 Feb 02 Mar 03 Apr 04 May 05 Jun 06
+		Jul 07 Aug 08 Sep 09 Oct 10 Nov 11 Dec 12
+	) );
+	my %h;		# hash for counting
+	my ($key, $mon, $yyyy);
+	my $pat = $ENV{ADMEGN_IDPAT};	# might be empty
+	my $rpat;			# regex version of $pat
+	$pat and $rpat = qr/$pat/;	# if non-empty, assume it's a regex
+	my $alogformat;			# access_log format?
+	my $curfile = '';		# current file name
+
+	# xxx should handle more than one log file
+	# xxx and different file formats in the same run
+	while (<>) {
+		if ($curfile ne $ARGV) {
+			# Boolean $alogformat is true if we detect a file in
+			# Apache access_log format (#2).  Otherwise assume
+			# it's in Eggnog transaction_log format.  Below the
+			# initial optional "- " drops the case when the XFF
+			# (X-Forwarded-For) field doesn't show for some
+			# reason (it's for when a load balancer made the
+			# connection on behalf of someone else).  The XFF
+			# field was introduced in our logs around Nov 2015.
+			#
+			$alogformat = m|^(?:- )?(?:\d{1,3}\.){3}\d{1,3}\ |;
+
+			if (! $alogformat) {	# transaction_log format 1a/1b
+				# the log format for "BEGIN resolve" lines
+				# doesn't include ark:/ at the beginning
+				# (I don't know why), but it might in the
+				# future.  First remove any ark:/ that the
+				# caller might have entered (makes sense),
+				# then add the possibility of the future log
+				# format recording ark:/.  Remember that
+				# $pat may be empty.
+				#
+				$pat =~ s|^.*/?ark:/?||;	# if any
+				$pat =~ s|^|BEGIN resolve (?:ark:/)?|;
+				$rpat = qr/$pat/;
+				#
+				# We need this $pat in order to skip the
+				# many lines of the transaction_log that
+				# have nothing to do with resolution.
+			}
+		#print "xlog af=$alogformat pat=$pat\n";
+		#exit;
+			# xxx should set $pat to {\] "GET /\w{2,4}:"}
+			#     to avoid obvious hack attempts
+			$curfile = $ARGV;
+		}
+		$pat and ! /$rpat/ and	# skip lines we're not interested in
+			next;
+#1a #+n2t ids-n2t-prd-2a 2016.01.06_18:46:12.388755 yD4~0Oi05RG~dXl24fqjhQ BEGIN resolve 47881/m65b00q4 ac=*/*!!!ff=!!!ra=172.30.13.116!!!co=!!!re=!!!ua=Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)
+#1b #+jak jak-macbook 2015.12.15_17:21:03.884377 ~tlARpOj5RGiMwIO9vRdMw BEGIN resolve /eoi:10.5072/EOITEST ac=text/turtle!!!ff=!!!ra=::1!!!co=!!!re=!!!ua=Wget/1.15 (darwin13.1.0) +jak jak-macbook 2015.12.15_17:21:03.884574 ~tlARpOj5RGiMwIO9vRdMw END SUCCESS doi:10.5072/EOITEST -> redir303 http://crossref.org//mdata
+#2 #12.34.56.78 - - [24/Sep/2012:23:58:04 -0700] "GET /ark:/47881/m6wd3xhz HTTP/1.0" 302 325
+		# extract month and year from log line
+		if ($alogformat) {
+			m{ \[\d{1,2}/(\w{3})/(\d{4}):[\d: -]+\] } or
+				print("Error: date not in DD/Mon/YYYY format in $_"),
+				next;
+			($mon, $yyyy) = ($1, $2);	# format Mon/YYYY
+			$key = "$yyyy." . $mnum{$mon};	# convert to YYYY.MM
+		}
+		else {
+			m{ (\d{4}\.\d\d)\.\d\d.\d\d:} or
+				print("Error: no YYYY.MM.DD format in $_"),
+				next;
+			$key = $1;
+		}
+		# Hash keys are YYYY.MM, which sort nicely.
+		$h{$key} ||= 0;		# initialize if need be
+		$h{$key}++;		# increment counter for each hit
+	}
+	my %y;					# for yearly hash
+	print "Resolution attempts",
+		($pat ? " for $pat" : " (any)"), "\n";
+	foreach $key (sort keys %h) {
+		print("$key => $h{$key}\n");	# report monthly
+		$key =~ m/^(\d\d\d\d)\./ or
+			print("Error: key not in YYYY.MM form: $key\n"),
+			next;
+		$yyyy = $1;
+		$y{$yyyy} ||= 0;
+		$y{$yyyy} += $h{$key};
+	}
+	foreach $yyyy (sort keys %y) {
+		print("$yyyy => $y{$yyyy}\n");
+	}
+	# end embedded Perl program
+EOT
+
+	# Now call the script, just saved in $perl_rstat, pass in values
+	# via environment variables, and put file arguments on the end.
+	#
+	env ADMEGN_IDPAT=$IdPattern \
+		perl -we "$perl_rstat" "$@"
+}
+
+function uptest {
+	webserver=$1
+	wget -T 1 -t 1 -q -O - $webserver | grep -i 'Name-to-Thing.*Resolver'
+}
+
+function bootwatch {
+
+	local m s ws server webserver
+	s=$1		# server might be URL
+	ws=$2		# webserver might be URL
+	[[ "$ws" ]] ||
+		ws=$s	# default webserver same as server
+
+	# convert any URL-ness to pure hostnames that we'll use
+	   server=$( sed 's,https*://\([^/]*\)/*,\1,' <<< $s)
+	webserver=$( sed 's,https*://\([^/]*\)/*,\1,' <<< $ws)
+
+	up=$( uptest $webserver )
+	[[ $no_exec ]] &&
+		echo no_exec, but did run: uptest $webserver
+	[[ "$up" ]] || {
+		m="Server $webserver down already, or unreachable "
+		m+="-- proceed anyway? [n] "
+		read -t 30 -p "$m" || {
+			echo "Read timeout or EOF"
+			exit 1
+		}
+		[[ "${REPLY:-n}" =~ ^[Nn] ]] && {
+			echo "OK, stopping."
+			exit 1
+		}
+	}
+	host=$( sed 's/:.*//' <<< $server)	# drop port number, if any
+	if [[ $no_exec ]]
+	then
+		echo "no_exec, so didn't run:" \
+			"ssh $host 'sleep 2; sudo /sbin/init 6' &"
+		echo "use control-C to break out of uptest loop"
+	else
+		ssh $host 'sleep 2; sudo /sbin/init 6' &
+	fi
+	local up= was_down= t0= show= up_again=0 downtime=0
+	while [[ $up_again -lt 2 ]]
+	do
+		up=$( uptest $webserver )
+		if [[ "$up" ]]
+		then
+			if [[ $was_down ]]
+			then
+				echo ""		# so next echo won't overwrite
+				was_down=
+				up_again=1
+			fi
+			echo "    up" `date`
+			[[ $up_again -gt 0 ]] &&
+				let up_again++
+		else
+			if [[ $was_down ]]
+			then
+				downtime=$(( $( date +%s ) - $t0 ))
+				show="$was_down $downtime seconds"
+			else	# just went down, so record time in seconds as
+				t0=$( date +%s )	# we'll do arithmetic
+				was_down=$( date )	# human readable
+				show=$was_down
+			fi
+			echo -ne "  down $show\r"
+		fi
+		sleep 1
+	done
+	[[ $no_exec ]] &&
+		return
+	m="$(date +%Y.%m.%d_%H:%M:%S) $webserver N2T down for $downtime seconds"
+	[[ $downtime -gt 0 ]] && {
+		echo "$m" >> ~/logs/rebootlog
+		echo "$m"
+	}
+}
+
+# Exit status of 1 means yum update was not run.
+# Exit status of 0 means yum update was run.
+# Exit status of 2 means yum update was run and kernel updates occurred
+#    (this is used to detect when a system reboot is indicated)
+function sysupdate {
+
+	local makecache=$( yum makecache fast )		# update repo metadata 
+	local updates=$( yum check-update | grep -v '^Loaded plugins' )
+	local noise=$( egrep '^db|perl|mongodb' <<< "$updates" )
+	local count=$( grep -c '.' <<< "$updates" )	# non-empty lines
+
+	echo -n "+==== sysupdate start: "		# for log file
+	date
+	# xxx this $count is not accurate
+	echo -n "$count updates pending"		# unfinished line
+	if [[ "$yes" ]]
+	then
+		if [[ "$noise" ]]
+		then
+			echo ", including"
+			echo "$noise"
+		echo "# $( hostname -f ) | mdump | $( date +%Y.%m.%d_%H:%M:%S )"
+			local h=$( hostname -f )
+			mail -s "WARNING: critical software updated on $h!" \
+				$notify <<< "$noise"
+		else
+			echo ""
+		fi
+	elif [[ "$noise" ]]
+	then
+		echo ", including"
+		echo "$noise"
+		read -t 30 -p "Proceed? [y] " || {
+			echo "Read timeout or EOF"
+			exit 1
+		}
+		[[ "${REPLY:-y}" =~ ^[Yy] ]] || {
+			echo "OK, not updating."
+			exit 0
+		}
+	else
+		echo ""				# finish that line
+	fi
+
+	if [[ $count -le 0 ]]
+	then
+		echo "Exiting - no updates to do."
+		exit 0
+	fi
+
+	local dontask=
+	if [[ "$yes" ]]
+	then
+		dontask=-y
+	else
+		read -t 30 -p "Approve updates? [y] " || {
+			echo "Read timeout or EOF"
+			exit 1
+		}
+		[[ "${REPLY:-y}" =~ ^[Yy] ]] || {
+			echo "OK, not updating."
+			exit 0
+		}
+		dontask=-y		# -y means "approve as if yes"
+	fi
+
+	# If we get here, do the update
+	local msg=$( sudo yum $dontask update )
+	echo "$msg"
+	echo 'Restarting apache and running "n2t test"'
+	~/init.d/apache restart || {
+		echo "ERROR: apache restart failed"
+		exit 1
+	}
+	n2t test || {
+		echo 'WARNING: "n2t test" failed'
+		# fall through because some test failures are benign
+	}
+	[[ "$msg" =~ "kernel-" ]] && {
+		echo "+==== Kernel updates -- system reboot advised."
+		exit 2
+	}
+	exit 0
+}
+
+logmax=6
+function logdelete {
+
+	local N=$1
+	[[ "$N" ]] ||
+		N=$logmax
+	[[ $N =~ ^[1-9][0-9]*$ ]] || {
+		echo "Error: logdelete argument ($N) not a number"
+		return 1
+	}
+	echo -n "+==== logdelete: "		# for log file
+	date
+
+	local logdir alogs elogs num_alogs num_excess
+	logdir=~/sv/cur/apache2/logs
+	cd $logdir || exit
+
+	# We count on 'ls' sorting order and our filenaming convention:
+	# access_log.YYYY.MM.DD.  The number of access_log files is key.
+	#
+	alogs=$(
+		ls access_log.????.??.?? | sed 's/access_log\.//'
+	)
+	num_alogs=$( wc -l <<< "$alogs" )
+	((num_excess=( $num_alogs - $N )))
+	[[ $num_excess -lt 0 ]] && {
+		echo "No ($num_excess) excess log files to delete."
+		return 0
+	}
+	elogs=$( head -$num_excess <<< "$alogs" )
+	for i in $elogs
+	do
+		# Assume that all log files have the same date stamp, and
+		# delete any contemporaneous .nnon (non-anonymized) files.
+		#
+		echo Deleting:
+		ls {access,error,rewrite}_log.${i}*
+		rm -f {access,error,rewrite}_log.${i}{,.nnon}
+	done
+	return 0
+}
+
+function class {
+
+	source ~/warts/env.sh
+	local Host=${1:-$EGNAPA_HOST}
+	[[ ! "$Host" ]] && {
+		echo "error: EGNAPA_HOST ($EGNAPA_HOST) not set." 1>&2
+		return 1
+	}
+	local newline=			# empty the first time through
+	[[ "$Host" == 'list' ]] && {
+		echo "$classfmt"
+		for i in "${hostclass[@]}"
+		do
+			[[ "$i" =~ ^- ]] && {
+				echo -ne "$newline${i/-/}: "
+				continue
+			}
+			newline="\n"
+			echo -n "$i "
+		done
+		echo			# final newline
+		return 0
+	}
+	# if we get here, we're looking for the given host
+	for i in "${hostclass[@]}"
+	do
+		[[ "$i" =~ ^- ]] && {
+			class="${i/-/}"
+			cname=
+			continue
+		}
+		[[ ! "$cname" ]] &&
+			cname="$i"
+		[[ "$i" == "$Host" ]] && {
+			echo "$class $cname"
+			return 0
+		}
+	done
+	echo "Host \"$Host\" not found.  Try \"$me list\"."
+	return 1
+}
+
+function backup {
+
+	local now=$( date '+%Y.%m.%d_%H:%M:%S' )
+	local src dst took
+	local txnlog=~/sv/cur/apache2/logs/transaction_log.rlog
+	local pfx_work=~/sv/cur/apache2/pfx_work
+	local pfx_harvest=~/pfx_harvest
+
+	echo ==== creating backups $(date) ====
+	# make sure our base directories are set up; quell complaints
+	mkdir -p ~/backups/{minters,shoulders,binders,prefixes}
+
+	dst=~/backups/minters/$now
+	echo Backing up minters to $dst.
+	admegn mdump > $dst
+
+	dst=~/backups/shoulders/$now
+	echo Backing up shoulders and transaction_log to $dst.
+	mkdir $dst
+	cp -Lpr ~/shoulders/* ~/sv/cur/apache2/logs/transaction_log.rlog $dst
+	# xxx ouch, these are big logs, getting backed up with shoulders
+
+	dst=~/backups/prefixes/$now
+	echo Backing up prefixes to $dst.
+	mkdir $dst
+	cp -Lpr $pfx_work $pfx_harvest $dst
+
+	echo Backing up binders.
+	local binders=$( shopt -s nullglob; echo ~/binders/* )
+	for binder in $binders
+	do
+		b=$( basename $binder )
+		[[ $b =~ _test$ || ! -e ~/binders/$b/egg.bdb ]] &&	# skip
+			continue	# if not a binder or not a real binder
+		src=~/binders/$b
+		dst=~/backups/binders/$b/$now
+		mkdir -p $dst
+		echo db_hotbackup for $b
+		db_hotbackup -h $src -b $dst
+		#took=$( ( time db_hotbackup -h $src -b $dst ) 2>&1 )
+		#echo " " $( sed -n s/real//p <<< "$took" )
+	done
+
+	echo Verifying binder backups.
+	local msg
+	for binder in $binders
+	do
+		b=$( basename $binder )
+		[[ $b =~ _test$ || ! -e ~/binders/$b/egg.bdb ]] &&	# skip
+			continue	# if not a binder or not a real binder
+		echo db_verify for $b
+		dst=~/backups/binders/$b/$now
+		msg=$( time db_verify $dst/egg.bdb 2>&1 ) || {
+			echo "$msg" > $dst/VERIFY_FAILED
+			echo "$b backup - NOT OK"
+			echo "$msg"
+			mail -s "$b binder backup (removed) failed db_verify" \
+				$notify <<< "$msg"
+			rm -fr $dst		# toss -- backup not useful
+			continue		# don't fall through
+		}
+
+		# Generate a complete list of all its ids.
+		#
+		echo "$b backup verified; now saving id list"
+		time egg --home $ap_top -d $dst/egg.bdb list 0 \
+			> $dst/VERIFY_LIST 2>&1
+	done
+
+	return 0
+}
+
+# Usage:  surplus cmd src max dst
+# Call with three args naming a cmd (move1 or remove), a src directory,
+# an integer, max, defining the maximum number that you want to keep,
+# and a directory, dst (usually ending in "weeklies" or "monthlies"),
+# to move the surplus to.
+# Assumes backups live in timestamped subdirs of src and dst.
+
+# If 7th day, move 1 surplus backup to tier 2
+# 	If 4x7th day, move 1 surplus tier 2 backup to tier 3
+# 		Remove any surplus tier 3 backups
+# 	Remove surplus tier 2 backups
+# Remove surplus tier 1 backups
+#
+function surplus {
+
+	local cmd=$1
+	local src=$2
+	local max=$3
+	local dst=$4
+	[[ $cmd == move1 || $cmd == remove ]] || {
+		echo "error: command ($cmd) is not move1 or remove" 1>&2
+		return
+	}
+	[[ $max =~ ^[0-9][0-9]*$ ]] || {
+		echo "error: max ($max) is not an integer" 1>&2
+		return
+	}
+
+	shopt -s nullglob
+	local dirs=( $src/[12][0-9][0-9][0-9].??.??* )
+
+	local surplus d
+	let surplus=( ${#dirs[@]} - $max )
+	#echo surplus $cmd $src $max $dst, excess is $surplus
+	[[ $surplus -le 0 ]] &&
+		return		# no surplus backups
+
+	[[ $cmd == move1 ]] && {
+		echo mv ${dirs[0]} $dst
+		mv ${dirs[0]} $dst
+		return
+	}
+	# else $cmd must be remove
+	for d in ${dirs[@]}	# order is oldest first
+	do
+		echo rm $d
+		rm -fr $d
+		let surplus--
+		[[ $surplus -le 0 ]] &&
+			break
+	done
+}
+
+# Usage: splus \
+#	tier1 t1max t12cond \
+#	tier2 t2max t23cond \
+#	tier3 t3max
+#
+# Slightly complicated, but invocation serves as a kind of config file.
+# Note: call with care as args are not checked for validity.
+# Tier 1 backups are roughly "dailies".
+# Tier 2 backups are roughly "weeklies".
+# Tier 3 backups are roughly "monthlies".
+#
+# Example:  $ b=~/backups/binders/ezid
+#	    $ splus	$b           10 $day7th \
+#		        $b/weeklies  4  $day28th \
+#		        $b/monthlies 4
+#
+function splus {
+
+	local t1bax=$1		# tier1 backups directory
+	local t1max=$2		# tier1 backups maximum number to keep
+	local cond1to2=$3	# condition for moving from tier1 to tier2
+	local t2bax=$4		# tier2 backups directory
+	local t2max=$5		# tier2 backups maximum number to keep
+	local cond2to3=$6	# condition for moving from tier2 to tier3
+	local t3bax=$7		# tier3 backups directory
+	local t3max=$8		# tier3 backups maximum number to keep
+
+	if [[ $cond1to2 == 1 ]]		# eg, day of year is multiple of 7
+	then
+		mkdir -p $t2bax		# -p won't complain if exists already
+		surplus move1 $t1bax $t1max $t2bax	# save oldest in tier2
+		if [[ $cond2to3 == 1 ]]	# eg, day of year is multiple of 28
+		then
+			mkdir -p $t3bax
+			surplus move1  $t2bax $t2max $t3bax	# save to tier3
+			surplus remove $t3bax $t3max		# tier3 surplus
+		fi
+		surplus remove $t2bax $t2max			# tier2 surplus
+	fi
+	surplus remove $t1bax $t1max				# tier1 surplus
+}
+
+#  2  3  4  5  6  7  8 | 1
+#  3  4  5  6  7  8  9 | 1 
+#  4  5  6  7  8  9 10 | 1 
+#  ...
+#  7  8  9 10 11 12 13| 1 
+#  8  9 10 11 12 13 14| 1 7
+#  ...
+# 14 15 16 17 18 19 20| 1 7
+# 15 16 17 18 19 20 21| 1 7 14
+#  ...
+# 22 23 24 25 26 27 28| 1 7 14 21
+# ...
+# 29 30 31 32 33 34 35| 7 14 21 28| 1
+
+function backup_rotate {
+
+	# date +%j gives a 3-digit decimal number in the range 000-366.
+	# We strip leading zeroes so that it won't be seen as octal.
+	local dayofyear=$( date "+%j" | sed 's/^00*//' )
+	let day7th=( $dayofyear % 7 == 0 )	# is it a 7th day?
+	let day28th=( $dayofyear % 28 == 0 )	# is it a 28th day?
+
+	echo ==== rotating backups on day $dayofyear of year $(date) ====
+	local bbk					# binders
+	for bbk in ~/backups/binders/*
+	do
+		[[ $bbk =~ _test$ ]] &&
+			continue	# test binder -- skip
+		[[ ! -e ~/binders/$( basename $bbk )/egg.bdb ]] &&
+			continue	# not a binder -- skip
+
+		splus	$bbk           14 	$day7th \
+		        $bbk/weeklies   4  	$day28th \
+		        $bbk/monthlies  4
+	done
+
+	local mbk=~/backups/minters			# minters
+	splus	$mbk           14 	$day7th \
+		$mbk/weeklies   4  	$day28th \
+		$mbk/monthlies  4
+
+	local sbk=~/backups/shoulders			# shoulders
+	splus	$sbk           14 	$day7th \
+		$sbk/weeklies   4  	$day28th \
+		$sbk/monthlies  4
+
+	return 0
+}
+
+function log_rotate {
+
+	echo Not implemented yet.
+	return 1
+}
+
+# MAIN
+
+# Pick up whatever SVU mode may be in effect for the caller.
+#
+svumode=$( sed 's/^[^:]*://' <<< $SVU_USING )
+[[ "$svumode" ]] ||
+	svumode=cur		# if none, default to "cur"
+ap_top=$HOME/sv/$svumode/apache2
+
+cmd=$1			# the first command word is the operation
+shift			# $1 is now first command arg
+
+verbose=
+yes=
+no_exec=
+while [[ "$1" =~ ^- ]]	# $1 starts as the _second_ (post-command) arg
+do
+	case $1 in
+	-v*|--v*)
+		verbose=1
+		shift
+		;;
+	-y)
+		yes=1
+		shift
+		;;
+	-n)
+		no_exec=1
+		shift
+		;;
+	*)
+		echo "Error: unknown option: $1"
+		usage
+		exit 1
+	esac
+done
+
+case $cmd in
+
+help|"")
+	usage
+	exit
+	;;
+class)
+	class "$@"
+	exit
+	;;
+mong)
+	mongodaemon "$@" - - -
+	exit
+	;;
+mdump)
+	mdump $@
+	exit
+	;;
+mload)
+	mload $@
+	exit
+	;;
+validate_naans)
+	validate_naans "$@"
+	exit
+	;;
+rcheck)
+	rcheck "$@"
+	exit
+	;;
+rstat)
+	rstat "$@"
+	exit
+	;;
+bootwatch)
+	[[ "$1" == "" ]] && {
+		echo 'Error: missing Host argument for "$cmd"'
+		exit 1
+	}
+	bootwatch $@
+	exit
+	;;
+#pfxupdate)
+#	[[ $no_exec ]] && {
+#		echo 'Error: -n not yet supported for "$cmd"'
+#		exit 1
+#	}
+#	pfxupdate $@
+#	exit
+#	;;
+sysupdate)
+	[[ $no_exec ]] && {
+		echo 'Error: -n not yet supported for "$cmd"'
+		exit 1
+	}
+	sysupdate $@
+	exit
+	;;
+patch_check)
+	patches=$( yum updateinfo list | grep -i critical )
+	[[ -z "$patches" ]] &&
+		exit
+	if [[ ! -z "$1" ]]
+	then
+		mail -s "critical patches pending" $1 <<< "$patches"
+	else
+		echo "$patches"
+	fi
+	exit
+	;;
+pingwhen)
+	grep 'GET / HTTP' $( mrm $ap_top/logs/access_log ) | tail -15
+	echo -n 'Current time: '
+	date
+	exit
+	;;
+logdelete)
+	[[ $no_exec ]] && {
+		echo 'Error: aborting: -n not supported for "$cmd"'
+		exit 1
+	}
+	logdelete $@
+	exit
+	;;
+logscrub)
+	[[ $no_exec ]] && {
+		echo 'Error: aborting: -n not supported for "$cmd"'
+		exit 1
+	}
+	# non = non-anonymized
+	perl -pi.nnon -e 's/(?:\d+\.){3}\d+ /12.34.56.78 /g' "$@" || {
+		echo Error: problem anonymizing Apache log file
+		exit 1
+	}
+	exit
+	;;
+backup)
+	[[ $no_exec ]] && {
+		echo 'Error: -n not yet supported for "$cmd"'
+		exit 1
+	}
+	backup $@
+	exit
+	;;
+backup_rotate)
+	[[ $no_exec ]] && {
+		echo 'Error: -n not yet supported for "$cmd"'
+		exit 1
+	}
+	backup_rotate $@
+	exit
+	;;
+mmigrate)
+	#[[ $1 == migrate ]]
+	;;
+-*)
+	echo "Error: options go after the subcommand"
+	exit 1
+	;;
+
+*)
+	echo "Error: unknown subcommand: $cmd"
+	exit 1
+	;;
+esac
+

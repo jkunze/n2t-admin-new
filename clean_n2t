@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+
+function usage {
+	[[ "$1" != "" ]] &&	# if any args are present, treat them
+		echo "$0: $*"	# as an error message to be printed
+	cat << EOT
+Usage: $0 all
+Usage: $0 Binder ...
+
+* This script is currently NOT in use.  Log files no longer accumulate
+* at the rate they once did.  This script may one day be resurrected.
+
+This script cleans up binder log files on an N2T instance.  The first form
+does it for all Binders found and the second form for just the named Binders.
+Binders are expected to be found in or named relative to ~n2t/binders/.  
+
+Cleaning up a binder includes removing old backup files, consolidating and
+removing old replication rlog files (from either a primary or a replica),
+and rotating the rrm.rlog files (xxx not yet).
+
+EOT
+# yyy doesn't include rotating Apache server logs.
+}
+#Usage: $0 filelist
+#This script, meant to be run from crontab about once a day, removes
+#the files listed in filelist.
+
+[[ $1 == "" ]] && {
+	usage
+	exit 0
+}
+#	usage No Destination specified.
+
+source ~/.bashrc			# define svu
+svu cur	> /dev/null			# run svu to get right PATH, etc.
+
+cd ~n2t/binders || {
+	echo No such directory: ~n2t/binders
+	exit 1
+}
+
+if [[ $1 == all ]]
+then
+	binders=$( ls */egg.bdb | sed s,egg.bdb,,g )
+else
+	binders=( $* )
+fi
+#echo binders: ${binders[*]}
+
+function clean_binder () {
+	binder=$1
+	dir=$binder/egg.replay
+	[[ -d $dir ]] || {
+		echo Error: $dir is not a directory
+		return 1
+	}
+	for d in $dir/{shipped,played}
+	do
+		[[ -d $d ]] || continue		# nothing to do
+	
+	    (	# start a subshell so chdir won't stick to parent process
+
+		cd $d || {
+			echo Could not cd to $d
+			return 1
+		}
+
+		# If we get here, we are inside a directory of rlog files.
+		# Make a list of files over 24 hours old.
+		files=$( `find -mtime +0` )
+		[[ "${files[0]}" ]] ||
+			continue		# no files, so nothing to do
+
+		# Create a spanning file to cover a group of files.
+		#
+		let ixlast=${#files[*]}-1
+		first=${files[0]}		# first file in group
+		last=${files[$ixlast]}		# last file in group
+		fts=$( sed s/.*rlog\.// <<< $first )
+		lts=$( sed s/.*rlog\.// <<< $last )
+		spanfname="rlog.$fts-$lts"	# spanning filename
+
+		cat `cat $files` > ../archived/$spanfname || {
+			echo Error archiving to $dir/archived/$spanfname.
+			return 1
+		}
+	    )	||	return 1		# end the subshell
+	done
+	# xxx now compress spanning files that are more than 5 days old
+	# xxx now remove compressed spanning files that are more than 5 days old
+	# xxx now look for strays and orphans
+}
+
+for b in ${binders[*]}
+do
+	[[ -e $b/egg.bdb ]] || {
+		echo "$b doesn't appear to be a binder -- skipping"
+		continue
+	}
+	clean_binder $b || {
+		echo "Problem cleaning binder $b"
+	}
+done
+
+exit
+
+(cd shipped; cat `cat ../$filelist` > ../archived/$spanfname) || {
+	echo Error archiving to archived/$spanfname.
+	exit 1
+}
+gzip archived/$spanfname || {
+	echo Error compressing archived/$spanfname.
+	exit 1
+}
+(cd shipped; rm `cat ../$filelist`) || {
+	echo Error removing files comprising archived/$spanfname.gz.
+	exit 1
+}

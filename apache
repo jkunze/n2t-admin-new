@@ -1,0 +1,193 @@
+#!/bin/bash
+
+function usage () {
+	cat << EOT
+
+Usage:
+	apache command
+	egnapa command
+
+Control a public-facing combination HTTPD and MongoDB server, unless
+invoked as "egnapa" (eggnog apache) in which case control a non-public
+combination server under an "svu new" or "svu old" mode (type "svu"
+for more information).  Commands:
+
+    start          start the server
+    restart        restart the server as if with "apachectl graceful"
+    stop           stop the server as if with "apachectl graceful-stop"
+    status         return the status of the server
+    probe          run basic tests on the server
+    hard-restart   restart the server as if with "apachectl restart"
+    hard-stop      stop the server as if with "apachectl stop"
+
+EOT
+}
+
+user=$( id -un )		# who is the caller, effectively?
+
+apache_top=$HOME/sv/cur/apache2
+apache_conf=$apache_top/conf/httpd.conf
+port_http=18880
+port_https=18443
+
+# When the program name is "apache", use the values above, which affect
+# the public-facing server running under "svu cur".  But when the name is
+# "egnapa", use the values below for whatever $sv is in effect (as long
+# as it's not cur, because that could be a big mistake).
+#
+progname=$0
+egnapa=
+[[ $progname =~ .*egnapa ]] && {	# program is invoked as "egnapa"
+	egnapa=1
+	[[ $SVU_USING ]] || {
+		echo 'Error: an "svu" mode must be in effect' \
+			'(type "svu" to read more)'
+		exit 1
+	}
+	apache_top=$sv/apache2
+	apache_conf=$sv/build/eggnog/td_egnapa/conf/httpd.conf
+	port_http=8082		# for wegn
+	port_https=8083		# for wegn
+}
+
+[[ -f $apache_conf ]] || {
+	echo "config file not found: $apache_conf"
+	echo "warning: no apache config file; may be ok for 'stop' or 'status'"
+}
+
+# See $cfgphrase in build_server_tree for the source of $cfg_info.
+#
+cfg_info=$( head $apache_conf | sed -n 's/^# configuration [^"]*"//p' )
+cfg_info=$( sed 's/".*//' <<< $cfg_info )
+
+listening=$( grep ^Listen $apache_conf )		# initialize
+listening=$( sed 's/ Listen/,/' <<< $listening )	# and modify
+
+# first arg is action, eg, start, stop
+function httpd () {
+	$apache_top/bin/httpd -k $1 -d $apache_top -f $apache_conf
+	local apstatus=$?
+	admegn mong $1
+        return $apstatus
+}
+
+if [ $# -ne 1 ]; then
+	usage
+	exit 1
+fi
+
+cd $apache_top/logs || {
+	echo "NOT OK -- couldn't cd to $apache_top/logs"
+	exit 1
+}
+
+case $1 in
+
+start)
+	pid=`ps -fU $user | grep '[d]ownserver' | awk '{ print $2 }'`
+	if [ "$pid" != "" ]; then
+		echo
+		echo "!!! The downserver might be running; see PID $pid"
+		# xxx we have no "downserver" yet/ever?
+		echo
+	fi
+	httpd start || {
+		echo "NOT OK -- showing \"tail -5 $apache_top/logs/error_log\""
+		tail -5 $apache_top/logs/error_log
+		exit 1
+	}
+	echo "OK ($cfg_info) -- $listening"
+	#exec $APACHECTL start
+	;;
+
+stop|graceful-stop)
+	#httpd $1
+	httpd graceful-stop || exit 1	# note: this does graceful stop
+	echo "OK ($cfg_info) -- stopped (graceful)"
+	;;
+
+hard-stop)
+	httpd stop || exit 1		# this does a hard stop
+	echo "OK ($cfg_info) -- stopped (hard)"
+	;;
+
+restart|graceful)
+	#httpd $1
+	httpd graceful || exit 1	# note: this does graceful (restart)
+	echo "OK ($cfg_info) -- (graceful restart) $listening"
+	;;
+
+hard-restart)
+	httpd restart || exit 1		# this does a hard restart
+	echo "OK ($cfg_info) -- (hard restart) $listening"
+	;;
+
+status)
+	let up=2
+	pidcount=`ps -fU $user | grep -c '[Hh]ttpd'`
+	if [ $pidcount -le 0 ]; then
+		echo "DOWN (not running)"
+		let up--
+		#exit 1
+	else
+		echo "UP ($cfg_info) -- $listening"
+	fi
+	# yyy no probe no "graceful"
+	admegn mong status
+	[[ $? -ne 0 ]] &&
+		let up--
+	[[ $up -le 0 ]] ||
+		exit 1
+	# yyy no other tests yet for mongod status
+	#echo "UP ($cfg_info) -- $listening"
+
+	user= minder=
+	[[ $egnapa ]] &&
+		user=testuser1 minder=pestx
+	wegn -c $cfg_info localhost:$port_https@$user@$minder egghelp \
+			> /dev/null &&
+		exit 0
+
+	# If we get here, it's not responsive. Is it an N2T problem or a DNS/
+	# network problem? Try connecting to another CDL production service.
+	#
+	ihost=google.com
+	wget -q -O /dev/null http://$ihost
+	status=$?
+	if [ $status -eq 0 ]; then	# it appears to be our problem
+		echo "DOWN (unresponsive, compared to $ihost)"
+		exit 1
+	else
+		echo "UP (maybe; there may be network problems)"
+		exit 0
+	fi
+	;;
+
+probe)
+	$0 status ||			# first check make sure server is up
+		exit 1
+
+	# yyy a bit of kludgy knowledge about test names and N2T below
+	[[ $egnapa ]] && {
+		( cd $sv/build/eggnog; perl -Mblib t/apachebase.t ) ||
+			exit 1
+		echo "Test server ($cfg_info) vital signs OK"
+		exit 0
+	}
+
+	# If we get here, we're probing the public-facing server.
+	#
+	( cd $HOME/sv/cur/build/eggnog; perl t/post_install_n2t.t ) || {
+		echo "Vital signs ($cfg_info) NOT ok."
+		exit 1
+	}
+	echo "Vital signs ($cfg_info) ok."
+	exit 0
+	;;
+
+*)
+	usage
+	exit 1
+	;;
+esac
+exit 0

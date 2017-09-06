@@ -1,0 +1,155 @@
+#!/bin/bash
+
+me=$( basename $0 )	# granvl
+function usage {
+
+summary="
+       $me [ Options ] Expr [ File ... ]"
+
+	cat << EOT
+
+SYNOPSIS                          ($0)
+       $me - grep through ANVL files
+
+USAGE $summary
+
+DESCRIPTION
+       The $me tool reads through each File specified and prints any ANVL
+       record for which Expr evaluates to "true" (or "false" if -v is
+       specified).  An ANVL record begins with a line starting with "::".
+       
+       Expr must be a Perl expression, which gets interesting when using the
+       $me-supplied function, v(\$name), that returns the ANVL value for
+       the given \$name or "" if it's not present.  A similar function,
+       p(\$name), returns undef if \$name is not present.  To get the value
+       of the record header, use v(":").  If duplicate \$names are present,
+       only the first value is returned.
+
+OPTIONS
+   -c  Suppress normal output and instead print a count of matching records
+       (or of non-matching records if -v is present).
+
+   -h  Print this usage information.
+
+   -v  Invert the sense of matching and print only non-matching records.
+
+   -x  Enable compatibility mode to support old-style ANVL records that
+       are delimited by one or more blank lines.
+
+EXAMPLES
+            \$ $me /IUPUI/ ~/shoulders/master_shoulders.txt
+            \$ $me 'v("%3a/basecount") ne v("%3a/oacounter")' mdump_file
+
+EOT
+	}
+
+function granvl {
+
+	# XXXXXX temporarily assume all ANVL records (which start ^::) are
+	#        actually blank-line-separated paragraphs (hence -00)
+	# typical entry looks like this:
+	#    :: 13030/c7/nog.bdb
+	#    %3a/oacounter: 276
+	#    %3a/template: 13030/c7{eedeedk}
+
+	local perl_granvl
+	read -r -d '' perl_granvl << 'EOT'
+
+	# start embedded Perl program
+
+	use strict;
+	# "our" makes these package vars visible to BEGIN and END blocks
+	our ($expr, $count, $countonly, $invert, $compat);
+	BEGIN {
+		$expr = $ENV{GRANVL_EXPR};
+		$count = 0;
+		$countonly = $ENV{GRANVL_COUNTONLY};
+		$invert = $ENV{GRANVL_INVERT};
+		$compat = $ENV{GRANVL_COMPAT};
+		sub p { my( $name )=@_;		# is $name present?
+			my ($value) = /^\Q$name\E:\s*([^\n]*)\n/m;
+			return $value;	# return undefined if $name not present
+		}
+		sub v { my( $name )=@_;		# never returns undefined
+			my $value = p($name);
+			defined($value) and
+				return $value;
+			return "";
+		}
+	}
+	my $line = __LINE__;	# under -00, line really means paragraph
+	# Look for the next record beginning with exactly two colons (::),
+	# but if $compat is set, accept a blank line as end-of-record.
+	# xxx why not permit two or more :'s?
+	unless ($compat) {
+		/^::($|[^:])/ or
+			next;
+		my ($header) = /^::\s*([^:][^\n]*)\n/m or
+			print("error on line $line: bad header: $_\n"),
+			next;
+	}
+	#print "now expr is $expr\n";
+	my $e = (eval "$expr" xor $invert);
+	$@ and
+		print("error in record $line: eval returned $@\n");
+	$e or
+		next;
+	# if here, we have a match or non-match that caller's interested in
+	$count++;
+	$countonly or
+		print;	# XXX should print filename if multiple files given
+
+	END {
+		$countonly and
+			print "$count\n";
+	}
+
+EOT
+
+	# Now call the script, just saved in $perl_granvl, and pass in
+	# values via environment variables.
+	#
+	env GRANVL_EXPR="$Expr" \
+		GRANVL_COUNTONLY=$countonly \
+		GRANVL_INVERT=$invert \
+		GRANVL_COMPAT=$compat \
+			perl -00 -wne "$perl_granvl" $@
+}
+# MAIN
+
+countonly=0 invert=0 compat=0 
+while [[ "$1" =~ ^- ]]
+do
+	case $1 in
+	-c)
+		countonly=1
+		shift
+		;;
+	-h*|--h*)
+		usage
+		exit
+		;;
+	-v)
+		invert=1
+		shift
+		;;
+	-x)
+		compat=1
+		shift
+		;;
+	*)
+		echo "error: unknown option: $1"
+		usage
+		exit 1
+	esac
+done
+
+Expr=$1
+[[ "$Expr" ]] || {
+	echo "error: missing Expr"
+	usage
+	exit 1
+}
+shift
+
+granvl $@

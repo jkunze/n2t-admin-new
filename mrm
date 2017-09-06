@@ -1,0 +1,48 @@
+#!/bin/bash
+#
+# yyy could add -N option to print N most recently modified things
+# yyy could add ability to take more than one arg
+#
+function mrm_do {
+	local f="$1"
+	local cmd addpath
+	if [[ -d "$f" ]]
+	then
+		cmd="ls -t $f"
+		[[ "$f" != "." ]] &&	# don't add pathname for current dir
+			addpath="$f"	# as ls drops path when listing a dir
+		[[ "$f" =~ /$ ]] ||
+			f+=/		# to separate $addpath from file found
+	else
+		cmd="ls -td ${f}*"
+	fi
+
+	[[ "$addpath" ]] &&
+		echo -n "$f"
+	command $cmd | head -1
+}
+
+function mrm {
+	[[ "$1" ]] || {
+		echo "
+Usage: mrm FileOrDirFragment ...
+
+Prints the name of the Most Recently Modified filesystem node (file or
+directory), one per line, that starts with each given argument.  Arguments
+can be complete names or initial name fragments.  If an argument fully names
+a directory, the most recently modified filename in that directory is printed.
+
+Examples:
+
+        $ mrm .
+	$ mrm backups/2017.0
+"
+		exit
+	}
+	for arg in "$@"
+	do
+		mrm_do "$arg"
+	done
+}
+
+mrm "$@"

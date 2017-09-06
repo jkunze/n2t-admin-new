@@ -1,0 +1,152 @@
+#!/bin/bash
+
+me=$( basename $0 )
+function usage {
+	cat << EOT
+
+SYNOPSIS                          ($0)
+    $me - run command and print associated log outputs
+
+USAGE
+    $me 'Command' [ Log ... ]
+
+Logwatch runs a shell Command (as one arg, usually in quotes) and prints
+any new information that arrives in the named Log files onto the standard
+output.  If any Log specified is a directory instead of a file, it
+watches files of the form Log/*_log, if any; if there are none, it looks
+instead for files of the form
+
+    Log/*_log.*
+
+and watches only the most recently modified of any file group starting with
+a distinct Log/*_log prefix. For example, if Log is ../../logs and contains
+
+    access_log.2015.04.01	error_log.2015.04.01
+    access_log.2015.04.02	error_log.2015.04.02
+    access_log.2015.04.03	error_log.2015.04.03
+
+only access_log.2014.04.03 and error_log.2015.04.03 will be watched.
+
+To watch all your web server log files you could say
+
+    $me 'wget localhost/foo' /etc/apache2/logs
+
+If no Log arguments are given, the first apache2/logs subdirectory found
+among ancestors of the current directory (.., ../.., etc) is used, if any.
+EOT
+}
+
+Command=$1
+shift
+[[ $Command ]] || {		# if no args, print usage info
+	usage
+	exit
+}
+
+Largs=( $@ )			# initialize list of log args
+msg=
+[[ "${Largs[@]}" ]] || {		# if no Log args, look for apache2/logs
+	d=$( pwd )			# directory at hand
+	prevdir=			# previous directory
+	while [[ $d != "$prevdir" ]]	# start search among all ancestors
+	do
+		[[ -d $d/apache2/logs ]] && {
+			Largs=( $d/apache2/logs )
+			break
+		}
+		prevdir=$d
+		d=$( dirname $d )		# try parent directory
+	done
+	[[ $Largs ]] || {
+		echo Error: no Log args specified and no defaults found.
+		usage
+		exit 1
+	}
+	# If we get here, we found an apache2/logs directory.
+	msg="using ${Largs[0]} as default Log source"
+}
+
+# If we get here, ${Largs[@]} contains the Log args we will use.
+#
+Lfiles=()			# initialize list of log files we'll watch
+for g in ${Largs[@]}			# for each Log arg ($g)
+do
+	if [[ -d $g ]]			# if it's a directory
+	then
+		#files=( $g/*_log )	# look for *_log files
+		files=$( logwhich $g )	# look for *_log files
+		[[ "$files" == "$g/*_log" ]] && {	# if no match
+			echo No log files found to watch in $g.
+			files=()
+		}
+	else			# else assume it's a file
+		files=( $g )		# (even if it doesn't exist yet)
+	fi
+	Lfiles+=( ${files[@]} )		# append files onto log files array
+done
+
+before_sizes=()			# initialize "before" Command file sizes
+size_changes=()			# initialize "after" Command size changes
+
+linux=1 statopts='-L --format st_size=%s'	# Linux stat options
+uname | grep -i linux > /dev/null 2>&1 ||
+	linux='' statopts='-Ls'			# portable to MacOSX/FreeBSD
+
+for f in ${Lfiles[@]}
+do
+	eval $(stat $statopts $f)	# portable
+	before_sizes+=( $st_size )	# this array parallels $Lfiles array
+done
+
+eval $Command
+
+# Use tail -c $diff to print the log activity that occurred since before
+# we ran Command.
+
+NSfiles=()	# initialize list of log file names and sizes we report on
+unchanged=	# initialize string of log file names that didn't change
+
+for (( i=0 ; i < ${#Lfiles[@]} ; i++ ))
+do
+	f="${Lfiles[$i]}"
+	eval $(stat $statopts $f)	# portable
+	let diff=( $st_size - ${before_sizes[$i]} )
+	if [[ $diff == 0 ]]
+	then
+		unchanged+=" $(basename $f)"
+	else
+		NSfiles+=( $f $diff )
+	fi
+done
+
+echo -n "+++> logwatch"
+if [[ $msg ]]
+then
+	echo "  ($msg)"
+else
+	echo
+fi
+[[ $unchanged ]] &&
+	echo "  +> unchanged:$unchanged"
+
+for (( i=0 ; i < ${#NSfiles[@]} ; i++ ))
+do
+	f="${NSfiles[$i]}"
+	let i++
+	diff="${NSfiles[$i]}"
+	echo -n "===> $(basename $f): "
+	tail -c $diff $f
+done
+
+
+
+
+
+
+
+
+
+
+
+
+

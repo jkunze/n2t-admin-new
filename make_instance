@@ -1,0 +1,829 @@
+#!/bin/bash
+
+# XXX consider whether make_instance should build in "svu cur"
+#     rather than in "svu new"
+# XXX set PATH and LD_LIBRARY_PATH from .envvars_local !!!
+
+# xxx stubborn iconv problem on Solaris -- ?move 
+# /------- Additional Comments From Joe Orton <mailto:jorton@redhat.com> 
+#  2004-03-09 23:50 -------/
+#  
+#  If you temporarily rename iconv.h in /usr/local/include and "make clean
+#  && make"
+#  does the issue go away?
+
+#
+# Author: John Kunze, jak@ucop.edu
+# Copyright (c) 2013-2014, UC Regents.  BSD-type open source license.
+
+# To bootstrap this installation on new host X, role account R,
+# 1. ssh to R@X
+#
+#    $ scp noid-stage.cdlib.org:/noid/boot_install_n2t .
+#
+#    which uses /bin/sh to
+#    a. fetch and build bash 4.2
+#    b. install svu stuff on R
+#    c. create the n2t_create directory
+#    d. run n2t_create/make_instance
+
+# xxx document dependencies on Bash 4.2 or greater (yyy ginstall?)
+# xxx ?lesson from noiddev: sync up PATH and LD_LIBRARY_PATH across Mac/solaris
+# xxx Note: remember to copy over .bashrc and have login shell create
+#     a bash instance (on login), or svu won't work
+# yyy prior work in ~/local on n2tstage
+
+VERSION=0.1	# version of this script
+
+# RESPECT THIS ORDERING!
+# do_bdb		# required before Perl, as it builds its own
+#				DB_File (and maybe BerkeleyDB)
+# do_perl		# required before do_*_pm
+## do_bdb		# required before do_bdb_pm and do_dbfile_pm
+# do_bdb_pm
+# do_dbfile_pm
+# do_uuid_pm
+# do_zlib		# required by do_python? and do_httpd
+# do_bz2		# required by do_python and do_hg
+# do_openssl		# required by do_python and do_httpd
+# do_httpd		# required by do_n2t (for testing egg/nogg)
+# do_python		# required by do_hg
+## do_lxml		# required by shoulder management scripts
+# do_hg			# required by do_n2t
+# do_mongodb_pm		# perl interface to MongoDB
+# do_n2t
+# yyy maybe need to get ginstall?
+#
+# NB: this next list order sensitive!!
+#all=(perl bdb bdb_pm dbfile_pm uuid_pm zlib bz2 openssl httpd python lxml hg n2t)
+#all=(perl bdb bdb_pm dbfile_pm uuid_pm zlib bz2 openssl httpd python hg n2t)
+
+#all=(bdb perl bdb_pm dbfile_pm uuid_pm zlib bz2 openssl httpd python hg n2t)
+# Trying shorter version, at least on Mac
+#all=(bdb perl bdb_pm dbfile_pm uuid_pm mongodb_pm httpd python hg n2t)
+all=(mongodb_pm httpd n2t)
+
+# xxx on Mac, I only installed: bdb (notyet)perl uuid_pm httpd n2t 
+# xxx remove dbfile_pm?
+
+function usage {
+	if [[ "$1" != "" ]]		# if any args are present, treat them
+	then				# as an error message to be printed
+		echo "make_instance: $*"
+	fi
+	cat << EOT
+
+Usage:
+        make_instance build all
+        make_instance build which ...
+        make_instance update all
+        make_instance update which ...
+
+The "make_instance" command fetches code for, builds, and installs a complete
+"svu" system instance.  You may run it from any directory, but SVU service
+version "new" must be in effect, ie, after you have run "svu new".  On success,
+the system should have passed all tests without yet being visible to external
+users.  In that state it should be ready for "svu rollout".  See "svu help".
+
+The "update" argument is the same as "build" (currently), except that locally
+developed software is brought in via pull&update rather than rm&clone.  The
+"which" arguments come from this list:
+
+        ${all[*]}
+
+You may omit from this list, but don't change the order!  For example, to
+update only software from "hg.cdlib.org", do (xxx untested)
+
+        make_instance update n2t
+
+This first draft of "make_instance" currently hard codes the software
+packages, sources, etc. for the eggnog minter/binder system.  It does not
+use puppet because we may be running multiple versions of BerkeleyDB, Perl,
+etc. on the same system.  Perhaps this whole thing should be reframed for
+a cloud-based VM, where each VM has one (puppet-controlled) installation
+and switching between service versions means just switching VMs.
+
+EOT
+}
+
+# Basic sanity check that our auxilliary $SVU_* variables are set sensibly.
+#
+function sanity {
+
+	[[ ! $SVU_USING =~ :new ]] &&
+		return 1
+	return 0
+}
+
+# This function takes no args.
+function test_instance {
+
+	# XXX placeholder
+	return 0
+}
+
+# main
+#
+case $1 in
+
+(update)		# common cases drop out for sanity check
+	updateflag=1
+	;;
+(build)			# common cases drop out for sanity check
+	;;
+(''|help)		# default if no argument
+	usage
+	exit 0
+	;;
+(test)			# (admin) run some tests and report
+	#testsvu && exit 0
+	exit 1
+	;;
+(*)
+	#msg=${1:+"$1: unknown argument"}
+	msg="$1: unknown argument"
+	usage $msg
+	exit 1
+	;;
+esac
+
+allflag=1
+if [[ $2 == all ]]; then
+	[[ $3 ]] && {
+		usage 'no arguments should follow "all"'
+		exit 1
+	}
+elif [[ ! $2 ]]; then
+	usage "missing argument -- what do you want to $1?"
+	exit 1
+else			# pre-process any "which" args
+	allflag=
+	shift
+	for arg; do
+		grep -w $arg <<< "${all[*]}" > /dev/null || {
+			usage "$arg: unknown component"
+			exit 1
+		}
+	done
+fi
+
+sanity || {			# exit if basic sanity can't be established
+
+	echo "The svu mode (currently ${SVU_USING:-undefined}) must be 'new'."
+	exit 1
+}
+
+# If we get here, svu mode "new" is in effect, ie, we put everything under
+# $SVU_HOME/sv/cvN/ (lib, bin, etc), where cvN is found in $SVU_USING.
+# First, make it the current directory.
+#
+SVU_HOME=${SVU_HOME:-~}		# default is to put sv below ~
+#sv_pair=( $( svu status ) )	# make array of numeric and symbolic forms
+#sv=$SVU_HOME/sv/${sv_pair[0]}		# we only want the first one
+sv=$SVU_HOME/sv/$( sed 's/:.*//' <<< $SVU_USING )
+[[ ! $sv =~ /cv[0-9]+$ ]] && {
+	echo "$sv should end in cvN."
+	exit 1
+}
+
+#perlv=perl-5.16.2
+perlvnum=5.16.3
+perlv=perl-$perlvnum
+
+# xxx macosx running python 2.7.7
+pythv=2.7.5
+
+# This solaris_cfg flag hasn't worked for generic Solaris, but does
+# seem to work for CDL Solaris (with /cdlcommon/...) installed.
+#
+#(uname | grep -i sunos > /dev/null) &&
+uname=$( uname )
+grep -i sunos <<< $uname > /dev/null &&
+	solaris_cfg=solaris-sparcv9-gcc
+# XXXXXX is this needed?
+grep -i linux <<< $uname > /dev/null &&
+	linux_cfg="--with-mutex=x86_64/gcc-assembly"
+	# $linux_cfg won't harm when it's empty (normal)
+
+gmake=gmake
+grep -i darwin <<< $uname > /dev/null && {
+	macosx=1
+	gmake=make			# Mac OS X
+}
+
+# yyy? This next line is needed for hg to run.
+export PYTHONPATH=$sv/lib/python$pythv/site-packages:${PYTHONPATH}
+# xxx move other app version numbers up here?
+
+cd $sv || exit 1
+mkdir -p bin build lib man	# -p quells complaints if these already exist
+				# yyy puppet will ensure modes...
+
+# Now descend into "build", where we keep all scaffolding.  This includes an
+# log file that accumulates across multiple runs (ie, we have some history).
+#
+cd $sv/build || exit 1
+echo `date` =-=-=-= starting make_instance
+
+###### main program processing deferred until after function defs ######
+
+function do_perl {
+
+# Fetch perl and build it.
+#
+echo =================== fetching/building $perlv ===================
+[[ ! -d $perlv ]] && {
+	perltar=$perlv.tar.gz
+	[[ ! -f $perltar ]] && {
+		echo fetching $perltar
+		wget -nd -q http://www.cpan.org/src/5.0/$perltar
+	}
+	gunzip -c $perltar | tar xf -
+}
+
+[[ $macosx ]] && {
+	export PERLBREW_ROOT=$sv/perl5/perlbrew
+	export EGGNOG_PERL_VERSION=$perlvnum
+	echo installing perlbrew, perl, and cpanm for Mac OS X
+	$HOME/n2t_create/install.perlbrew.pl.bash
+	return
+}
+
+#       ./Configure -des -Dprefix=$xxx -Dcc=gcc
+#           -Dlocincpth=$xxx/include -Dloclibpth=$xxx/lib
+#           -Aldflags=-R$xxx/lib
+##      ./Configure -des -Dprefix=/n2t/local -Dcc=gcc
+##          -Dlocincpth=/n2t/local/include -Dloclibpth=/n2t/local/lib
+##          -Aldflags=-R/n2t/local/lib
+
+# XXX I keep getting this from the ./Configure line below (harmless?)
+#     ... WHOA THERE!!! ***
+#     Your gcc has not been compiled for the exact release of
+#         your operating system
+(cd $perlv
+	echo configure
+	# -Dnoextensions=ODBM_File is needed to stop errors on SUSE
+	./Configure -des -Dprefix=$sv -Dcc=gcc -Dnoextensions=ODBM_File \
+		-Dlocincpth=$sv/include -Dloclibpth=$sv/lib -Aldflags=-R$sv/lib
+
+#		-Dccdlflags="$ccdlflags -Wl,-E" \
+#		-Dlddlflags="$lddlflags -Wl,-E -G" \
+#	./Configure -des -Dprefix=$sv -Dcc=gcc \
+#		-Dlocincpth=$sv/include -Dloclibpth=$sv/lib -Aldflags=-R$sv/lib
+# -Dcc='gcc -B/usr/ccs/bin/'
+
+	echo $gmake
+	$gmake
+	echo $gmake test
+	$gmake test
+	echo $gmake install
+	$gmake install
+)
+
+}
+
+# Used for building the Perl modules DB_File and BerkeleyDB.
+#
+bdb_major_minor=5.3
+bdb_version=$bdb_major_minor.28
+
+function do_bdb {
+
+# Fetch the BerkeleyDB C library and build it.
+# We pass the tar file in ourselves because there's no closed form
+# (is this true?) way doing a wget to fetch it from Oracle. yyy
+#
+bdb=db-$bdb_version
+echo =================== fetching/building $bdb ===================
+
+# xxx for consistency, copy db-x.x.x and openssl tarballs into the build
+#     directory along with all the others
+
+# Need to apply patch to db-5.3.28.tar.gz for Mavericks Mac OS X build from
+#https://github.com/Homebrew/homebrew/blob/master/Library/Formula/berkeley-db.rb
+#
+# Double-underscore names are reserved, and __atomic_compare_exchange is
+# now a built-in, so rename this to something non-conflicting.  Warning -
+# the patch won't be applied if we don't unpack the tarball here. yyy
+#
+[[ ! -d $bdb ]] && {
+	bdbtar=$HOME/n2t_create/$bdb.tar.gz
+	gunzip -c $bdbtar | tar xf -
+	[[ $macosx ]] &&
+		echo === patching now with patch -p0 $sv/build/$bdb/src/dbinc/atomic.h $HOME/n2t_create/mac_bdb_patch
+		patch -p0 $sv/build/$bdb/src/dbinc/atomic.h \
+			$HOME/n2t_create/mac_bdb_patch
+}
+(cd $bdb
+	cd build_unix
+	env CC="gcc -pthread" ../dist/configure --prefix=$sv
+
+# XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+#   see BerkeleyDB.pm README file for discussion of DB_PRIVATE problems
+#   and try setting DBNAME to versioned libdb after editing config.in
+#   FOR BOTH DB_File.pm and BerkeleyDB.pm builds
+
+# XXXXXX it looks like the wrong include files are being used too
+
+	#env CC="gcc -D_REENTRANT" ../dist/configure --prefix=$sv
+	#env CC=gcc ../dist/configure --prefix=$sv $linux_cfg
+
+	#env CC=gcc ../dist/configure --prefix=$sv
+	# xxx /usr/lib64/libdb... 4.5 exists on Suse
+	# XXXX  from noid: SetEnv LD_LIBRARY_PATH "/usr/local/BerkeleyDB/lib:/usr/local/lib:/cdlcommon/products/lib"
+	# xxx to try: --with-mutex=x86/gcc-assembly
+	#     see db*/dist/aclocal/mutex.m4 for list of available mutexes
+	# xxx to try: configure --enable-cxx
+	# xxx to try: gcc -pthread
+	# xxx make sure glibc is used (instead of libc)?
+
+	#env CC=gcc ../dist/configure --prefix=$sv --with-mutex=x86_64/gcc-assembly
+	#env CC=gcc ../dist/configure --prefix=$sv --disable-posixmutexes
+	#env CC=gcc ../dist/configure --prefix=$sv --enable-posixmutexes
+	#env CC=gcc ../dist/configure --prefix=$sv
+		#../dist/configure --prefix=$sv
+	$gmake
+	$gmake install
+)
+
+# xxx also: DB_File officially builds only with db-4.x, and maybe 6.x,
+#     but 5.x isn't mentioned
+
+# XXX from bdb build output ? apply to BerkeleyDB.pm build
+#
+# ----------------------------------------------------------------------
+# Libraries have been installed in:
+#    /apps/n2t/sv/cv3/lib
+# 
+# If you ever happen to want to link against installed libraries
+# in a given directory, LIBDIR, you must either use libtool, and
+# specify the full pathname of the library, or use the `-LLIBDIR'
+# flag during linking and do at least one of the following:
+#    - add LIBDIR to the `LD_LIBRARY_PATH' environment variable
+#      during execution
+#    - add LIBDIR to the `LD_RUN_PATH' environment variable
+#      during linking
+#    - use the `-Wl,-rpath -Wl,LIBDIR' linker flag
+#    - have your system administrator add LIBDIR to `/etc/ld.so.conf'
+# 
+# See any operating system documentation about shared libraries for
+# more information, such as the ld(1) and ld.so(8) manual pages.
+# ----------------------------------------------------------------------
+
+# xxx this is from DB_File README under Linux, but probably only when
+#    using Perl 5.6.1 or earlier (see "second approach")
+# If you now set the LD_PRELOAD environment variable to point to this
+# shared library, Perl will use it instead of the version of Berkeley DB
+# that shipped with your Linux distribution.
+# 
+#     export LD_PRELOAD=/usr/local/BerkeleyDB/lib/libdb.so
+# 
+# Finally follow the instructions in "BUILDING THE MODULE" to build,
+# test and install this module. Don't forget to set the INCLUDE and LIB
+# variables in config.in.
+# 
+# Remember, you will need to have the LD_PRELOAD variable set anytime you
+# want to use Perl with Berkeley DB. Also note that if you have LD_PRELOAD
+# permanently set it will affect ALL commands you execute. This may be a
+# problem if you run any commands that access a database created by the
+# version of Berkeley DB that shipped with your Linux distribution.
+
+#PATH=/n2t/local/bin:/n2t/sw/bin:/opt/csw/bin:/usr/bin:/sbin:/usr/sbin:/usr/ucb:/usr/ccs/bin:/usr/dt/bin:/opt/tivoli/tsm/client/ba/bin
+#LD_LIBRARY_PATH=/n2t/local/lib:/n2t/sw/lib:/opt/csw/lib:/opt/csw/gcc3/lib:/lib:/usr/lib:/usr/ucblib:/usr/ccs/lib:/usr/dt/lib
+
+}
+
+# Fetch the BerkeleyDB Perl module and build it.
+#
+function do_bdb_pm {
+
+bdb_pm=BerkeleyDB-0.54
+echo =================== fetching/building $bdb_pm ===================
+
+[[ ! -d $bdb_pm ]] && {
+	bdb_pmtar=$bdb_pm.tar.gz
+	[[ ! -f $bdb_pmtar ]] && wget -nd \
+		http://search.cpan.org/CPAN/authors/id/P/PM/PMQS/$bdb_pmtar
+	gunzip -c $bdb_pmtar | tar xf -
+}
+(cd $bdb_pm
+	perl -pi'.orig' \
+		-e "s,^INCLUDE.*,INCLUDE = $sv/include,;" \
+		-e "s,^LIB.*,LIB = $sv/lib,;" \
+		-e "s,^(#DBNAME.*),$1\nDBNAME = -ldb-$bdb_major_minor,;" \
+			config.in
+	perl Makefile.PL INSTALL_BASE=$sv
+	#/usr/perl5/5.8.4/bin/perlgcc Makefile.PL INSTALL_BASE=$sv
+	$gmake
+	$gmake test
+	$gmake install
+)
+
+}
+
+function do_dbfile_pm {
+
+dbfile=DB_File-1.831
+# xxx 1.818 is same as my Mac, but it's not the latest
+echo =================== fetching/building $dbfile ===================
+
+[[ ! -d $dbfile ]] && {
+	dbfiletar=$dbfile.tar.gz
+	[[ ! -f $dbfiletar ]] && wget -nd -q \
+		http://search.cpan.org/CPAN/authors/id/P/PM/PMQS/$dbfiletar
+	gunzip -c $dbfiletar | tar xf -
+}
+(cd $dbfile
+	perl -pi'.orig' \
+		-e "s,^INCLUDE.*,INCLUDE = $sv/include,;" \
+		-e "s,^LIB.*,LIB = $sv/lib,;" \
+		-e "s,^(#DBNAME.*),$1\nDBNAME = -ldb-$bdb_major_minor,;" \
+			config.in
+	perl Makefile.PL INSTALL_BASE=$sv
+	$gmake
+	$gmake test
+	$gmake install
+)
+
+}
+
+function do_uuid_pm {
+
+# Fetch Data::UUID perl module and build it.
+#
+uuid=Data-UUID-1.219
+echo =================== fetching/building $uuid ===================
+[[ ! -d $uuid ]] && {
+	uuidtar=$uuid.tar.gz
+	[[ ! -f $uuidtar ]] && wget -nd -q \
+		http://search.cpan.org/CPAN/authors/id/R/RJ/RJBS/$uuidtar
+	gunzip -c $uuidtar | tar xf -
+}
+(cd $uuid
+	perl Makefile.PL INSTALL_BASE=$sv
+	$gmake
+	$gmake test
+	$gmake install
+)
+
+}
+
+function do_mongodb_pm {
+
+# Fetch MongoDB perl module and build it.
+#
+echo =============== fetching/building MongoDB.pm with cpanm ===============
+cpanm -l $sv --force MongoDB
+# yyy --force was necessary to get it installed on ias-n2t-stg-2a,
+#     but why? as it was done months after installing it on the other hosts
+
+}
+
+function do_zlib {
+
+# Build zlib for its compression algorithms.
+# We pass the tar file in ourselves because there's no simple way to fetch
+# (is this true?) fetch and extract it (eg, with cpio) from its RPM. yyy
+# download.opensuse.org/factory/repo/src-oss/suse/src/zlib-1.2.8-4.4.src.rpm
+
+zlib=zlib-1.2.8
+echo =================== fetching/building $zlib ===================
+[[ ! -d $zlib ]] && {
+	zlibtar=$HOME/n2t_create/$zlib.tar.gz
+	gunzip -c $zlibtar | tar xf -
+}
+
+# Run ./configure --help to get list of configuration flags.
+(cd $zlib
+
+	echo ./configure --prefix=$sv
+	./configure --prefix=$sv
+	echo "$gmake test (note -- README omits simple '$gmake')"
+	$gmake test
+	echo $gmake install
+	$gmake install
+)
+
+}
+
+function do_bz2 {
+
+# Fetch bz2 build for its digest algorithms.
+#
+bzvnum=1.0.6
+bz2="bzip2-$bzvnum"
+# http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+echo =================== fetching/building $bz2 ===================
+[[ ! -d $bz2 ]] && {
+	bz2tar=$bz2.tar.gz
+	[[ ! -f $bz2tar ]] && wget -nd -q \
+		http://www.bzip.org/$bzvnum/$bz2tar
+	gunzip -c $bz2tar | tar xf -
+}
+
+# The easiest way to find all of the configuration flags for Apache 2.2
+# is to run ./configure --help.
+(cd $bz2
+	echo $gmake -f Makefile-libbz2_so
+	$gmake -f Makefile-libbz2_so
+	echo $gmake
+	$gmake
+	echo $gmake install PREFIX=$sv
+	$gmake install PREFIX=$sv
+)
+
+}
+
+function do_openssl {
+
+# Fetch OpenSSL build for its digest algorithms.
+#
+#ossl=openssl-0.9.8t		# works on SUSE VMs
+ossl=openssl-1.0.1j		# untested on SUSE VMs
+				# in Apache use: SSLProtocol All -SSLv2 -SSLv3
+# http://www.openssl.org/source/openssl-0.9.8t.tar.gz
+echo =================== fetching/building $ossl ===================
+[[ ! -d $ossl ]] && {
+	ossltar=$ossl.tar.gz
+	[[ ! -f $ossltar ]] && wget -nd -q \
+		http://www.openssl.org/source/$ossltar
+	gunzip -c $ossltar | tar xf -
+}
+
+# The easiest way to find all of the configuration flags for Apache 2.2
+# is to run ./configure --help.
+(cd $ossl
+	# args suggested by Greg Janee's use in ezid
+	#./Configure solaris-sparcv9-gcc --prefix=$sv threads shared
+	if [[ "$solaris_cfg" ]]
+	then
+		echo ./Configure $solaris_cfg --prefix=$sv threads shared
+		./Configure $solaris_cfg --prefix=$sv threads shared
+	else
+		#echo ./config --prefix=$sv
+		#./config --prefix=$sv
+		echo ./config --prefix=$sv threads shared
+		./config --prefix=$sv threads shared
+	fi
+	echo $gmake
+	$gmake
+	echo $gmake test
+	$gmake test
+	echo $gmake install
+	$gmake install
+)
+
+}
+
+function do_httpd {
+
+# Fetch Apache HTTPD server and build it.
+#
+# 2.2.29 is legacy release on the 2.2 branch (2014.09.03)
+httpd=httpd-2.2.29
+#httpd=httpd-2.2.24
+#httpd=httpd-2.4.4
+echo =================== fetching/building $httpd ===================
+[[ ! -d $httpd ]] && {
+	httpdtar=$httpd.tar.gz
+	[[ ! -f $httpdtar ]] && wget -nd -q \
+		http://archive.apache.org/dist/httpd/$httpdtar
+		#http://apache.osuosl.org/httpd/$httpdtar
+	gunzip -c $httpdtar | tar xf -
+}
+
+# The easiest way to find all of the configuration flags for Apache 2.2
+# is to run ./configure --help.
+(cd $httpd
+
+	# NOTE: ?on Solaris don't use gcc; instead use builtin Oracle support
+	# and the critical --with-included-apr (apache portable runtime)
+	#
+	# env CC='gcc' CPP='gcc -E' CFLAGS='-m64' LDFLAGS='-L/lib64' \
+	# ./configure --with-included-apr --enable-modules=all \
+	#./configure --enable-modules=all --enable-ssl \
+	#	--with-included-apr --prefix=$sv/apache2
+	## --enable-rewrite=shared
+	#env LDFLAGS="-L$sv/lib" \
+
+	## special case for solaris (yyy won't this work on Linux?)
+	#apr_cfg=''
+	#[[ "$solaris_cfg" ]] &&
+	#	apr_cfg='--with-included-apr'
+	echo configure
+	./configure --prefix=$sv/apache2 --with-z=$sv \
+		--enable-modules=all --enable-ssl --with-included-apr \
+		--with-ssl=$sv
+	echo $gmake
+	$gmake
+	echo $gmake install
+	$gmake install
+
+# Greg suggests for apache httpd:
+#       env CC='gcc' CPP='gcc -E' ./configure --prefix=/n2t/sw/httpd
+#          --with-included-apr --enable-mods-shared=most
+#          --enable-ssl --with-ssl=/n2t/sw
+#       make
+#       make install
+
+#> recently tried on EDINA
+#>       env CC='gcc' CPP='gcc -E' CFLAGS='-m64' \
+#>       LDFLAGS="-R/usr/sfw/lib/64 -L/usr/sfw/lib/64 -R/usr/lib/64
+#>       -L/usr/lib/64" ./configure \
+#>               --enable-64bit --enable-64bit-libs --enable-lib64 \
+#>               --with-included-apr --enable-modules=all \
+#>               --enable-rewrite=shared --build=x86_64-pc-solaris2 \
+#>               --enable-ssl --with-ssl=$sv --prefix=$sv/apache2
+
+)
+
+}
+
+function do_python {
+
+# Fetch python and build it.
+#
+pythdir=Python-$pythv
+#http://www.python.org/ftp/python/2.7.5/Python-2.7.5.tgz
+echo =================== fetching/building $pythdir ===================
+[[ ! -d $pythdir ]] && {
+	pythtar=$pythdir.tgz
+	[[ ! -f $pythtar ]] && {
+		echo fetching $pythtar
+		pythurl=http://www.python.org/ftp/python/$pythv/$pythtar
+		wget -nd -q $pythurl || {
+			echo Failed first $pythdir fetch
+			wget -nd -q --no-check-certificate $pythurl ||
+				# XXX old wget on SLES!!
+				echo Failed second no-cert $pythdir fetch \
+					on $uname
+		}
+	}
+	gunzip -c $pythtar | tar xf -
+}
+
+# ???
+# 1. When compiling Python, set LD_RUN_PATH to the directories
+# containing missing libraries.
+# ???
+# 2. When running Python, set LD_LIBRARY_PATH to these directories.
+
+(cd $pythdir
+	# Greg's arg --enable-shared
+	#./configure --prefix=$sv --enable-shared --with-ssl
+
+	# env CC='gcc' CPP='gcc -E' CFLAGS='-m64' LDFLAGS='-L/lib64' \
+	echo ./configure --prefix=$sv
+	env LDFLAGS="-L$sv/lib" \
+		./configure --enable-shared --prefix=$sv
+	echo $gmake
+	$gmake
+	echo $gmake install
+	$gmake install
+
+	easy_install lxml		# needed for shoulder management
+)
+
+}
+
+function do_hg {
+
+# Fetch hg and build it.
+#
+hgdir=mercurial-1.7.5
+#  http://mercurial.selenic.com/release/mercurial-1.7.5.tar.gz
+echo =================== fetching/building $hgdir ===================
+[[ ! -d $hgdir ]] && {
+	hgtar=$hgdir.tar.gz
+	[[ ! -f $hgtar ]] && {
+		echo fetching $hgtar
+		wget -nd -q http://mercurial.selenic.com/release/$hgtar
+	}
+	gunzip -c $hgtar | tar xf -
+}
+
+(cd $hgdir
+	echo $gmake install PREFIX=$sv
+	$gmake install PREFIX=$sv
+	echo hg debuginstall
+	hg debuginstall
+)
+
+}
+
+function do_n2t {
+
+# Fetch local source packages from hg.cdlib.org and build.  This package
+# list is order-sensitive; later packages depend on earlier packages, so
+# they need to be built and tested later.
+#
+pkgs=( File-Value File-ANVL File-Namaste File-Pairtree eggnog )
+
+for p in ${pkgs[@]}
+do
+	echo ======================== package $p ========================
+	rm -fr $p
+	#hg clone ssh://jak@hg.cdlib.org/~hg/repos/$p
+	# XXX not very secure -- requires plaintext password
+	# XXX consider using ssh://... and ssh-agent
+	hg clone https://hg.cdlib.org/$p
+
+	#[[ ! "$updateflag" ]] &&
+	#	rm -fr $p
+	#[[ -e $p ]] ||
+	#	mkdir $p
+	(cd $p
+		#if [[ $updateflag ]]; then
+		#	hg pull https://hg.cdlib.org/$p
+		#	hg update
+		#else
+		#	(cd ..; rm -fr $p; hg clone https://hg.cdlib.org/$p )
+		#fi
+
+		perl Makefile.PL INSTALL_BASE=$sv
+		$gmake
+		$gmake test
+
+		# XXXX missing: actual deploy of real system
+
+		#if [[ $p == eggnog ]]		# final server tests
+		#then
+		#	export EGNAPA_TEST=test
+		#	perl -Mblib t/apachebase.t
+		#	export EGNAPA_DURABLE=n2t
+		#	perl -Mblib t/durabase.t
+		#	EGNAPA_TEST=real
+		#	perl -Mblib t/real.t
+		#fi
+		$gmake install
+	)
+done
+
+}
+
+##### Resume main program #####
+
+#all=(perl bdb bdb_pm dbfile_pm uuid_pm openssl httpd python hg n2t)
+
+[[ ! $allflag ]] &&
+	all=( "$@" )
+for arg in "${all[@]}"
+do
+	echo "+++ Doing $arg +++"
+	do_$arg
+done
+echo `date` =-=-=-= finishing make_instance
+exit
+
+## For testing, comment out parts you don't want to re-run.
+## Uncomment every do_* invocation to install everything.
+##
+#do_perl			# required before do_*_pm
+#do_bdb			# required before do_bdb_pm and do_dbfile_pm
+#do_bdb_pm
+#do_dbfile_pm
+#do_uuid_pm
+#do_httpd		# required by do_hg (for testing eggnog)
+#do_python
+#do_hg
+#do_n2t
+#
+#echo `date` =-=-=-= finishing make_instance
+#exit
+
+# End
+
+# http://search.cpan.org/CPAN/authors/id/J/JA/JAK/File-Value-1.02.tar.gz
+# http://search.cpan.org/CPAN/authors/id/J/JA/JAK/File-ANVL-1.02.tar.gz
+# http://search.cpan.org/CPAN/authors/id/J/JA/JAK/File-Namaste-1.04.tar.gz
+# http://search.cpan.org/CPAN/authors/id/J/JA/JAK/File-Pairtree-1.02.tar.gz
+# These next two require compilation
+# http://search.cpan.org/CPAN/authors/id/R/RJ/RJBS/Data-UUID-1.217.tar.gz
+# http://search.cpan.org/CPAN/authors/id/P/PM/PMQS/DB_File-1.824.tar.gz
+# XXX on my MAC, DB_File-1.818.tar.gz
+
+# n2t_install script:
+# import source (and/or binaries)
+# (solaris perl 5.10.1)
+#   Mac perl 5.10.0
+#   download from http://www.perl.org/get.html
+#	./Configure -des -Dprefix=$xxx -Dcc=gcc
+#	    -Dlocincpth=$xxx/include -Dloclibpth=$xxx/lib
+#	    -Aldflags=-R$xxx/lib
+##	./Configure -des -Dprefix=/n2t/local -Dcc=gcc
+##	    -Dlocincpth=/n2t/local/include -Dloclibpth=/n2t/local/lib
+##	    -Aldflags=-R/n2t/local/lib
+#	make
+#	make test
+#	make install
+#   
+# configure
+# build
+# build test (major)
+# install (deploy to stage server)
+# install test (test basic server responses)
+# roll out (switch stage to production)
+# roll out test (test basic production responses)
+
+## build perl modules (eg uuid) requiring compilation
+#/usr/perl5/5.8.4/bin/perlgcc	perlgcc Makefile.PL (not perl Makefile.PL) to facilitate module installation requiring compilation

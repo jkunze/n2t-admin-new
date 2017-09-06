@@ -1,0 +1,148 @@
+#!/usr/bin/env perl
+
+use 5.006;
+use strict;
+use warnings;
+
+# Author:  John A. Kunze, jak@ucop.edu, California Digital Library
+# Copyright (c) 2013-2015 UC Regents
+
+my $naan_registry = '~/shoulders/naans/master_naans';
+my $naan_re = '^\s*what:\s*';
+
+# main
+{
+	my $dryrun = 0;
+	my $option = $ARGV[0] || '';
+
+	if ($option eq '-n') {
+		$dryrun = 1;
+		shift @ARGV;
+	}
+	$#ARGV < 0 and
+		print(q@
+This script supports various NAAN operations.
+
+  naan exists NAAN       - return 0 if given NAAN is already assigned
+  naan derive DOIPrefix  - return an unused NAAN lexically close to DOIPrefix
+  naan dupescan          - look for duplicate NAANs
+# naan to_doip NAAN      - return the DOIPrefix equivalent to given NAAN
+# naan to_naan DOIPrefix - return the NAAN equivalent to given DOIPrefix
+# naan generate ...      - generate new NAAN for ARK-only institution
+
+@),
+		exit 1;
+
+	my ($cmd, $arg) = @ARGV[0,1];
+	if ($cmd eq 'exists') {
+		exit naan_exists($arg);
+	}
+	elsif ($cmd eq 'dupescan') {
+		exit dupescan();
+	}
+	elsif ($cmd eq 'derive') {
+		my $naan = derive_naan($arg);
+		$naan and
+			print("$naan\n"),
+			exit 0;
+		exit 1;
+	}
+	else {
+		print "error: unknown command: $cmd\n";
+		exit 1
+	}
+
+	$dryrun and print "- End of dry run.  Remove -n from argument ",
+		"list to obtain real results.\n";
+}
+
+sub naan_exists { my( $naan )=@_;
+
+	$naan or
+		print("error: missing NAAN argument\n"),
+		return 1;
+
+	my $out = `grep -E "$naan_re$naan\\s*\$" $naan_registry`;
+
+	return ($out ? 0 : 1);
+}
+
+sub dupescan {
+
+	# xxx find a perl way to do this to avoid external dependencies
+	#     and inconsistent behavior between grep and perl REs
+	#
+	my $digits_re = '[0-9]+';
+	my $out = `grep -E "$naan_re$digits_re" $naan_registry`;
+	$out =~ s/$naan_re//gm;
+	$out =~ s/\s*$//gm;
+	chop $out;
+
+	my @naans = split /\n/, $out;
+	my @dupes = ();
+	my (%h, $naan);
+	for $naan (@naans) {
+		$h{ $naan } or
+			$h{ $naan } = 1,	# initialize hash entry
+			next;
+		$h{ $naan } == 1 and		# just once
+			push @dupes, $naan;	# record duplicate NAAN
+		$h{ $naan }++;			# how many times we've seen it
+	}
+	scalar(@dupes) or			# if no dupes were found
+		print("No dupes.\n"),
+		return 0;
+
+	map { print "$_", ($h{ $_ } > 2 ? " ($h{$_})" : ""), "\n" } @dupes;
+	print "\n";
+
+	for $naan (@dupes) {
+		print "========== Dupe details for $naan ==========\n";
+#		$out = `bash -c "
+#			date
+#		"`;
+		$out = `bash -c "
+
+			for minter in $ENV{HOME}/minters/ezid/ark/$naan/* ;
+			do
+				nog -d \\\$minter mstat ;
+			done
+		"`;
+		print($out);
+	}
+	#print join("\n", @dupes), "\n";
+	return 1;
+}
+
+sub derive_naan { my( $doiprefix )=@_;
+
+	$doiprefix or
+		print("error: missing DOIPrefix argument\n"),
+		return '';
+
+	$doiprefix =~ /^10\.\d{1,5}$/ or
+		print("error: $doiprefix doesn't look like a DOI Prefix ",
+			"(should be 1-5 digits starting with 10.)\n"),
+		return '';
+
+	my $ptail = $doiprefix;		# will be the prefix tail when we
+	$ptail =~ s/^10\.//;		# strip 10., leaving digit string
+
+	my $last4 = sprintf "%04d", $ptail;	# ensure at least 4 digits
+	$last4 =~ s/^\d+(\d{4})$/$1/;		# keep at most last 4 digits
+
+	my $start_with = '8';			# try '8' to begin with
+	for ( my $n = 0; $n < 10; $n++ ) {	# cycle through 10 digits
+		my $first_digit = ($start_with - $n) % 10;
+		$first_digit =~ /^[09]$/ and	# but skip '0' and '9'
+			next;
+		naan_exists("$first_digit$last4") == 0 and
+			next;
+		return "$first_digit$last4"
+	}
+	# if we get here, no unused NAAN equivalent was found
+	return '';
+	# xxx this will fail if changing the first digit was insufficient
+	# to find a "lexically" close unused NAAN -- a future improvement
+	# will be to try varying other digits
+}

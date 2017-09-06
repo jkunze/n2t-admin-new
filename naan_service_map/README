@@ -1,0 +1,10 @@
+Google map with flags in it:
+  https://www.google.com/maps/d/u/0/edit?mid=1SVbxgjcsM0ctS1lacgen1H3cEgE&ll=2.9696237739103424%2C0&z=2
+
+spreadsheet to load into Google map in order to place pins in it
+(last updated 2016 April 29)
+    file: Locations4Google_NAAN.xlsx
+This file should be updated (additions -- but don't forget deletions too)
+by NAAN registry scripts, or probably just dumped by naan_validation
+processes, along with growth charts
+

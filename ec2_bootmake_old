@@ -1,0 +1,268 @@
+#!/bin/sh
+
+# Author: John Kunze, jak@ucop.edu
+# Copyright (c) 2013-2015, UC Regents.  BSD-type open source license.
+
+# xxx document dependencies on Bash 4.1 or greater (yyy ginstall?)
+# xxx prior work in ~/local on n2tstage
+
+VERSION=0.1			# version of this script
+
+me=boot_install_n2t
+create=n2t_create
+targz=$create.tar.gz
+from=noid@noid-stage.cdlib.org:/noid/n2t_create/$targz
+
+rhodecode=hg.cdlib.org
+local=$HOME/local
+lbin=$local/bin
+svudef='function svu { eval `svu_run "$PS1"\|\|\|b $*`; }'
+
+if [ "$1" != go ]
+then
+cat << EOTOUTER
+
+Usage:
+        $me go
+
+For an Amazon EC2 instance, this is a set of BASH (4.1 or better) steps
+to install N2T on host H under login L's home directory ($HOME).  You
+will need read access to the mercurial repositories on $rhodecode,
+for example (you will need to change the password below),
+
+cat > ~/.hgrc << EOT
+
+[ui]
+username = John Kunze <jak@ucop.edu>
+merge=internal:merge
+
+[auth]
+cdl.prefix   = https://hg.cdlib.org
+cdl.username = jak
+cdl.password = xxxxxx
+
+[hostfingerprints]
+hg.cdlib.org = 25:FF:CD:90:D0:E7:56:2F:74:2E:B0:77:2B:A5:2B:6C:4B:A6:76:1E
+
+EOT
+
+Then, use yum to install some basics.  In the home directory, do
+
+DONT CHANGE THIS!!
+CHANGE min_plus_rest
+[ see script "min_plus_rest" ]
+  sudo yum -y group install "Development Libraries"
+  sudo yum -y group install "Development Tools"   # gcc
+  sudo yum -y group install "Web Server"          # mod_ssl, ExtUtils/MakeMaker
+  sudo yum -y install hg
+  sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
+  sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
+  sudo yum -y install 'perl(Log::Log4perl)'
+
+DONT CHANGE THIS!!
+CHANGE min_plus_rest
+# for shoulder maintenance
+  sudo yum -y install libxml2-devel libxslt-devel python-devel
+  sudo yum -y install libxml2-python libxslt-python
+  sudo yum -y install python-pip
+  sudo yum -y install python-virtualenv
+  pip install lxml
+  ....
+DONT CHANGE THIS!!
+CHANGE min_plus_rest
+[ see script "min_plus_rest" ]
+
+  [ on mac (using ~/sv/cur/perl5/perlbrew/bin/cpanm Log::Log4perl ]
+  #? sudo yum --enablerepo=epel install awstats		# apache web log stats
+				# can use webalizer (mac?) to visualize; see
+				# /usr/share/awstats/wwwroot/cgi-bin/awstats.pl
+
+From the shell, do
+
+  hg clone http://hg.cdlib.org/n2t_create
+  cd n2t_create
+  make			# sets up svu defs; runs "svu init"
+
+Then do the following, which sources .bashrc, sets the SVU mode correctly,
+builds Apache and Eggnog, rolls it out, and sets up a skeleton crontab..
+
+  xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
+  source ~/.bashrc	# so we can do svu new
+  svu new
+  ./make_instance build httpd n2t 2>&1 > berrs
+
+  svu rollout	# ok as no users yet, and this puts all of interest under 'cur'
+		# which is our default logged-in state
+  svu cur
+  set_crontab go	# all actions commented out; edit as desired
+  pd $sv/build/eggnog
+  n2t rollout
+  n2t test		# some tests of commented out content in crontab
+
+For code changes,
+
+  cd $sv/build/eggnog
+  EITHER
+     xxx maybe "make clean"?
+     n2t import		# to import new stuff from $rhodecode
+  OR
+     vim, emacs, hack hack hack
+     make test		# or "blib t/apachebase.t" && "blib t/service_n2t.t"
+     hg -m com		# optional, but "n2t test" complains if you don't
+     hg push		# good practice
+  THEN
+  n2t rollout		# brings down the public-facing server for < 1sec
+  n2t test		# should clear most tests
+  	xxx on SLES the 3 SPT tests will fail until you "apache restart"
+
+XXXXXXXX what about python libxml?
+
+xxx ^^^ new 
+
+Assuming you're logged in as L, add the following to your .bashrc file:
+
+	PATH=\$HOME/local/bin:\$PATH
+	$svudef
+
+You'll need to identify host H's external web name (often different from
+what hostname returns).
+
+	cd
+	mkdir warts
+	cat > warts/env.sh <<- EOTEXT
+	#!/bin/sh
+	HOSTNAME=n2t.example.org
+	export HOSTNAME
+	EOTEXT
+
+To customize L's account for your use, you ("sam") might want to
+
+	$ mkdir $HOME/.profile.d/
+	$ ln -s ~sam/.bashrc $HOME/.profile.d/sam
+	$ cat > $HOME/.profile << EOTEXT
+	whoami=`who -m | awk '{ print \$1 }'`
+	if [ -f ~/.profile.d/\$whoami ] ; then
+		source ~/.profile.d/\$whoami
+	fi
+	EOTEXT
+
+Note that L's \$PATH must support compiling and linking, eg,
+
+    export PATH=\$HOME/local/bin:/usr/sfw/bin:/usr/sfw/sbin:\\
+         /usr/ccs/bin:/usr/local/GNU/bin:/usr/local/edina/bin:\\
+         /usr/local/edina/coreutils/bin:/usr/local/bin:\\
+         /usr/l ocal/edina/jdk1.6.0_25/bin:/usr/X/bin:
+
+The new path component need not exist and will be created if need be.
+The function definition sets up an "svu" command (Service Version Utility)
+that will be created later.  It uses environment variables such as
+PERL_INSTALL_BASE and PERL5LIB, but leaves them unchanged in the end.
+
+If you already have mercurial ("hg") on your system, run
+
+	cd
+	hg clone http://$rhodecode/n2t_create
+
+Otherwise, copy $from into $HOME and
+
+	$ cd
+	$ gunzip -c $targz | tar xf -
+
+Either way you should now see $create in L's home directory.  If you're
+reading this you may have already done most of the above steps.
+
+EOTOUTER
+
+#    export LD_LIBRARY_PATH=/usr/sfw/lib:\\
+#         /usr/sfw/lib/gcc/sparc-sun-solaris2.10/3.4.3:/usr/ccs/lib:\\
+#         /usr/local/GNU/lib:/usr/local/edina/lib:/usr/local/lib:/usr/X/lib
+
+exit 0
+fi
+
+echo "This script is for documentation only right now."
+exit 1
+
+# yyy would be nice if we could rely on mkdir -p being there
+#     for now we have to keep lbin and mkdir args in sync
+(cd					# make sure we're in home directory
+	mkdir local local/bin > /dev/null 2>&1	# make sure we have local/bin
+)
+
+# # Build and install wget.
+# #
+# wgetv=wget-1.13.4
+# 
+# echo =================== building $wgetv ===================
+# if [ ! -d $wgetv ]
+# then
+# 	wgettar=$wgetv.tar.gz
+# 	gunzip -c $wgettar | tar xf -
+# fi
+# 
+# (cd $wgetv
+# 	./configure --prefix=$local --without-ssl
+# 	make
+# 	make install
+# )
+
+#v# # Now fetch bash and build it.
+#v# #
+#v# bashv="bash-4.2.53"
+#v# 
+#v# echo =================== fetching/building $bashv ===================
+#v# if [ ! -d $bashv ]
+#v# then
+#v# 	bashtar=$bashv.tar.gz
+#v# 	if [ ! -f $bashtar ]
+#v# 	then
+#v# 		mirror=http://ftpmirror.gnu.org/bash/
+#v# 		echo fetching $bashtar
+#v# 		wget -nd -q $mirror/$bashtar
+#v# 	fi
+#v# 	gunzip -c $bashtar | tar xf -
+#v# fi
+#v# 
+#v# (cd $bashv
+#v# 	echo Starting configure
+#v# 	./configure --prefix=$local
+#v# 	echo Starting make
+#v# 	make
+#v# 	make install
+#v# )
+
+# Install the svu_run bash script and initialize the SVU skeleton.
+#
+echo =================== initializing SVU ===================
+
+cp -p svu_run $lbin
+chmod 755 $lbin/svu_run
+hash -r			# to make new executable visible
+bash -lc 'svu init'
+if [ "$?" -ne 0 ]
+then
+	echo 'Problem running "svu init".'
+	echo "Did you put $lbin in your PATH?"
+	echo "Did you define the 'svu' function in ~/.bashrc?"
+	echo "   $svudef"
+	exit 1
+fi
+
+echo "finishing without (a) installing bash and (b) run bash -lc"
+exit
+
+# -l says to behave like login shell and, eg, read .bashrc
+bash -lc 'svu new; ./make_instance build all'
+
+# Set up start/stop script (~/init.d/apache)
+mkdir $HOME/init.d > /dev/null 2>&1	# make sure we have ~/init.d
+cp -p apache $HOME/init.d
+chmod 755 $HOME/init.d
+
+echo Done with $me.
+echo 'If the installation looks good, roll it out with "svu rollout"'
+echo \
+  'Before exploring, you will want to do "svu cur" (type just "svu" for help).'
+
+exit 0				# normal exit (success)
+

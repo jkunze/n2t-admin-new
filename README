@@ -1,0 +1,9 @@
+			N2T INSTALLATION INSTRUCTIONS
+
+N2T (Name-to-Thing) is a resolver and metadata store. This repo contains
+most of the administrative and support functions for N2T. It is
+complemented by the Eggnog software in a separate repo.
+
+The make_instance script can be read for more insight. It's old and
+hasn't been touched in a while, and it should be regarded as pseudo-code.
+

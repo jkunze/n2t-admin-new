@@ -1,0 +1,16 @@
+# n2t crontab file -- dev version
+
+MAILTO=jak@ucop.edu
+
+# loose update of latest prefixes file components
+14 10 * * 1-7 cd ~/shoulders; scp -p n2t@ids-n2t-prd-2a.n2t.net:shoulders/'{master_shoulders.txt,ebireg_latest.xml,naans/master_naans}' .; mv master_naans naans/
+
+# update operating system automatically on Mondays
+38 5 * * 1 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
+
+# Every 3 minutes check that resolution is working.  If not, an alert email
+# is sent and apache is restarted, which mitigates the "off-by-one" error.
+# It uses "admegn rcheck" to send an email on failure and exit with non-zero
+# status, which is tested (via ||) for an apache restart.
+#
+*/3 * * * * bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"

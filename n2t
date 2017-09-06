@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+
+me=$( basename $0 )
+function usage {
+	cat << EOT
+
+SYNOPSIS                          ($0)
+    $me - admin tool for the N2T service
+
+USAGE
+    $me [ --force ] Command
+
+DESCRIPTION
+
+This script supports commands that automate common N2T service admin tasks.
+
+  import      bring in and TEST the latest code base in the repo
+  rollout     stop public-facing server, install new code, restart server
+  test        test code installed in currently running public-facing server
+  rollback    back out of the last rollout, reverting to the prior rollout
+  checkpoint  mark rollback point (to be run before "hg update")
+
+The first three commands above reflect the normal sequence.  Use "rollback"
+only if "test" failed.  Use "checkpoint" if you're not using "import".
+
+NB: The first time you ever run this script on a new system, you need to
+"prime the pump".  The script assumes you are working under "svu cur",
+and that requires that ~/sv/cur be non-empty, which means that you've done
+at least one "svu rollout", as "~n2t/n2t_create/make_instance" always
+installs under "svu new".
+
+EOT
+}
+
+mkperl="perl Makefile.PL INSTALL_BASE=$PERL_INSTALL_BASE"
+#bst_cmd="./build_server_tree --public build t/n2t"
+bst_cmd="./build_server_tree --public build n2t"
+emsg="Aborting due to uncommitted eggnog changes; "
+emsg+="override with --force."
+
+function check_changes {
+
+	hgid=$( hg identify | sed 's/ .*//' )
+		# in git would do this check with "git diff --quiet"
+	changes=
+	[[ ! $hgid || "$hgid" =~ \+ ]] &&
+		changes=1
+	[[ ! $changes || $force ]] &&
+		return 0
+	return 1
+}
+
+function check_default_minders {
+	minder_type=$1
+	# Note: if needed, build_server_tree makes a new NAANs minter from
+	# scratch, in ~/sv/cur/build/eggnog/td_egnapa/minters/n2t/naans
+	[[ $minder_type != binders ]] &&
+		return			# we don't check minters or shoulders
+	# if we get here, we're checking for default binders
+	local binders=$( shopt -s nullglob; echo $nsf/$minder_type/* )
+	[[ "$binders" == "" ]] && {
+		echo "Error: new server binder directory exists but is" \
+			"empty: $nsf/$minder_type"
+		return 1
+	}
+	for binder in $binders
+	do
+		b=$( basename $binder )
+		[[ -e $aptop/$minder_type/$b ]] &&	# if it already exists,
+			continue			# assume binder is ok
+		# Y is default.
+		read -t 30 -p \
+			"Server has no $b binder.  Copy from new server? [Y/n] "
+		[[ $? != 0 ]] && {
+			echo -e "\nError: response EOF or timeout: aborting."
+			exit 1
+		}
+		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
+			continue
+		cp -npr $binder $aptop/$minder_type
+	done
+	return 0
+}
+
+function check_minders {
+	for m in binders minters shoulders
+	do
+		if [[ -e $aptop/$m ]]
+		then
+			check_default_minders $m	# not checking return
+			continue
+		fi
+		# Y is default.
+		read -t 30 -p \
+			"Server has no $m directory.  Create? [Y/n] "
+		[[ $? != 0 ]] && {
+			echo -e "\nError: response EOF or timeout: aborting."
+			exit 1
+		}
+		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
+			continue
+		cp -pr $nsf/$m $aptop
+	done
+}
+
+function n2t_import {	# assumes caller ran check_changes!
+
+	hg pull		# hg pull -u only updates to tip if changesets pulled
+	hg update	# this makes sure that we update to the tip
+	# XXX maybe should first do a "make clean" to be safe?
+	$mkperl
+	make
+	echo Running t/apachebase.t tests.
+	perl -Mblib t/apachebase.t
+	echo Running t/service_n2t tests.
+	perl -Mblib t/service_n2t.t
+	echo 'Import finished.'
+	#make test	# NB: a full test can take over 90 seconds
+	#rm -fr $nsf	# XXX why? none of these steps alter td_egnapa_public
+}
+
+# This is the main event.  It assumes that caller (elsewhere in this
+# script) has already run build_server_tree and has already stopped
+# (or tried to stop) the server.  So this is usually called in the
+# fraction of a second when the server needs to be down.
+#
+# Note there is a conscious OMISSION of copying in any data (binders,
+# minters, logs) created during server tree construction and testing!
+# But there's one big exception: the prefixes yaml file is created
+# fresh each time from various text files kept under revision control.
+# XXX make sure to use only anonymized shoulders and naans files
+#
+function n2t_rollout {	# assumes caller ran check_changes!
+
+	local f d err=
+	local px=prefixes.yaml
+	local pubpx=cdl_ebi_prefixes.yaml
+	local n2tpx=n2t_prefixes.yaml
+	make || err=y		# "make" again, in case "import" wasn't done
+	make install ||		# this installs both libraries and scripts
+		err=y
+
+	# This next line will need to change if switching to git as the
+	# DVCS (distributed version control system).  The file it saves
+	# to should already be independent of hg or git.
+	#
+	local dvcsid=$( hg identify | sed 's/ .*//' )
+
+	(cd $aptop || err=y
+
+		# yyy why do this when the cp dvcsid below should work?
+		# yyy why isn't this sufficient?
+		# cp -p $nsf/logs/dvcsid logs/	# lone file to copy
+		echo $dvcsid > logs/dvcsid
+		for f in \
+			cgi-bin/{egg,nog}.sh \
+			conf/{httpd,rewrite-plus}.conf \
+			$px $pubpx eggnog_conf eggnog_conf_default
+		do
+			[[ -f $f ]] && {
+				echo Backing up contents of $f to $f.orig.
+				mv $f $f.orig || err=y
+			}
+		done
+
+		# It's a feature that source code changes to
+		# eggnog_conf_default will be installed with the system.
+
+		for d in cgi-bin conf htdocs ssl eggnog_conf_default
+		do
+			echo Copying contents of $nsf/$d.
+			cp -pr $nsf/$d . || err=y
+		done
+		#d=binders/n2t
+		#echo Copying contents of $nsf/$d.
+
+		# yyy these should maybe go into "pfx rollout"?
+		echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx}."
+		cp -pr $nsf/$px . || err=y
+		#cp -pr $nsf/$pubpx . || err=y
+		cp -pr $nsf/$pubpx htdocs/e/ || err=y	# publicly readable
+		cp -pr $nsf/$n2tpx htdocs/e/ || err=y	# publicly readable
+	)
+	[[ $err ]] &&
+		return 1
+	echo "`date`: rolled out binder revision `hg id -in`" \
+		>> ~/logs/rollout_log
+	return 0
+}
+
+# Saves revision number, usually run before you do an "hg update" or done
+# automatically by "n2t import" before it brings in changes.  Revision
+# number is saved for the purpose of enabling possible later rollback.
+#
+function n2t_checkpoint {
+	hg identify | sed 's/ .*//' > .rollback		# save current revision
+}
+
+# Rollback to the checkpoint revision number, usually saved prior to last
+# import.  It's not right to switch to the previous revision in revision log,
+# as often there will be more than one revision since the previous rollout.
+# A second rollback will not undo a rollback (it will not do a re-rollout).
+# To undo a rollback, do "hg update" then "n2t rollout".
+#
+function n2t_rollback {	# assumes caller ran check_changes!
+
+	local prior
+	[[ -r .rollback ]] &&
+		prior=$( < .rollback )
+	hg update -r ${prior:--2}	# if $prior empty, default to -2
+
+	$mkperl
+	make		# skip "make test" as now we're probably in a hurry
+	rm -fr $nsf
+
+	echo "Running $bst_cmd."
+	b_out=$( $bst_cmd 2>&1 ) || {	# build server tree beforehand
+		echo Problem running $bst_cmd.
+		echo "$b_out"
+		exit 1
+	}
+	$apctl graceful-stop ||		# make sure server is stopped
+		echo "Problem stopping server; ignoring."
+	n2t_rollout	# don't "exec $0 rollout" or it might recurse for ever
+}
+
+[[ $sv ]] || {
+	echo 'An SVU mode must be in effect, eg, "svu cur" or "svu new".'
+	exit 1
+}
+[[ -d $sv ]] || {
+	echo "Service version directory doesn't exist: $sv"
+	exit 1
+}
+cd $sv/build/eggnog || {	# normally run from eggnog source directory
+	echo Could not chdir to $sv/build/eggnog.
+	exit 1
+}
+echo "Process running now in $sv/build/eggnog directory."
+
+aptop=$sv/apache2			# apache top
+nsf=$sv/build/eggnog/td_egnapa_public	# new server files
+apctl=~/init.d/apache			# apache control script
+
+force=
+[[ "$1" == --force ]] && {		# go even if uncommitted changes exist
+	force=1
+	shift
+}
+
+Command=$1
+shift
+case $Command in
+
+import)
+	check_changes || {		# lest uncommited changes get lost!
+		echo "$emsg"
+		exit 1
+	}
+	n2t_checkpoint
+	n2t_import
+	exit
+	;;
+
+rollout)
+	check_changes || {		# lest uncommited changes get lost!
+		echo "$emsg"
+		exit 1
+	}
+	# xxx there's some bug where an uncommitted hg id ends up in
+	# td_egnapa_public/logs/dvcsid, and messes up blib t/service_n2t.t
+	# tests until blib t/apachebase.t is run
+
+	echo "Running $bst_cmd."
+	b_out=$( $bst_cmd 2>&1 ) || {	# build server tree beforehand
+		echo Problem running $bst_cmd.
+		echo "$b_out"
+		exit 1
+	}
+	check_minders		# see if there are any minders at all
+
+	make || {		# "make" again, in case "import" wasn't done
+		echo Problem running make.
+		exit 1
+	}
+	# More checks since "make" step won't catch Perl compilation errors.
+	perl -Mblib egg > /dev/null || {	# in case "import" wasn't done
+		echo Problem running egg.
+		exit 1
+	}
+	perl -Mblib nog > /dev/null || {	# in case "import" wasn't done
+		echo Problem running nog.
+		exit 1
+	}
+
+	# Critical section follows.  Stop server and keep it down for as
+	# brief a window as possible.
+	#
+	echo Stopping server.
+	#$apctl graceful-stop || exit
+	$apctl graceful-stop 	# proceed even if old server is damaged
+	(time n2t_rollout) 2> .rolltime || {
+		echo "Problem with rollout."
+		# If we time out after 15 seconds, $? will not be zero.
+		# Y is default.
+		read -t 15 -p "Rollback to previous? [Y/n] "
+		[[ $? != 0 ]] && {
+			echo -e "\nError: response EOF or timeout: aborting."
+			echo "WARNING: leaving server DOWN."
+			exit 1
+		}
+		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] && {
+			echo '"Now initiating "rollback".'
+				exec $0 rollback
+			# We shouldn't ever get here, but just in case...
+			echo "Problem exec'ing $0 rollback."
+			echo "WARNING: leaving server DOWN."
+			exit 1
+		}
+		echo Server may be broken.
+	}
+	rtime=$( sed -n 's/real[ 	]00*m*//p' .rolltime; rm .rolltime )
+	echo "Starting server again (downtime approx $rtime)."
+	$apctl start || {		# bring server back up
+		echo Problem starting apache.
+		exit 1
+	}
+	echo "Rollout seems successful."
+	exit
+	;;
+
+rollback)
+	check_changes || {		# lest uncommited changes get lost!
+		echo "$emsg"
+		exit 1
+	}
+	n2t_rollback || {
+		echo "Error in n2t_rollback. You will have to proceed manually!"
+		exit 1
+	}
+	echo Starting server after rollback.
+	$apctl start || {		# bring server back up
+		echo Problem starting apache.
+		exit 1
+	}
+	exit
+	;;
+
+test)
+	check_changes || echo "Warning: there are uncommitted changes."
+
+	# Test that the public-facing server is running and can do basic stuff.
+	# NB: do NOT use perl's -Mblib option, which tests UNINSTALLED code.
+	#
+	perl t/post_install_n2t.t
+	exit
+	;;
+
+checkpoint)
+	n2t_checkpoint
+	echo saved revision id $( < .rollback ) in .rollback
+	exit
+	;;
+
+"")
+	usage
+	exit
+	;;
+
+*)
+	echo "Unknown command: $Command"
+	usage
+	exit 1
+	;;
+
+esac
