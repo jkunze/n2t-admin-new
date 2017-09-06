@@ -1,0 +1,13 @@
+#!/bin/env bash
+
+# logscrub: in-place anonymize IP address in given Apache access_log files
+
+# While this doesn't work on error_log files, any such files that we
+# happen to have kept longer than 6 months will have been retained to
+# support business processes.  We normally purge logs older than 6 months.  
+
+perl -pi.orig -e 's/^(?:\d+\.){3}\d+ /12.34.56.78 /' "$@" || {
+	echo NOT OK - error in anonymizing Apache log file
+	exit 1
+}
+echo OK

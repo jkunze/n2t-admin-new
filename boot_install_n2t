@@ -1,0 +1,220 @@
+#!/bin/sh
+
+# Author: John Kunze, jak@ucop.edu
+# Copyright (c) 2013-2014, UC Regents.  BSD-type open source license.
+
+# XXX flag solarisisms??
+# XXX bullet proof against wget failures? eg, outdated cert check?
+# XXX tar z!  wget!   aliases: m, ll, mm, j, etc.
+#  xxx make? ginstall?
+# xxx document dependencies on Bash 4.2 or greater (yyy ginstall?)
+# xxx lesson from noiddev: sync up PATH and LD_LIBRARY_PATH across Mac/solaris
+# xxx Note: remember to copy over .bashrc and have login shell create
+#     a bash instance (on login), or svu won't work
+# XXX [ with puppet, how to specify to only look in certain path parts?
+#   eg, install perl in sv/new even if it exists in ~/local
+# xxx prior work in ~/local on n2tstage
+
+VERSION=0.1			# version of this script
+
+me=boot_install_n2t
+create=n2t_create
+targz=$create.tar.gz
+from=noid@noid-stage.cdlib.org:/noid/n2t_create/$targz
+
+rhodecode=hg.cdlib.org
+local=$HOME/local
+lbin=$local/bin
+svudef='function svu { eval `svu_run "$PS1"\|\|\|b $*`; }'
+
+if [ "$1" != go ]
+then
+cat << EOT
+
+Usage:
+        $me go
+
+This /bin/sh script bootstraps installation of N2T on host H under login L's
+home directory (currently $HOME).  In order to install N2T, you will need
+read access to the mercurial repositories on $rhodecode (below).
+
+Assuming you're logged in as L, add the following to your .bashrc file:
+
+	PATH=\$HOME/local/bin:\$PATH
+	$svudef
+
+You'll need to identify host H's external web name (often different from
+what hostname returns).
+
+	cd
+	mkdir warts
+	cat > warts/env.sh <<- EOTEXT
+	#!/bin/sh
+	HOSTNAME=n2t.example.org
+	export HOSTNAME
+	EOTEXT
+
+XXX yum install hg gcc bison byacc
+XXX cd; hg clone http://$rhodecode/n2t_create
+XXX cd n2t_create; ./boot_install_n2t go > bout 2> berrs
+XXX   svu init; svu new
+XXX   ./make_instance build all
+
+XXXXXXXX may have to yum install patch and do mac patch
+XXXXXXXX gcc -R option not recognized?
+XXXXXXXX may have to yum install perl(ExtUtils/MakeMaker.pm)
+
+To customize L's account for your use, you ("sam") might want to
+
+	$ mkdir $HOME/.profile.d/
+	$ ln -s ~sam/.bashrc $HOME/.profile.d/sam
+	$ cat > $HOME/.profile << EOTEXT
+	whoami=`who -m | awk '{ print \$1 }'`
+	if [ -f ~/.profile.d/\$whoami ] ; then
+		source ~/.profile.d/\$whoami
+	fi
+	EOTEXT
+
+Note that L's \$PATH must support compiling and linking, eg,
+
+    export PATH=\$HOME/local/bin:/usr/sfw/bin:/usr/sfw/sbin:\\
+         /usr/ccs/bin:/usr/local/GNU/bin:/usr/local/edina/bin:\\
+         /usr/local/edina/coreutils/bin:/usr/local/bin:\\
+         /usr/l ocal/edina/jdk1.6.0_25/bin:/usr/X/bin:
+
+The new path component need not exist and will be created if need be.
+The function definition sets up an "svu" command (Service Version Utility)
+that will be created later.  It uses environment variables such as
+PERL_INSTALL_BASE and PERL5LIB, but leaves them unchanged in the end.
+
+If you already have mercurial ("hg") on your system, run
+
+	cd
+	hg clone http://$rhodecode/n2t_create
+
+Otherwise, copy $from into $HOME and
+
+	$ cd
+	$ gunzip -c $targz | tar xf -
+
+Either way you should now see $create in L's home directory.  If you're
+reading this you may have already done most of the above steps.  Now put
+lines _like_ these in \$HOME/.hgrc to automate mercurial fetches.
+
+  [ui]
+  username = Sam Smith <sam@gmail.com>
+
+  [auth]
+  cdl.prefix   = https://hg.cdlib.org
+  cdl.username = sam
+  cdl.password = PPPPPPPP
+
+  [hostfingerprints]
+  hg.cdlib.org = 25:FF:CD:90:D0:E7:56:2F:74:2E:B0:77:2B:A5:2B:6C:4B:A6:76:1E
+
+Finally, boot the installation process with
+
+	$ cd $create
+	$ /bin/sh $me go
+	$ svu rollout
+
+This process will do the following:
+
+   (? a. build and install wget in $lbin )
+   b. fetch, build, and install bash 4.2 in $lbin
+   c. install "svu" and build a tree in \$HOME/sv
+   d. fetch, build, and install in $local ALL necessary
+      software components (python, mercurial, perl, apache httpd, etc.)
+
+EOT
+
+#    export LD_LIBRARY_PATH=/usr/sfw/lib:\\
+#         /usr/sfw/lib/gcc/sparc-sun-solaris2.10/3.4.3:/usr/ccs/lib:\\
+#         /usr/local/GNU/lib:/usr/local/edina/lib:/usr/local/lib:/usr/X/lib
+
+exit 1
+fi
+
+# yyy would be nice if we could rely on mkdir -p being there
+#     for now we have to keep lbin and mkdir args in sync
+(cd					# make sure we're in home directory
+	mkdir local local/bin > /dev/null 2>&1	# make sure we have local/bin
+)
+
+# # Build and install wget.
+# #
+# wgetv=wget-1.13.4
+# 
+# echo =================== building $wgetv ===================
+# if [ ! -d $wgetv ]
+# then
+# 	wgettar=$wgetv.tar.gz
+# 	gunzip -c $wgettar | tar xf -
+# fi
+# 
+# (cd $wgetv
+# 	./configure --prefix=$local --without-ssl
+# 	make
+# 	make install
+# )
+
+#v# # Now fetch bash and build it.
+#v# #
+#v# bashv="bash-4.2.53"
+#v# 
+#v# echo =================== fetching/building $bashv ===================
+#v# if [ ! -d $bashv ]
+#v# then
+#v# 	bashtar=$bashv.tar.gz
+#v# 	if [ ! -f $bashtar ]
+#v# 	then
+#v# 		mirror=http://ftpmirror.gnu.org/bash/
+#v# 		echo fetching $bashtar
+#v# 		wget -nd -q $mirror/$bashtar
+#v# 	fi
+#v# 	gunzip -c $bashtar | tar xf -
+#v# fi
+#v# 
+#v# (cd $bashv
+#v# 	echo Starting configure
+#v# 	./configure --prefix=$local
+#v# 	echo Starting make
+#v# 	make
+#v# 	make install
+#v# )
+
+# Install the svu_run bash script and initialize the SVU skeleton.
+#
+echo =================== initializing SVU ===================
+
+cp -p svu_run $lbin
+chmod 755 $lbin/svu_run
+hash -r			# to make new executable visible
+bash -lc 'svu init'
+if [ "$?" -ne 0 ]
+then
+	echo 'Problem running "svu init".'
+	echo "Did you put $lbin in your PATH?"
+	echo "Did you define the 'svu' function in ~/.bashrc?"
+	echo "   $svudef"
+	exit 1
+fi
+
+echo "finishing without (a) installing bash and (b) run bash -lc"
+exit
+
+# -l says to behave like login shell and, eg, read .bashrc
+bash -lc 'svu new; ./make_instance build all'
+
+# Set up start/stop script (~/init.d/apache)
+mkdir $HOME/init.d > /dev/null 2>&1	# make sure we have ~/init.d
+cp -p apache $HOME/init.d
+chmod 755 $HOME/init.d
+
+echo Done with $me.
+echo 'If the installation looks good, roll it out with "svu rollout"'
+echo \
+  'Before exploring, you will want to do "svu cur" (type just "svu" for help).'
+
+exit 0				# normal exit (success)
+

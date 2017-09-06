@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+function usage {
+	[[ "$1" != "" ]] &&	# if any args are present, treat them
+		echo "$0: $*"	# as an error message to be printed
+	cat << EOT
+Usage: $0 Binder Destination
+
+This script, meant to be run from crontab (see set_crontab), sends the
+given Binder's egg.rlog files to the given Destination.  For example,
+
+	$0 ezid n2t@n2tlx.edina.ac.uk
+
+Binder must name a simple entry (not a path) under ~/binders.
+
+EOT
+}
+
+### check arguments
+
+binder=$1
+dest=$2
+
+[[ "$binder" ]] || {
+	usage No Binder specified.
+	exit 1
+}
+[[ "$dest" ]] || {
+	usage No Destination specified.
+	exit 1
+}
+
+### initialize our environment and working directory
+
+source ~/.bashrc			# define svu
+svu cur > /dev/null			# run svu to get right PATH, etc.
+dbinder="$dest:binders/$binder"
+
+dir=~n2t/sv/cur/build/eggnog
+cd $dir || {
+	echo Could not chdir to $dir.
+	exit 1
+}
+
+sdate=`date`
+export LD_LIBRARY_PATH=''	# xxx temporary kludge to make ssh/scp work
+
+### cull (move) log delta into $dest
+
+rlogf=$( ./replay cull ~n2t/binders/$binder $dest ) || {
+	echo Error in cull of $binder.
+	exit 1
+}
+[[ "$rlogf" ]] || {		# returns filename, or "" if nothing to process
+	echo ok - no rlog file to process
+	exit 0
+}
+
+### copy the culled delta file to remote
+
+# if we get here, we have work to do
+lrpdir=~n2t/binders/$binder/egg.replay		# local
+rrpdir=binders/$binder/egg.replay		# remote
+scp $lrpdir/to_ship/$rlogf $dest:$rrpdir/received/ || {
+	echo Error in scp of $rlogf to $dest.
+	exit 1
+}
+
+#mv $lrpdir/{to_ship,shipped}/$rlogf || {
+cat $lrpdir/to_ship/$rlogf  >>  $lrpdir/shipped/egg.rlog || {
+	#echo Error in moving of $rlogf from to_ship/ to shipped/.
+	echo Error in appending $rlogf from to_ship/ to shipped/egg.rlog.
+	exit 1
+}
+rm $lrpdir/to_ship/$rlogf
+
+echo $sdate $binder rlog $rlogf shipped to $dbinder.
+
+### construct command scriptlet to be processed remotely
+
+# xxx Right after 'play' we restart replica apache because a resolver bug
+#     prevents changes from being seen without it.
+
+rdir=n2t/sv/cur/build/eggnog
+cmd="svu cur; cd ~$rdir;
+	./replay play ~n2t/binders/$binder
+		~n2t/binders/$binder/egg.replay/received/$rlogf || \
+			echo Play error in $rlogf;
+	cat ~n2t/binders/$binder/egg.replay/received/$rlogf >> \
+		~n2t/binders/$binder/egg.replay/played/egg.rlog && \
+			rm ~n2t/binders/$binder/egg.replay/received/$rlogf;
+	~/init.d/apache restart"
+
+#	mv ~n2t/binders/$binder/egg.replay/{received,played}/$rlogf;
+
+#echo would do ssh $dest "$cmd"
+ssh $dest $cmd || echo Error in remote execution of ssh $dest \"$cmd\".
+

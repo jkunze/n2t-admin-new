@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# This script produces a plot of resolution attempts (usually gathered from
+# the production n2t.net instance with "admegn rstat ..."); that data is
+# usually small enough to just copy and paste below.
+#
+# This script requires Python 2.7 and matplotlib (in Jan 2015 only installed
+# on my Mac OS X machine).
+
+#2010 => 608
+
+# Data copy/pasted from production EC2 resolver instance
+eval $( perl -ane 'push @year, $F[0]; push @count, $F[2]; END { print "x=\"", join(",", @year), "\"\n"; print "y=\"", join(",", @count), "\"\n" }' << EOT
+2011 => 6946
+2012 => 30960
+2013 => 215152
+2014 => 1738043
+2015 => 5335852
+EOT
+)
+
+file=foo.png
+
+#ipython << EOT > /dev/null
+ipython << EOT
+import numpy as np
+import matplotlib.pyplot as plt
+import datetime
+
+plt.xkcd()			# give it that XKCD comic look
+x = np.array( [ $x ] )
+y = np.array( [ $y ] )
+plt.text( 2011.4, 3600000,
+	("MILLIONS OF ARK RESOLUTIONS\n" "    via\n" "N2T.NET"), size=18)
+plt.xticks( x, [ '2011', '2012', '2013', '2014', '2015' ] )
+plt.yticks( [ 1000000, 2000000, 3000000, 4000000, 5000000, 6000000 ], [1,2,3,4,5,6] )
+plt.plot(x, y)
+#plt.title('n2t.net resolutions')
+#plt.xlabel('year')
+plt.savefig( "$file" )
+
+EOT
+open $file
+exit

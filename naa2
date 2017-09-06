@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+set -u
+naansfile=~/shoulders/naans/master_naans
+me=$( basename $0 )
+function usage {
+    cat << EOT
+
+SYNOPSIS                          ($0)
+    $me - output NAA entries in another format
+
+USAGE
+    $me Format [ File ]
+
+DESCRIPTION
+
+Output the NAA entries found in File after converting to the given format,
+with only "csv" supported currently.  File defaults to the ARK NAAN registry
+in "$naansfile".
+
+EOT
+}
+
+# Perl script to manipulate $mainout
+#
+read -r -d '' naa2csv << 'EOT'
+
+    use 5.006;
+    use strict;
+    use warnings;
+
+    sub tsvquote { my( $s )=@_;
+        ! $s and
+            return '';
+        $s =~ s/\t/\\t/g;
+        return qq|$s|;
+    }
+
+    sub csvquote { my( $s )=@_;
+        ! $s and
+            return '""';
+        $s =~ s/"/\\"/g;
+        return qq|"$s"|;
+    }
+
+    sub rec_out {
+        my $fmt = shift;
+        my ($delim, $quotefunc);
+        if ($fmt eq 'csv') {
+            $quotefunc = \&csvquote;
+            $delim = ', ';
+        }
+        else {     # else assume 'tsv'
+            $quotefunc = \&tsvquote;
+            $delim = "\t";
+        }
+        print
+            join($delim,
+                map { $quotefunc->($_) } @_);
+        print "\n";
+    }
+
+    my $fmt = shift @ARGV;
+    local $/ = '';              # read paragraph at a time
+    my ($who, $what, $when, $why, $contact);
+    my $delim = ', ';
+
+    rec_out($fmt, "Institution", "Contact info", "Reg date (rev cron)", "Why");
+    #print
+    #    '"Institution", "Contact info", "Reg date (rev cron)", "Why"',
+    #    "\n";
+    while (<>) {
+        #/^erc:.*\nwhen:\s*(\S+)/s and      # skip file description
+        #   print("# Converting input file $naans dated $1\n"),
+        /^erc:/ and             # skip file description
+            next;
+        ! /^[^#]/ and           # skip nothing-but-comment blocks
+            next;
+        ($who, $when, $why) =
+            m/\nwho:\s*(.*?)\n.*when:\s*(.*?)\n.*why:\s*(.*?)\n/s or
+                print(STDERR "Malformed input: $_");
+        ($contact) = m/!contact:\s*(.*)/;
+
+        # The main output
+        rec_out($fmt, $who, $contact, $when, $why)
+    }
+    rec_out( "Ignore last 4 entries",
+        "Some known users: BnF, Portico, IA, UNT, UChicago",
+        "File is in reverse cron order", "" );
+    exit;
+EOT
+
+#==========================
+
+# MAIN
+
+if [[ $# -gt 0 ]]
+then
+    fmt=$1; shift       # first word names the format
+else
+    usage
+    exit 1
+fi
+
+if [[ $# -gt 0 ]]
+then
+    file=$1; shift      # second word names the file to convert
+else
+    file=$naansfile
+fi
+
+[[ -f $file ]] || {
+    echo "Error: cannot open $file" 2>&1
+    exit 1
+}
+
+case $fmt in
+
+csv|tsv)
+    perl -e "$naa2csv" $fmt < $file || {
+        echo "Error: naa2csv failed" 2>&1
+        exit 1
+    }
+    exit
+    ;;
+help|"")
+    usage
+    exit
+    ;;
+*)
+    echo "Error: unknown format: $fmt"
+    usage
+    exit 1
+    ;;
+esac
+

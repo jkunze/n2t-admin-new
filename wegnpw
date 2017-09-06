@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Try to discover a good default while avoiding a .swp file.
+dcfg=$( echo $HOME/warts/.pswdfile.* |
+	perl -pe 's/.*?\.([^.]+)(\.swp)?$/$1/' )
+me=$( basename $0 )
+
+function usage {
+	cat << EOT
+
+SYNOPSIS ($0)
+    $me - fetch an eggnog user's password
+
+USAGE
+    $me User [ Config [ Realm ] ]
+
+DESCRIPTION
+    Return a given eggnog User's password, or the empty string if no such
+    user exists.
+
+    Config is one of "$dcfg" (default) or "web".  If Realm is given, it
+    specifies which "populator" the User belongs to (a User need only be
+    unique within one populator Realm).  Realm and User name are often
+    synonymous, as in the cases of "ezid", "oca", and "yamz".
+
+EOT
+}
+
+[[ "$1" ]] || {		# if no args print usage info and exit
+	usage
+	exit 0
+}
+
+cfg=$dcfg		# initialize config with the default
+[[ $2 ]] &&		# if there are at least two args
+	cfg=$2
+user=$1
+realm=$user		# initialize realm with the default
+[[ $3 ]] &&		# if there are at least three args
+	realm=$3
+
+# Pick up whatever SVU mode may be in effect for the caller.
+#
+svumode=$( sed 's/^[^:]*://' <<< $SVU_USING )
+[[ "$svumode" ]] ||
+	svumode=cur		# if none, default to "cur"
+
+# Identify the build_server_tree to use to get our server's context.
+# Kludgy: this is a client depending on a resident server config.
+#
+egnsrc=$HOME/sv/$svumode/build/eggnog
+bst=$egnsrc/build_server_tree
+bstcfg=$HOME/sv/$svumode/build/eggnog/t
+
+pswdfile=$( cd $egnsrc; $bst which_pswdfile $cfg )
+
+[[ "$pswdfile" ]] || {
+	echo "error: no password information found for $cfg" 1>&2
+	exit 1
+}
+
+# The main event, auto-splitting fields on tab.
+#
+perl -F'\t' -ane "/\tpwdfile_$realm/ and \"\$F[2]\" eq $user and " \
+	-e "(\$F[3] =~ s/ *\\\\\n/\n/, print(\$F[3]))" \
+		$pswdfile
+
+exit

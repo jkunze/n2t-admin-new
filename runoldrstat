@@ -1,0 +1,29 @@
+#!/bin/bash
+#
+# This is a starter script for analyzing old resolution logs going back
+# to possibly 2006, when IA started minting from noid.  Real resolution
+# may not start until 2010 or 2011.
+#
+# NOTE: this does not use the newer transaction_log format begun in 2015,
+# which "admegn rstat ..." does recognize.
+
+logdir=/apps/n2t/sv/cv2/apache2/logs
+#pattern=ark:/47881/		# individual NAN query
+#pattern='GET\s/ark:'
+pattern='ark:/85065/d7wd3xhc'
+
+noidlog=$logdir/noid_logs/anonoid.access_log.060711_150630
+n2preprodlog=$logdir/n2preprod_logs/anon.access_log.to_2015Dec2
+n2tprdlog=$logdir/n2tprd_logs/anon.n2tprd_access_log.2015.02.15-2015.07.02
+awsAugDec2015log=$logdir/anon.alog2015.08.06-2015.12.30	# missing July?
+
+logs=( $noidlog $n2preprodlog $n2tprdlog $awsAugDec2015log )
+
+#for i in ${logs[@]}
+#do
+#	echo === $i ===
+#	./admegn rstat "$pattern" $i
+#done
+
+echo === all in one ===
+./admegn rstat "$pattern" ${logs[@]}

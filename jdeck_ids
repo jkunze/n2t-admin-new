@@ -1,0 +1,3 @@
+./gnog ark:/21547/R2.set _t http://biocode.berkeley.edu/specimens/
+./gnog ark:/21547/S2.set _t http://biocode.berkeley.edu/events/
+./gnog ark:/21547/Q2.set _t http://biocode.berkeley.edu/tissues/

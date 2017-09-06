@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+if [[ "$1" != go ]]
+then
+
+	cat << EOT
+Usage: $0 go
+
+Adds to a brand new minimal package EC2 instance those packages that N2T
+needs to be able to run.  Assumes your hg repos have the latest revisions
+that you want to run.
+
+EOT
+	exit 1
+fi
+
+cat > ~/.hgrc << EOT
+
+[ui]
+username = John Kunze <jak@ucop.edu>
+merge=internal:merge
+
+[auth]
+cdl.prefix   = https://bitbucket.org
+cdl.username = jak
+# but normally from repo's .hg/hgrc file we use ssh://hg@bitbucket.org/cdl/...
+
+EOT
+
+# I I check into (thinking Perl) installonlypkgs ("man yum.conf")
+
+sudo yum -y group install "Development Libraries"
+sudo yum -y group install "Development Tools"   # gcc
+sudo yum -y group install "Web Server"          # mod_ssl, ExtUtils/MakeMaker
+sudo yum -y install hg
+sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
+sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
+sudo yum -y install 'perl(Time::HiRes)'
+sudo yum -y install 'perl(Log::Log4perl)'
+sudo yum -y install mongodb-org
+# on mac, need: brew install mongodb --with-openssl
+sudo yum -y install telnet	# for network testing, eg, mongo replication
+rpm -V mongodb-org || {			# because it has gpgcheck disabled
+	sudo yum -y remove mongodb-org
+	echo error: mongodb-org installation failed to verify -- aborting.
+	exit 1
+}
+sudo yum -y install 'perl(App::cpanminus)'
+
+# XXX should confirm that these next are still needed
+# This next installs python's lxml module so that the mdsadmin script
+# (that creates DataCite datacenters) can run.
+sudo yum -y install libxml2-devel libxslt-devel python-devel
+sudo yum -y install libxml2-python libxslt-python python-pip
+pip install --install-option="--prefix=$sv" lxml
+# To use this module, .bashrc sets PYTHONPATH to something like
+# PYTHONPATH=$sv/lib64/python2.6/dist-packages
+
+#hg clone http://hg.cdlib.org/n2t_create
+hg clone ssh://hg@bitbucket.org/cdl/n2t_create
+cd n2t_create
+make			# sets up svu defs; runs "svu init"
+
+# xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
+source ~/.bashrc	# so we can do svu new
+svu new
+./make_instance build mongodb_pm httpd n2t 2>&1 > berrs
+
+svu rollout	# ok as no users yet, and this puts everything of interest
+		# under the 'cur' version, our default logged-in state
+svu cur		# now make sure that instance is in effect yyy needed?
+
+set_crontab go		# takes care of crontab tests
+n2t rollout		# takes care of dvscid test
+n2t test		# test that things are more or less ok
+
+echo 'Now grab and install warts/.pswdfile.n2t from another system.'
+echo 'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
+and set up chkconfig so that the N2T service comes up on machine (re)boot.'
+echo 'Also, ask for a Nagios web service monitor to be set up.'
+
+echo To switch between two main utility directories, use '"cd $sn; pd $se"'.
+echo
+

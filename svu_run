@@ -1,0 +1,752 @@
+#!/usr/bin/env bash
+
+# XXXXXX need way to return exit status up through eval, eg, currently
+#   we uselessly check return from 'svu_run init'
+
+# Author: John Kunze, jak@ucop.edu
+# Copyright (c) 2012-2015, UC Regents.  BSD-type open source license.
+
+VERSION=0.1			# version of this script
+SVU_HOME=${SVU_HOME:-~}		# default is to put sv below ~
+svd=$SVU_HOME/sv			# service version directory
+sv_nt=\$SVU_HOME/sv		# service version dir, no tilde expansion
+
+# Designed to be called from an eval, this script outputs shell commands.
+# To make simple output easier than echoing an "echo" command and double-
+# quoting everything, we output to a temp file ($out) that we later 'cat'.
+# Next, create the temp file and the function to append output to it.
+#
+out=`mktemp /tmp/svu.XXXXX`
+#out=bar; cp /dev/null $out
+
+# Use 'ec' function to deliver messages to the user.  Use 'echo' inside
+# functions that deliver output via $( this ).
+#
+function ec { echo "$*" >> $out ; }
+
+svu_vars='sv SVU_USING SVU_SAVED_PATH SVU_SAVED_PS1 SVU_SAVED_PERL5LIB'
+svu_vars+=' SVU_SAVED_LD_LIBRARY_PATH SVU_SAVED_PERL_INSTALL_BASE'
+env_vars='PERL5LIB LD_LIBRARY_PATH PERL_INSTALL_BASE'
+
+# Now set a trap upon exit to run any commands accumulated in $cmds,
+# print any output accumulated in $out, and remove the temp file.
+# When adding to $cmds, remember to terminate each cmd with ';'.
+#
+cmds=			# global
+trap 'echo "$cmds"'" '[[ -s $out ]] && cat $out; rm -fr $out'" EXIT
+#ec "`trap -p`"
+
+# I can't figure out how to save parameter $1 (supplied as $PS1) in a way
+# that saves the spaces and \'s intact.  But $* behaves fine, and this next
+# trick works.  That value is terminated by "|||b", a rarely occurring
+# string, which we use to delimit the other arguments, and absence of which
+# means there's an error.  Maybe one day we'll recognize a 'c' instead of
+# 'b' on the end, indicating that we're to output C shell commands instead
+# of bash commands.
+#
+#ec args: $*
+[[ $* =~ ^(.*)\|\|\|([^\ ]+) ]] || {
+
+	# If "|||b" isn't in the arg list, assume that we were _not_ called
+	# by 'eval', and so we now output messages directly with "echo".
+	# The second subexpression, ${BASH_REMATCH[2]}, is currently unused
+	# here; it should contain 'b' for bash, but might one day contain,
+	# say 'c', if we wanted to support output of C shell commands.
+	#
+	trap - EXIT
+	echo \
+'This is meant to be run via a bash function, defined (eg, in .bashrc) as
+
+   function svu { eval `./svu_run "$PS1"\|\|\|b $*`; }
+
+ and where svu_run is in your PATH.  Do "svu help" for more information.
+
+'
+	#    function svu { eval `./svu_run "$PS1"\|\|\|b $*`; }
+	#    This should be the same function used in testsvu.
+	exit 1
+}
+ps1=${BASH_REMATCH[1]}		# $ps1 will be non-null in an interactive shell
+#ec ps1 is $ps1
+#
+# Once we've harvested all that we need from first pseudo arg, drop it.
+#
+shift		# drop first arg
+
+npool=10		# number of directories we'll keep around
+(( npm1=$npool - 1 ))	# npool minus 1
+
+hnew=new hcur=cur hold=old
+new=$svd/$hnew cur=$svd/$hcur old=$svd/$hold
+
+# Checks that all is in order before we do anything to make it worse.
+#
+function check_dirs {
+
+	local i l c
+	c=check
+	if [[ ! -d $svd ]]
+	then
+		ec "no $svd directory; \"init\" will create it"
+		return 1
+	fi
+	for (( i=0; $i < $npool; i++ ))
+	do
+		if [[ ! -d $svd/cv$i ]]
+		then
+			ec "$c: no $svd/cv$i directory"
+			return 1
+		fi
+	done
+	for i in $new $cur $old
+	do
+		if [[ ! -L $i ]]
+		then
+			ec "$c: $i isn't a symbolic link"
+			return 1
+		fi
+	done
+
+	# Capture the directory name that's the target of each link.
+	#
+	cvn_name=$(readlink $new)
+	cvc_name=$(readlink $cur)
+	cvo_name=$(readlink $old)
+
+	for l in cvn cvc cvo
+	do
+		lname=${l}_name
+		linkname=${!lname}	# value of the variable held in lname
+		if [[ ! $linkname =~ ^$svd/cv([0-9]+)$ ]]
+		then
+			ec "$c: link $linkname isn't of the form $svd/cv[0-9]+"
+			return 1
+		fi
+
+		# Save link number captured by first sub-pattern, creating
+		# 3 globals (cvn_num, cvc_num, cvo_num) we use in swapping.
+		#
+		(( ${l}_num=${BASH_REMATCH[1]} ))
+	done
+	if [[ $cvn_num == $cvc_num || $cvn_num == $cvo_num
+			|| $cvc_num == $cvo_num ]]
+	then
+		ec "$c: error: the $new, $cur, and $old"
+		ec "directories must point to 3 different code version"
+		ec "directories, but don't; they point to "
+		ec "$cvn_num, $cvc_num, and $cvo_num."
+		return 1
+	fi
+	#ec nums $cvn_num $cvc_num $cvo_num
+}
+
+# xxx allow user arg to change value of npool
+function init {
+
+	local i
+	mkdir $svd
+	for (( i=0; $i < $npool; i++ ))
+	do
+		mkdir $svd/cv$i $svd/dv$i
+		echo "Placeholder for symlink to a ../dvN data directory." \
+			> $svd/cv$i/dv
+	done
+	for i in $new $cur $old
+	do
+		if [[ -L $i ]]		# remove old remnants, if any
+		then
+			ec removing $i
+			rm $i
+		fi
+	done
+	ln -s $svd/cv0 $old
+	ln -s $svd/cv1 $cur
+	ln -s $svd/cv2 $new
+
+	cat > $svd/README <<-EOF
+This directory was created by calling "svu init".  It holds service
+versions that can easily be rolled out or rolled back.  The Namaste tag
+file, 0=svu_$VERSION, identifies the directory type as "svu", version $VERSION.
+	EOF
+	cat > $svd/0=svu_$VERSION <<-EOF
+	dir_type: svu_$VERSION
+	EOF
+	ec "created $npool code and data version directories in $svd:"
+	ls -C $svd >> $out
+	ls -l $svd/{new,cur,old} >> $out
+}
+
+# Returns next version number
+#
+function bump_up {	# expects a single positive integer argument
+
+	local n i=$1
+
+	(( n=($i + 1) % $npool ))
+
+	if [[ $n == $i || ! "$n$i" =~ ^[0-9][0-9]+$ ]]
+	then
+		echo "error: bad bump_up input ($i) or output ($n)"
+		return 1
+	fi
+	echo $n
+}
+
+# Returns previous version number
+#
+function bump_down {	# expects a single positive integer argument
+
+	local n i=$1
+
+	# Note: add $npool before arithmetic to take care of numbers going
+	# negative (we need them to be positive).
+	#
+	(( n=($i + $npool - 1) % $npool ))
+
+	if [[ $n == $i || ! "$n$i" =~ ^[0-9][0-9]+$ ]]
+	then
+		echo "error: bad bump_down input ($i) or output ($n)"
+		return 1
+	fi
+	echo $n
+}
+
+# Check that version number given as argument is valid
+#
+function checkv {
+	local num=$1
+	if [[ ! $num =~ ^[0-9]+$ ]]
+	then
+		echo "error: new target version ($num) not a positive integer"
+		return 1
+	fi
+	if [[ ! -d $svd/cv$num ]]
+	then
+		echo "error: new target directory ($svd/cv$num) doesn't exist"
+		return 1
+	fi
+	echo $num	# return the input arg if it checks out
+}
+
+# Expects integer args to name new target version dirs in this order:
+#    new, current, old
+#
+function swap_nco {
+	local n c o
+	# on failure, checkv returns an error message to deliver
+	n=$(checkv $1) || { ec $n; return 1; }
+	c=$(checkv $2) || { ec $c; return 1; }
+	o=$(checkv $3) || { ec $o; return 1; }
+
+	# The big moment.
+	#
+	rm $new $cur $old
+	ln -s $svd/cv$n $new
+	ln -s $svd/cv$c $cur
+	ln -s $svd/cv$o $old
+
+	# Talk about it.
+	#
+	#ec "links swapped:	$hcur	$hnew	$hold"
+	#ec "     now: 	cv$c	cv$n	cv$o"
+	#ec "    before:	cv$cvc_num	cv$cvn_num	cv$cvo_num"
+	ec "links swapped: cv$c is now $hcur and cv$n is $hnew"
+}
+
+function swap {
+
+	# First call "check" to set 3 global vars (cvn_num, cvc_num, cvo_num)
+	# and because we'll refuse to proceed if things don't make sense.
+	# Also check that the SVU environment is self-consistent.
+	#
+	check_dirs || return 1
+	check_sanity || exit 1
+
+	[[ $SVU_USING =~ .*:(.+) ]] && {	# if any mode is in effect
+		mode_orig=${BASH_REMATCH[1]}	# isolate and save it
+		arg=unknown
+		[[ $1 == up ]] &&	arg=rollout
+		[[ $1 == down ]] &&	arg=rollback
+		#svu off	# turn off mode to avoid trouble during swap
+		cmds="svu off; svu $arg; svu $mode_orig;"
+		exit 0		# go back, turn it off, swap, then turn it on
+	}
+
+	direction=${1:-up}
+	local n c o
+	# on failure, bump_up/down return an error message to deliver
+
+	case $direction in
+
+	(up)
+		n=$(bump_up $cvn_num) || { ec $n; return 1; }
+		c=$(bump_up $cvc_num) || { ec $n; return 1; }
+		o=$(bump_up $cvo_num) || { ec $n; return 1; }
+		swap_nco $n $c $o
+		;;
+	(down)
+		o=$(bump_down $cvo_num) || { ec $n; return 1; }
+		c=$(bump_down $cvc_num) || { ec $n; return 1; }
+		n=$(bump_down $cvn_num) || { ec $n; return 1; }
+		swap_nco $n $c $o
+		;;
+	(*)
+		ec "swap got bad direction ($direction)"
+		return 1
+		;;
+	esac
+}
+
+function command_summary {
+	cat << EOT >> $out
+Commands:
+
+   svu new       set service version to "new" (or to "cur" or "old")
+   svu off       restore the pre-svu environment
+   svu status    print numeric and symbolic service versions (eg, "cv2 new")
+   svu rollout   make the "new" svu service visible to external users  
+   svu rollback  make the "old" svu service visible to external users
+
+   svu help      show the service version utility (SVU) documentation
+   svu init      establish fresh svu service version and code directories
+   svu reinit    like init, but clobber any existing svu directories
+   svu test      run tests to see if things are basically in order (admin)
+   svu reset     in case of panic, clean up SVU* environment variables (admin)
+
+EOT
+}
+
+svudef='function svu { eval `svu_run "$PS1"\|\|\|b $*`; }'
+
+function usage {
+	if [[ "$1" != "" ]]
+	then				# if any args are present, treat them
+		ec "svu: $*"		# as an error message to be printed
+	fi
+
+	cat << EOT >> $out
+The "svu" (service version utility) command is a bash shell function (see
+Setup below) that modifies a shell environment to support the SVU service
+model.  That model provides filesystem naming conventions to permit build,
+install, and admin operations on a code base with all its dependencies to
+be isolated in distinct service versions, and it makes it easy to switch
+between versions.  The following version name semantics are assumed:
+
+   new    newest ("on deck") service version
+   cur    current ("live" externally visible) service version -- careful!
+   old    old (previous "cur") service version
+
+Mechanisms for making the current version "live" or "externally visible",
+such as server boot on a particular port, are purely the responsibility of
+the user.  "svu" has no knowledge of or role in service startup or shutdown,
+and merely modifies the filesystem view by users of the three version names,
+generally, someone initiating admin operations.  Build and install operations
+should _not_ these switchable service names, but prefer the more stable "code
+version" names (see SVU directory structure).
+
+Environment variables in the caller's bash shell affected by "svu" are:
+
+   PATH               by adding to the head of the search path
+   LD_LIBRARY_PATH    similar to how PATH is modified
+   PERL5LIB           replaces this and PERL_INSTALL_BASE, useful in, eg,
+   PERL_INSTALL_BASE  "perl Makefile.PL INSTALL_BASE=\$PERL_INSTALL_BASE"
+   PS1                in an interactive shell, adds to the prompt string
+   sv                 handily set to full path of current service version
+
+For example, if a .bashrc file's default settings include,
+
+   alias mkperl='perl Makefile.PL INSTALL_BASE=$PERL_INSTALL_BASE'
+   export PERL_INSTALL_BASE=~/local     # changed and restored by svu
+   export PERL5LIB=~/local/lib/perl5    # changed and restored by svu
+
+doing "svu new" will change these settings so that a subsequent "svu off"
+will completely restore them.  While "svu new" is in effect, your bash
+prompt will reflect that.
+
+EOT
+command_summary
+	cat << EOT >> $out
+Typical usage pattern:
+
+The "svu" command is designed for testing, preparation, and rolling out/back
+of service versions.  Be warned that when "cur" is in effect, any builds
+will effect the external system.  When configuring code builds, USE THE
+NUMERIC form (eg, \$sv) rather than the symbolic form (eg, "cv2" over "new")
+so that code won't break after a rollout or rollback.
+
+   svu new
+   pushd \$sv/build
+   ... in new environment, import changes, build, and test ...
+      stop_it		# user does svu rollout step after service shutdown
+      svu rollout	# this changes the filesystem view of world
+      start_it		# and restarts service afterwards
+   svu cur
+   ... in live external environment, test again just to be sure ...
+   svu off
+   ... done if all went well; if not, consider "svu rollback" ...
+
+SVU directory structure:
+
+An svu service version (eg, cur) is intended to be a directory containing all
+dependencies; in fact it can hold and point to anything you want, with the
+understanding that switching versions amounts to swapping these symlinks,
+
+   $svd/$hnew   symlink to the newest ("on deck", N) version
+   $svd/$hcur   symlink to the current ("live externally visible", N-1) version
+   $svd/$hold   symlink to the old (previous "cur", N-2) version
+
+that point, respectively, into a sequence of "code version" directories
+numbered N (new), N-1 (cur), and N-2 (old).  The underlying directories are
+
+   $svd/cv0/, $svd/cv1/, ..., $svd/cv$npm1/
+
+After initializing, N should equal 2 to start with.
+
+An "svu rollout" (or rollback) shifts the symlinks higher (lower) in the
+sequence.  The sequence is circular in that a symlink shifts from $npm1
+to 0 when rolling out, and from 0 to $npm1 when rolling back.  Many integrity
+checks are done, all of which must pass before shifting proceeds.
+
+A code version directory holds such things as source code repository (more
+for cloning rather than as a center of development), binaries, web server,
+config files, eg,
+
+    .hg/, apache/, bin/, lib/, man/, tmp/, etc.
+
+A code repo is often useful for building and final debugging of a service
+version.  Other dependencies are your responsibility to manage, a big class
+of which is data; it may be convenient to name data versions (_not_ swapped
+by this script) similarly, eg, (caveat: this is not tested or worked out)
+
+   $svd/dv0/, $svd/dv1, $svd/dv2, ...
+
+Setup:
+
+Insert this line into a bash shell startup file (eg, .bashrc),
+
+   $svudef
+
+and make the "svu_run" script executable and visible to your \$PATH, eg,
+
+   $ cp svu_run \$HOME/local/bin
+   $ chmod 755 \$HOME/local/bin/svu_run
+
+assuming something like PATH=\$HOME/local/bin:\$PATH in your startup file.
+EOT
+}
+
+# Get the "cv." directory matching the symbolic form (new, cur, old)
+# given as first arg.
+#
+function sym2num {
+	local line
+	line=$( ls -l $svd/$1 2> /dev/null )
+	[[ $line =~ -\>\ +$svd/(cv[0-9])/*$ ]] && {
+		echo ${BASH_REMATCH[1]}
+		return 0
+	}
+	echo ""
+	return 1
+}
+
+# Basic sanity check that our auxilliary $SVU_* variables are set sensibly.
+#
+num_form=		# global pulled from prompt
+num_from_sym=		# global set by sym2num
+function sanity {
+
+	[[ ! $SVU_USING$SVU_SAVED_PATH$SVU_SAVED_LD_LIBRARY_PATH &&
+			! $SVU_SAVED_PERL5LIB$SVU_SAVED_PERL_INSTALL_BASE ]] &&
+		return 0	# if nothing's set, leave early, sanity intact
+
+	[[ ! $SVU_USING || ! $SVU_SAVED_PATH ]] &&
+		return 1	# if something's set, then all should be set
+
+	# Something's set, so now make sure the working counterparts of
+	# the SVU* variables have something we can work with, namely,
+	# each contains one of new|cur|old.  If an interactive shell
+	# (if $ps1 is non-null), the mode should be in $ps1 as well.
+	#
+	[[ ! $SVU_USING =~ ^(cv[0-9]):(new|cur|old)$ ]] &&
+		return 2	# problem: must be known pattern
+	num_form=${BASH_REMATCH[1]}			# eg, cv5
+	num_from_sym=$( sym2num ${BASH_REMATCH[2]} ) ||
+		return 12
+	[[ $num_from_sym != $num_form ]] && 
+		return 3	# problem: symbolic doesn't match numeric
+	[[ ! $PATH =~ ^[^\ ]*/sv/$num_form[^:]*: ]] &&
+		return 4	# problem: mode not present at head of path
+	[[ $LD_LIBRARY_PATH &&		# this might not have been set
+			! $LD_LIBRARY_PATH =~ ^[^\ ]*/sv/$num_form[^:]*: ]] &&
+		return 5	# problem: mode not present at head of path
+	[[ $PERL5LIB &&		# this might not have been set
+			! $PERL5LIB =~ ^[^\ ]*/sv/$num_form ]] &&
+		return 6	# problem: mode not present
+	[[ $PERL_INSTALL_BASE &&		# this might not have been set
+			! $PERL_INSTALL_BASE =~ ^[^\ ]*/sv/$num_form ]] &&
+		return 7	# problem: mode not present
+
+	# $PS1 is tricky.  We needed a trick to pass it in (as $ps1) and
+	# we don't want to mess with it if it wasn't there to begin with.
+	# Recall that [[ $ps1 ]] tests if caller's shell is interactive.
+	#
+	[[ $ps1 && ! $ps1 =~ \[svu\ $SVU_USING\]\  ]] &&
+		return 9	# problem: prompt doesn't end "[svu cvN:mode] "
+
+	return 0
+}
+
+# Use our caller's function for testing with testsvu.
+#
+function svu { eval `svu_run "$PS1"\|\|\|b $*`; }
+
+# Call with pattern to count as first arg
+function pathcount {
+
+	pcount=$(echo $PATH | tr : \\n | grep -c "$1")
+	lcount=$(echo $LD_LIBRARY_PATH | tr : \\n | grep -c "$1")
+	[[ $pcount == $lcount ]] && {
+		echo $pcount
+	} ||
+		echo "pcount ($pcount) different from lcount ($lcount)"
+	# yyy add checks for PERL5LIB and PERL_INSTALL_BASE ?
+}
+
+# Call as "testv S N M", where S is a service name and N is a number of
+# instances of S that should now be in $PATH, and M is a test title.
+#
+function testv {
+
+	svu $1 > /dev/null
+	num_from_sym=$( sym2num $1 )
+	count=$(pathcount $svd/$num_from_sym)
+	[[ $2 > 0 && ! $LD_LIBRARY_PATH ]] && {
+		ec "not ok (LD_LIBRARY_PATH) - $3"
+		return
+	}
+	[[ $2 > 0 && ! $PERL5LIB ]] && {
+		ec "not ok (PERL5LIB) - $3"
+		return
+	}
+	[[ $2 > 0 && ! $PERL_INSTALL_BASE ]] && {
+		ec "not ok (PERL_INSTALL_BASE) - $3"
+		return
+	}
+	[[ "$count" != $2 ]] && {
+		ec "not ok - $3"
+		ec "$count"
+		return
+	}
+	ec "ok - $3"
+}
+
+# This function takes no args.
+function testsvu {
+
+	#base=$( echo $PATH | tr : \\n | grep -c "$svd/(new|cur|old)" )
+	#base=$(pathcount "$svd/(new|cur|old)")
+	base=$(pathcount "$svd/cv[09]+")
+	[[ $base > 0 ]] && {
+		ec \
+	    "You currently have an svu service version in your PATH ($PATH)."
+	    	ec 'Please remove it before testing (eg, "svu off").'
+		return 1
+	    # XXX check for more than one, suggest remedy if in trouble
+	}
+	testv new 1 'set service version "new"'
+	testv new 1 're-set service version "new"'
+	testv cur 1 'set service version "cur"'
+	testv old 1 'set service version "old"'
+	testv old 1 're-set service version "old"'
+	testv off 0 'turned off any service version'
+	testv off 0 're-turned off any service version'
+	testv new 1 're-set service version "new"'
+	testv off 0 're-turned off any service version'
+	return 0
+}
+
+function check_sanity {
+
+	sanity && return 0		# check basic sanity
+
+	# There's a problem if we get here.
+	# xxx improve these messages
+	ec Panic $?: either all or none of these should be set:
+	ec "   SVU_USING: $SVU_USING"
+	ec "   SVU_SAVED_PATH: $SVU_SAVED_PATH"
+	ec "num_form is $num_form, num_from_sym is $num_from_sym"
+	# PS1 won't be set in a non-interactive shell
+	#ec "   SVU_SAVED_PS1: $SVU_SAVED_PS1"
+	#ec "   SVU_SAVED_LD_LIBRARY_PATH: $SVU_SAVED_LD_LIBRARY_PATH"
+	return 1
+}
+
+# main
+#
+case $1 in
+
+(off|new|cur|old)		# common cases drop out through the bottom
+	;;
+(rollout)
+	swap up
+	exit $?
+	;;
+(rollback)
+	swap down
+	exit $?
+	;;
+(check)
+	check_dirs || exit 1
+	ec "Service version directory \"$svd\" looks ok."
+	check_sanity || exit 1
+	ec "Service version environment variables look ok."
+	exit $?
+	;;
+(reinit)
+	# xxx bug: do svu new; svu reinit; --> prompt not restored
+	cmds="svu off; svu reset;"	# upon exit, turn off any mode now set
+	mkdir ${svd}bak > /dev/null 2>&1
+	rm -fr ${svd}bak
+	mv $svd ${svd}bak
+	ec "saved old copy in ${svd}bak"
+	init
+	exit $?
+	;;
+(init)
+	check_dirs && {
+		ec "Service versions exist; do \"reinit\" to overwrite"
+		exit 1
+	}
+	init
+	exit $?
+	;;
+('')		# default if no argument
+	command_summary
+	exit 0
+	;;
+(help)
+	usage $msg
+	exit 0
+	;;
+(test)			# (admin) run some tests and report
+	testsvu
+	exit $?
+	;;
+(reset)			# (admin) bring sanity to SVU* auxilliary variables
+	cmds+="
+		unset ${svu_vars[*]};
+	"
+	ec resetting
+	exit 0
+	;;
+(st|sta|stat|statu|status)
+	ec $( echo ${SVU_USING:--:off} | sed 's/:/ /g' )
+	exit 0
+	;;
+
+(*)
+	msg=${1:+"$1: unknown argument"}
+	usage $msg
+	exit 1
+	;;
+esac
+
+# If we've fallen through to here, we have one of these subcommands:
+#    off, new, cur, old
+
+check_sanity || exit 1		# exit if basic sanity can't be established
+
+check_dirs || {
+	ec "No service version directories exist yet; use \"init\" to create"
+	exit 1
+}
+
+# Eliminate the no-change cases and exit.
+#
+mode=$1
+[[ $SVU_USING && $SVU_USING =~ $mode$ ]] && {
+	ec "ok ('$mode' still in effect)"
+	exit 1
+}
+[[ ! $SVU_USING && $mode == off ]] && {
+	ec "ok (still 'off')"
+	exit 1
+}
+
+cmds="export ${svu_vars[*]} ${env_vars[*]};"		# initialize $cmds
+
+# If no service is currently in effect, we'll start by saving
+# the current PATH and PS1 settings that we're going to change.
+# Recall that the $cmds are not executed until this script exits,
+# so new value assignments are deferred until the next run and
+# aren't immediately available.
+#
+[[ ! $SVU_USING ]] && {		# IF no service is in effect
+	cmds+="
+		SVU_SAVED_PS1='$ps1';
+		SVU_SAVED_PATH=$PATH;
+		SVU_SAVED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH;
+		SVU_SAVED_PERL5LIB=$PERL5LIB;
+		SVU_SAVED_PERL_INSTALL_BASE=$PERL_INSTALL_BASE;
+	"
+	SVU_SAVED_PS1=$ps1	# save value for immediate re-use below
+	SVU_SAVED_PATH=$PATH				# ditto
+	SVU_SAVED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH	# ditto
+	SVU_SAVED_PERL5LIB=$PERL5LIB			# ditto
+	SVU_SAVED_PERL_INSTALL_BASE=$PERL_INSTALL_BASE	# ditto
+
+} || {		# ELSE a service is in effect, so restore old settings
+
+	# If we get here, the mode is already set and it is to change.
+	# First restore the old settings (just as if the new $mode == off).
+	# If the new $mode actually is 'off', we'll be done (exit 0).
+	# Otherwise, we drop through as if entering the new mode from 'off'.
+	#
+	[[ $ps1 ]] && {		# if interactive shell, restore prompt
+		cmds+="
+			PS1='$SVU_SAVED_PS1';
+		"
+		ps1=$SVU_SAVED_PS1	# from non-deferred assignment
+	}
+	cmds+="
+		PATH=$SVU_SAVED_PATH;
+		LD_LIBRARY_PATH=$SVU_SAVED_LD_LIBRARY_PATH;
+		PERL5LIB=$SVU_SAVED_PERL5LIB;
+		PERL_INSTALL_BASE=$SVU_SAVED_PERL_INSTALL_BASE;
+	"
+	# These next are from non-deferred assignment.
+	PATH=$SVU_SAVED_PATH
+	LD_LIBRARY_PATH=$SVU_SAVED_LD_LIBRARY_PATH
+	PERL5LIB=$SVU_SAVED_PERL5LIB
+	PERL_INSTALL_BASE=$SVU_SAVED_PERL_INSTALL_BASE
+
+	[[ $mode == off ]] && {
+		cmds+="
+			unset ${svu_vars[*]};
+		"
+		ec ok
+		exit 0
+	}
+}
+#
+# If we get here, $mode is one of: new, cur, or old.
+
+# Recall that these saves won't occur until we exit, and we need $PATH
+# to have the value that it will have then, not the value it has now.
+#
+num_from_sym=$( sym2num $mode )
+cmds+="
+	sv=$SVU_HOME/sv/$num_from_sym
+	SVU_USING=$num_from_sym:$mode;
+	PATH=$SVU_HOME/sv/$num_from_sym/bin:$PATH;
+	LD_LIBRARY_PATH=$SVU_HOME/sv/$num_from_sym/lib:$LD_LIBRARY_PATH;
+	PERL5LIB=$SVU_HOME/sv/$num_from_sym/lib/perl5;
+	PERL_INSTALL_BASE=$SVU_HOME/sv/$num_from_sym;
+"
+[[ $ps1 ]] && {		# if calling shell is interactive, edit its prompt
+	cmds+="
+		PS1='$ps1[svu $num_from_sym:$mode] ';
+	"
+}
+#
+# End

@@ -1,0 +1,32 @@
+# n2t crontab file -- prd version
+
+MAILTO=jak@ucop.edu
+
+# Every 2 mins Mon-Sat check local resolution is working.  If not, an alert
+# email is sent and apache restarted; this mitigates the "off-by-one" error.
+# We rely on "admegn rcheck" to send an email on failure and then exit with
+# non-zero status, which we test (via ||) to trigger an apache restart.  Do
+# the same on Sunday, but take a break during our maintenance window.
+#
+*/2 * * * 1-6 bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
+
+# On Sunday, do resolution check except in 8:00-8:59am window.
+#
+*/2 0-7,9-23 * * 0 bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
+
+# Replication
+# xxx 2016.11.19_12:46 turning off replication to help ease swap problem
+#*/6 * * * * local/bin/replicate ezid n2tlx.edina.ac.uk >> logs/replicate_log 2>&1
+
+# xxx enable after next admegn install
+## Check for critical patches pending
+#15 2 * * * bash -lc "admegn patch_check $MAILTO"
+
+# Backup twice daily -- first time with rotation, second time without.
+# Use bash -l so "svu cur" is in effect and ~/local/bin is in the PATH.
+37 2 * * * bash -lc "admegn backup; admegn backup_rotate" >> logs/backup_log 2>&1
+37 14 * * * bash -lc "admegn backup" >> logs/backup_log 2>&1
+
+#### Sundays at 4:03 am, delete log files older than 6 months.
+03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
+

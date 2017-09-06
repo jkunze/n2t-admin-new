@@ -1,0 +1,41 @@
+This is the home directory of the N2T service and n2t role account.
+
+To administer the N2T service, use init.d/apache.n2t.  Examples:
+
+    init.d/apache.n2t status
+    init.d/apache.n2t restart
+    init.d/apache.n2t stop
+    init.d/apache.n2t start
+
+Various tools are in ~/local/bin, including a web client for testing this
+the eggnog software supporting N2T.  Type "weggnog" to read about that.
+
+The running service is found in sv/cur ("service version -- current").
+Other "service versions" can be found in, for example, sv/new and sv/old.
+Type "svu" to read about it.
+
+At almost all times, "svu cur" should be in effect; you'll know that when
+you see something like "[svu cv2:cur]" in your prompt.  The environment
+and shell variable, $sv (yes, lowercase), expands to the current "svu"
+directory.  All service versions are highly parallel, with the web server
+always in $sv/apache2.
+
+The big exception is the instance-unique data stored in the minters,
+binders, and shoulders located under
+
+    $sv/apache2/{minters,binders,shoulders}
+
+It is ok to use symlinks from outside and pointing into an $sv tree (eg,
+from init.d/apache.n2t linking with sv/cur), but DON'T use symlinks from
+INSIDE an $sv tree to point to itself -- otherwise system dependencies
+will be corrupted with the next "svu" rollout/rollback.
+
+Scripts for installing the system from scratch are found in
+
+    n2t_create
+
+which is its own hg repo.  For example, this README file is maintained by
+doing "cd n2t_create; vi skel/README; make".
+
+The N2T system is built in $sv/build.  There you will find various repos,
+the main one being $sv/build/eggnog.

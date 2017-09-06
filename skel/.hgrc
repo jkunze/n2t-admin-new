@@ -1,0 +1,8 @@
+[ui]
+username = John Kunze <jak@ucop.edu>
+merge=internal:merge
+
+[auth]
+cdl.prefix   = https://bitbucket.org
+cdl.username = jak
+# but normally from repo's .hg/hgrc file we use ssh://hg@bitbucket.org/cdl/...
