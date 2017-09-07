@@ -149,7 +149,7 @@ EXAMPLES
             \$ diff local_state remote_state
 
        This command reboots a host with a server on port 18880.
-       xxx bug? this requires port 18880 to be open
+       yyy bug? this requires port 18880 to be open
 
             \$ $me bootwatch ids-n2t-prd-2a.n2t.net:18880
 
