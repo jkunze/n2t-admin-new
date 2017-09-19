@@ -79,41 +79,57 @@ of prefix changes while protecting the system from errors and instability.
             -> these will be used for files missing from \$pfx_import dir
             won't overwrite newer files unless -f given
             -> there is one \$pfx_harvest area per HOST
-	    NB: protects import area and running system from harvest activity
+            NB: does not disturb previously imported components
   import    Assemble harvested prefix components into \$pfx_import dir
             -> these will be used for files missing from \$pfx_build dir
             won't overwrite newer files unless -f given
             -> there is one \$pfx_import/ per SERVICE VERSION (see "svu help")
-	    NB: lets harvested components participate in prebuild activity
+            NB: does not disturb running system or previously built components
+  onboard   Assemble imported and system prefix components into \$pfx_build
+            directory, often a temporary directory (eg, td_egnapa).
+            Calls "prebuild" and "base prebuild", then returns the list of
+            changed files, if any, from "updates_ready_in prebuild".
+            -> -d strongly recommended
+            NB: does not disturb running system
+  build     Calls "validate" and "combine" on \$pfx_build dir
+            Can be useful to check if "updates_ready_in" 
+            -> -d strongly recommended
+  updates_ready_in prebuild | import | harvest
+            Returns true (shell 0) if there exist any prefix components
+            in the given ingest stage that are newer than their peer files
+            in the next stage (than the prefix database itself if prebuild).
+            Prints list of triggering files, if any, on stdout.
+            xxx-> -d has no effect except for "prebuild" case
+  test      Test prefix lookup and redirect rules (only tests BUILD area)
+            -> -d strongly recommended
+  install   Install new prefix file on running production system.
+            Fails if previous "test" was not successful.
+            NB: does not disturb running system until next web server restart.
+  rollout   Run "install" and restart Apache server.
+
+Lower level commands
   prebuild  Assemble imported prefix components into \$pfx_build dir
             -> these will be used for the next prefix build
-	    typical edit/test loop: prebuild, validate, build, <test>
+            typical edit/test loop: prebuild, validate, build, <test>
             won't overwrite newer files unless -f given
             -> there is one \$pfx_build/ per SERVER TREE ("build_server_tree")
-	    NB: protects builds from prefix base source code changes
+            NB: protects builds from prefix base source code changes
   base prebuild|import|harvest [ Base.yaml ]
             Update ingest stage with Base.yaml (default from eggnog source)
             -> call this to alter the prefix base for a given stage
             uses cp -p to preserve mod times
-	    -> -d has no effect except for "prebuild" case
-	    NB: exposes builds to prefix base source code changes
-  updates_ready_in prebuild | import | harvest
-            Return true (shell 0) if there exist any prefix components
-            in the given ingest stage that are newer than their peer files
-            in the next stage (than the prefix database itself if prebuild).
-	    -> -d has no effect except for "prebuild" case
+            -> -d has no effect except for "prebuild" case
+            NB: exposes builds to prefix base source code changes
   validate  Validate component prefix files in \$pfx_build
-	    -> -d strongly recommended
-  build     Combine NAANs, shoulders, prefixes into validated $mainout
-	    -> -d strongly recommended
-	    NB: updates still invisible to running system until "n2t rollout"
-	    (to be fixed).
-  test      Test prefixes lookups and redirect rules (only tests BUILD area)
-	    -> -d strongly recommended
+            -> -d strongly recommended
+  combine   Combine NAANs, shoulders, prefixes into validated $mainout
+            -> -d strongly recommended
+            NB: updates still invisible to running system until "n2t rollout"
+            (to be fixed).
   pushsync Host harvest|import|both
-	    Copy given area to remote Host (did you test things first?).
-	    NB: this does not alter the service running remotely; for that
-	    you still need to do "n2t rollout" (to be fixed).
+            Copy given area to remote Host (did you test things first?).
+            NB: this does not alter the service running remotely; for that
+            you still need to do "n2t rollout" (to be fixed).
   grok ID ...
             Print a lexical analysis of each given ID (not ID lookup)
 
@@ -122,7 +138,6 @@ either the -d option or the EGNAPA_BUILDOUT_ROOT envirnoment variable. If
 both of those are empty, it uses ~/sv/cur/apache2. The -f option forces
 some operations to proceed that would otherwise be conditional.
 
-  rollout     NOPE restart metaresolver service with new prefixes
   testall     NOPE test all lookups and redirect rules
   testlinks   NOPE test redirects by pinging external servers
   rollback    NOPE back out of the last rollout, reverting to the prior rollout
@@ -346,7 +361,9 @@ n2tadds=pfx_base.yaml
 
 # Returns shell status 0 (true) if updates to currently installed
 # prefixes ($pfx_current) are present, else returns 1 (false).
-# A separate function actually copies
+# Prints list of triggering files to stdout, errors to stderr.
+
+# A separate function actually copies(...?)
 # from command line use "pfx updates_ready", as in
 # pfx updates_ready && { ... process updates ... }
 # xxx add -v option to say which file(s) are ready
@@ -378,28 +395,32 @@ function pfx_updates_ready_in {
 	harvest)	ondeck=$pfx_harvest cur=$pfx_import ;;
 	*)	echo \
 		"Error: unknown operation-stage ($opstage); should be one" \
-			"of (harvest, import, prebuild)" 2>&1
+			"of (harvest, import, prebuild)" 1>&2
 		return 1
 		;;
 	esac
 
 	local f file2
-	# yyy maybe needs $verbose to reveal which file is out of date?
+	local ready=()
 	for f in $pfx_base ${pfx_sources[@]}
 	do
 		[[ ! -r $ondeck/$f ]] && {
 			echo -e "Error: missing prefix source file from" \
-				"$opstage stage: $f\n" 2>&1
+				"$opstage stage: $f\n" 1>&2
 		  return 1
 		}
 		file2=$cur/$f
 		[[ $opstage == prebuild ]] &&
 			file2=$master_prefixes
 		# next is true if file1 exists and file2 doesn't exist
-		[[ $ondeck/$f -nt $file2 ]] &&
-			return 0		# ready update detected
+		[[ $ondeck/$f -nt $file2 ]] &&		# new file detected
+			ready+=( $( basename $ondeck/$f ) )
 	done
-	return 1			# else nothing's ready
+	[[ ${#ready[@]} -gt 0 ]] && {
+		echo ${ready[@]}	# output the list
+		return 0		# either something's ready
+	}
+	return 1			# or nothing's ready
 }
 
 # use case 0.8. pfx validate & build should be possible under a test
@@ -810,9 +831,11 @@ function validate_ebi {
 	# will consist of records slurpable in Perl paragraph mode and
 	# beginning with the element named "name".
 	#
+	# Uses xpathout file as input.
+	#
 	perl -pe '
 	 s, primary="([^"]*)",<primary>$1</primary>,g;		# attr-to-elem
-	 s, id="([^"]*)",<provider_id>$1</provider_id>,g;	# same
+	 s,> id="([^"]*)",><provider_id>$1</provider_id>,g;	# same
     s,<status state="([^"]*)" reliability="([^"]*)"/>,<state>$2:$1</state>,g;
 	 s,</tag><tag>,; ,g;
 	 s,</alias><alias>,; ,g;
@@ -986,9 +1009,9 @@ EOT
 	    -e 's/^([^:]+: +)(.+)$/$1"$2"/;	# quote every value string' \
 	-e ';'
 
-	# verify YAML
-	perl -e 'use YAML::Tiny "LoadFile"; LoadFile("'ebi.yaml'")' || {
-		echo "ebi.yaml: failed to load YAML"
+	# verify YAML; use non-Tiny YAML for better error messages
+	perl -e 'use YAML "LoadFile"; LoadFile("'ebi.yaml'")' || {
+		echo "$me: line ${LINENO}: failed to load ebi.yaml"
 		return 1
 	}
 
@@ -1240,14 +1263,17 @@ EOT
 			iconv -f ISO-8859-1 -t UTF-8 2>&1 > $ebi_outfile )
 	[[ "$err" ]] &&
 		echo "err: $err"
+		# yyy use ${LINENO}?
 }
 
 function validate_n2t_base {
 	# verify YAML
 	# xxx where is this file imported from?
 	# XXX next, add these in _front_ of build process
-	perl -e 'use YAML::Tiny "LoadFile"; LoadFile("'$n2tadds'")' || {
-		echo "$n2tadds: failed to load YAML"
+
+	# verify YAML; use non-Tiny YAML for better error messages
+	perl -e 'use YAML "LoadFile"; LoadFile("'$n2tadds'")' || {
+		echo "$me: line ${LINENO}: failed to load $n2tadds"
 		return 1
 	}
 }
@@ -1359,11 +1385,11 @@ function pfx_stage_pfxcoms {
 	local n=$( grep -c '^:: ' pfxcoms.anvl)
 	[[ ${n:-0} -lt 9 ]] && {
 		echo "error: suspiciously low ($n) number of prefixes"
-		return 0
+		return 1
 	}
 #xxx temporarily comment out
 #	echo "Found $n pfxcoms entries"
-	return 1
+	return 0
 }
 
 function pfx_validate {
@@ -1378,31 +1404,33 @@ function pfx_validate {
 #echo xxx early return
 #return
 	echo - Validating $naanFile
-		admegn validate_naans $naanFile
+		admegn validate_naans $naanFile || return 1
 	echo - Staging $naanFile, creating naans.anvl
-		pfx_stage_naans $naanFile
+		pfx_stage_naans $naanFile || return 1
 	#echo xxx not yet Validating converted $naanFile
 
 	echo - Validating $shdrFile
 		(cd ~/shoulders
-			./validate-shoulders $pfx_build/$shdrFile)
+			./validate-shoulders $pfx_build/$shdrFile) ||
+				return 1
 
 		echo - Staging $shdrFile, creating shoulders.anvl
-			pfx_stage_shoulders $shdrFile
+			pfx_stage_shoulders $shdrFile || return 1
 
 	echo "- Validating ebi prefixes, staging in $ebi_outfile"
-		validate_ebi
+		validate_ebi || return 1
 		pfx_validate_prefixes
 	echo "- Validating n2t base prefixes"
-		validate_n2t_base
+		validate_n2t_base || return 1
 
 	#echo xxx not yet Validating $pfxcomsFile
 #xxx temporarily comment out
 #	echo - Staging $pfxcomsFile, creating pfxcoms.anvl
-		pfx_stage_pfxcoms
+		pfx_stage_pfxcoms || return 1
+	return 0
 }
 
-function pfx_build {
+function pfx_combine {
 
 	# main output
 	cat > $mainout << EOT
@@ -1498,10 +1526,12 @@ EOT
 	expand {naans,shoulders,ebi,pfxcoms}.anvl |
 		iconv -f ISO-8859-1 -t UTF-8 2>&1 |
 		perl -e "$perl_anvl2yaml" $n2tadds >> $mainout
+	# yyy use ${LINENO}?
 	#perl -e "$perl_mkn2treg" $mainout | \
 		#iconv -f ISO-8859-1 -t UTF-8 2>&1 > $n2tregout \
 	perl -e "$perl_mkn2treg" $mainout > $n2tregout || {
 		echo "Error: mkn2treg and iconv: failed to load YAML"
+		# yyy use ${LINENO}?
 		return 1
 	}
 	echo "YAML syntax verified for n2t public registry file: $n2tregout" 1>&2
@@ -1628,17 +1658,20 @@ EOT
 	perl -e "$perl_mkpubreg" pre_pub.yaml |
 		iconv -f ISO-8859-1 -t UTF-8 2>&1 >> $pubout \
 	|| {
-		echo "Error: pre_pub.yaml: failed to load YAML"
+		echo "Error: $me: line ${LINENO}: failed to load pre_pub.yaml"
 		return 1
 	}
-	echo "YAML syntax verified for public registry file: $pubout" 1>&2
+	echo "YAML syntax verified for pre-public registry pre_pub.yaml" 1>&2
 
+	# verify YAML; use non-Tiny YAML for better error messages
 	perl \
-		-e 'use YAML::Tiny "LoadFile"; $p = LoadFile("'$pubout'");' \
+		-e 'use YAML "LoadFile"; $p = LoadFile("'$pubout'");' \
 		-e 'print STDERR ' \
 		-e '    "Verify-loaded ", scalar(@$p), " public prefixes.\n"' \
 	|| {
-		echo "Error: $pubout: failed to load public prefixes YAML"
+		#echo "Error: $pubout: failed to load public prefixes YAML"
+		echo "Error: $me: line ${LINENO}: failed to load public" \
+			"prefixes from $pubout"
 		return 1
 	}
 
@@ -1649,16 +1682,17 @@ EOT
 #		echo "Error: $mainout: failed to load YAML"
 #		return 1
 #	}
+	
 	echo "YAML syntax verified for main output file: $mainout" 1>&2
 	echo "Derived public registry file: $pubout" 1>&2
 
-	perl \
-	  -e 'use YAML::Tiny "LoadFile"; $p = LoadFile("'$pubout'");' \
-	  -e 'print STDERR "Verify-loaded ", scalar(@$p), " public prefixes.\n"' \
-	|| {
-		echo "Error: $pubout: failed to load public prefixes YAML"
-		return 1
-	}
+#	perl \
+#	  -e 'use YAML "LoadFile"; $p = LoadFile("'$pubout'");' \
+#	  -e 'print STDERR "Verify-loaded ", scalar(@$p), " public prefixes.\n"' \
+#	|| {
+#		echo "Error: $me: line ${LINENO}: failed to load public prefixes from $pubout"
+#		return 1
+#	}
 	# If we get here, there were no build errors. The products of
 	# the build are ready to be copied to $buildout_root.
 
@@ -1781,13 +1815,117 @@ EOT
 	}
 }
 
+# yyy change build_server_tree to call this?
+# Errors indicated by status and message on stderr
+# On success, prints list of files triggering "updates_ready_in"
+# (by calling updates-ready_in).
+
+function pfx_onboard {
+
+	local source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
+
+	# yyy separate proc, or call direct?
+	pfx -d $buildout_root prebuild || {	# import from import area
+		echo Error: prebuild failed 1>&2
+		return 1
+	}
+	# yyy separate proc, or call direct?
+	pfx -d $buildout_root base prebuild \
+		$source_base_prefixes || {	# update with latest base file
+		echo Error: base prebuild failed 1>&2
+		return 1
+	}
+	# yyy separate proc, or call direct?
+	pfx -d $buildout_root updates_ready_in prebuild
+}
+
+function pfx_build {
+
+	# yyy separate proc, or call direct?
+	pfx -d $buildout_root validate || {	# validate prefix sources
+		echo Error: failed to validate prefixes 1>&2
+		return 1
+	}
+	# yyy separate proc, or call direct?
+	pfx -d $buildout_root combine || {	# create combined prefixes file
+		echo Error: failed to build prefixes 1>&2
+		return 1
+	}
+	return 0
+}
+
+
+# yyy change n2t rollout to call this
+function pfx_install {
+
+	local nsf=$sv/build/eggnog/td_egnapa
+	local px=prefixes.yaml
+	local pubpx=cdl_ebi_prefixes.yaml
+	local n2tpx=n2t_prefixes.yaml
+	local err=
+
+	# yyy next version of tested_ok_file slightly different?
+	local tested_ok_flag2=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
+	[[ -f $tested_ok_flag2 ]] || {
+		echo "Aborting: no $tested_ok_flag2 file." 2>&1
+		echo "Did you run \"pfx test\" first?" 2>&1
+		exit 1
+	}
+	cd $pfx_build || {
+		echo Could not chdir to $pfx_build. 2>&1
+		exit 1
+	}
+	echo "$me process running now in $pfx_build directory"
+	# back up public prefix files
+	cp -p $buildout_root/$px $buildout_root/$px.orig || err=y
+	cp -p $buildout_root/$pubpx $buildout_root/$pubpx.orig || err=y
+	cp -p $buildout_root/$n2tpx $buildout_root/$n2tpx.orig || err=y
+	[[ $err ]] && {
+		echo "Error backing up public prefix files" \
+			"($px, $pubpx, $n2tpx) to $nsf/*.orig" 2>&1
+		return 1
+	}
+	# ensure back up build directory exists
+	mkdir -p $pfx_build.orig || err=y
+	[[ $err ]] && {
+		echo "Error making directory for old prefix build files" \
+			"($pfx_build.orig/.*)" 2>&1
+		return 1
+	}
+	cp -pr * $pfx_build.orig/ || err=y
+	[[ $err ]] && {
+		echo "Error backing up prefix build files from " \
+			"$pfx_build to $pfx_build.org" 2>&1
+		return 1
+	}
+	cp -pr $nsf/pfx_work/build/* . || err=y
+	[[ $err ]] && {
+		echo "Error copying prefix build files from " \
+			"$nsf/pfx_work/build/" 2>&1
+		return 1
+	}
+	echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx} to $buildout_root."
+	cp -p $nsf/$px $buildout_root || err=y
+	cp -p $nsf/$pubpx $nsf/$n2tpx $buildout_root/htdocs/e/ ||
+		err=y			 # these are publicly readable
+	[[ $err ]] && {
+		echo "Error copying in new prefix files" \
+			"($px, $pubpx, $n2tpx) to $buildout_root" 2>&1
+		return 1
+	}
+	local sum=$( cksum < $nsf/$px )
+	echo "`date`: rolled out new prefixes.yaml, cksum $sum" \
+		>> ~/logs/rollout_log
+	return 0
+}
+
 #==========================
 
 # MAIN
 
 guard=			# guard against production prefix changes
 force=			# disregard gaurdup setting
-verbose=		# unused
+verbose=		# be more chatty
 yes=			# unused
 no_exec=		# unused
 cmd=help		# default
@@ -1892,8 +2030,17 @@ pfx_import=$sv/apache2/pfx_work/import	# one import area per SERVICE VERSION
 pfx_build=$buildout_root/pfx_work/build	# one build area per BUILT SERVER TREE
 master_prefixes=$buildout_root/prefixes.yaml
 
+pfx_test=$buildout_root/../build/eggnog
+tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
 
-#idir=$pfx_build			# xxx drop synonym soon
+[[ "$verbose" ]] && {
+	echo buildout_root: $buildout_root
+	echo pfx_import: $pfx_import
+	echo pfx_build: $pfx_build
+	echo master_prefixes: $master_prefixes
+	exit	# xxx
+}
+
 # yyy needed?
 #pfx_current=$pfx_work/current		# running ("built") prefixes subdir
 #pfx_previous=$pfx_work/previous		# previous running prefixes subdir
@@ -1935,6 +2082,14 @@ pre_import)		# xxx kludge ? drop?
 	pfx_pre_import  "$@"
 	exit
 	;;
+onboard)
+	pfx_onboard
+	exit
+	;;
+build)
+	pfx_build
+	exit
+	;;
 validate)
 	cd $pfx_build || {
 		echo Could not chdir to $pfx_build. 2>&1
@@ -1944,32 +2099,29 @@ validate)
 	pfx_prebuild "$@" && pfx_validate "$@"
 	exit
 	;;
-build)
+combine)
 	cd $pfx_build || {
 		echo Could not chdir to $pfx_build. 2>&1
 		exit 1
 	}
 	echo "$me process running now in $pfx_build directory"
-	pfx_build "$@"
+	pfx_combine "$@"
 	exit
 	;;
 test)
-	# yyy odd: build_server_tree calls its own "assemble_prefixes"
-	#      and its own "rebuild_prefixes" -- shouldn't "pfx" provide
-	#      these? and cron calls import and build_server_tree to do
-	#      auto testing of new prefixes -- how should that fit in?
-	# -> by calling "pfx test" you get all that by side-effect via
-	#      build_server_tree's work, again by side-effect of running
-	#      the t/prefixes_n2t.t file
 	echo "Warning: only testing build area, not installed prefixes."
-	pfx_test=$buildout_root/../build/eggnog
 	cd $pfx_test || {
 		echo Could not chdir to $pfx_test. 2>&1
 		exit 1
 	}
-	rm -fr td_egnapa	# remove temp dir to force re-build
-	perl -Mblib t/prefixes_n2t.t
-	exit
+	echo "$me process running now in $pfx_test directory"
+	# remove temp dir to force re-build and clear $tested_ok_file
+	rm -fr td_egnapa
+	perl -Mblib t/zprefixes_n2t.t ||
+		exit 1
+	# if successful, create new file as flag of success
+	date > $tested_ok_file
+	exit 0
 	;;
 pushsync)
 	pfx_pushsync "$@"
@@ -1984,7 +2136,11 @@ grok)
 	exit
 	;;
 rollout)
-	echo not yet
+	pfx_install && apache restart
+	exit
+	;;
+install)
+	pfx_install
 	exit
 	;;
 testall)

@@ -146,6 +146,7 @@ function n2t_rollout {	# assumes caller ran check_changes!
 	#
 	local dvcsid=$( hg identify | sed 's/ .*//' )
 
+	# change to directory of the running production server
 	(cd $aptop || err=y
 
 		# yyy why do this when the cp dvcsid below should work?
@@ -155,7 +156,8 @@ function n2t_rollout {	# assumes caller ran check_changes!
 		for f in \
 			cgi-bin/{egg,nog}.sh \
 			conf/{httpd,rewrite-plus}.conf \
-			$px $pubpx eggnog_conf eggnog_conf_default
+			eggnog_conf eggnog_conf_default
+			#$px $pubpx eggnog_conf eggnog_conf_default
 		do
 			[[ -f $f ]] && {
 				echo Backing up contents of $f to $f.orig.
@@ -174,12 +176,12 @@ function n2t_rollout {	# assumes caller ran check_changes!
 		#d=binders/n2t
 		#echo Copying contents of $nsf/$d.
 
-		# yyy these should maybe go into "pfx rollout"?
-		echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx}."
-		cp -pr $nsf/$px . || err=y
-		#cp -pr $nsf/$pubpx . || err=y
-		cp -pr $nsf/$pubpx htdocs/e/ || err=y	# publicly readable
-		cp -pr $nsf/$n2tpx htdocs/e/ || err=y	# publicly readable
+		## yyy these should maybe go into "pfx rollout"?
+		#echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx}."
+		#cp -pr $nsf/$px . || err=y
+		##cp -pr $nsf/$pubpx . || err=y
+		#cp -pr $nsf/$pubpx htdocs/e/ || err=y	# publicly readable
+		#cp -pr $nsf/$n2tpx htdocs/e/ || err=y	# publicly readable
 	)
 	[[ $err ]] &&
 		return 1
@@ -290,6 +292,10 @@ rollout)
 	}
 	perl -Mblib nog > /dev/null || {	# in case "import" wasn't done
 		echo Problem running nog.
+		exit 1
+	}
+	pfx install || {
+		echo Problem installing prefixes.
 		exit 1
 	}
 

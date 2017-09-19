@@ -5,7 +5,7 @@ MAILTO=jak@ucop.edu
 # Fetch/import prefixes from EBI at 05:30 GMT.
 #
 # yyy are prefix backups being done?
-30 21 * * 1-7 bash -lc "echo -n +==== `date`; pfx harvest; if [[ \$? -eq 1 ]]; then echo , pfx harvest error; exit 1; fi; echo -n , harvested; pfx updates_ready_in harvest || { echo , no updates present; exit 0; }; echo , processing updates; pfx import || { echo +==== import error; exit 1; }; pfx test 2>&1 | mail -s 'pfx updates ready' $MAILTO" >> logs/pfx_harvest_log 2>&1
+30 21 * * 1-7 bash -lc "echo -n +==== `date`; pfx harvest; if [[ \$? -eq 1 ]]; then echo , pfx harvest error; exit 1; fi; echo -n , 'harvested, updates ready: '; pfx updates_ready_in harvest || { echo '(none)'; exit 0; }; echo '; processing updates'; pfx import || { echo +==== import error; exit 1; }; (pfx onboard && pfx build && pfx test && pfx rollout pfx 2>&1 | mail -s 'pfx updates ready' $MAILTO" >> logs/pfx_harvest_log 2>&1
 
 ## loose update of latest prefixes file components
 #14 10 * * 1-7 cd ~/shoulders; scp -p n2t@ids-n2t-prd-2a.n2t.net:shoulders/'{master_shoulders.txt,ebireg_latest.xml,naans/master_naans}' .; mv master_naans naans/
