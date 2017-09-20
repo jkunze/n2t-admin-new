@@ -101,13 +101,15 @@ of prefix changes while protecting the system from errors and instability.
             Prints list of triggering files, if any, on stdout.
             xxx-> -d has no effect except for "prebuild" case
   test      Test prefix lookup and redirect rules (only tests BUILD area)
-            -> -d strongly recommended
+	    Calls (via eggnog's t/zprefixes_n2t.t) "tested_ok" if all tests
+	    succeeded.
   install   Install new prefix file on running production system.
             Fails if previous "test" was not successful.
             NB: does not disturb running system until next web server restart.
   rollout   Run "install" and restart Apache server.
 
 Lower level commands
+  tested_ok Create file as flag that "pfx test" succeeded
   prebuild  Assemble imported prefix components into \$pfx_build dir
             -> these will be used for the next prefix build
             typical edit/test loop: prebuild, validate, build, <test>
@@ -1864,10 +1866,8 @@ function pfx_install {
 	local n2tpx=n2t_prefixes.yaml
 	local err=
 
-	# yyy next version of tested_ok_file slightly different?
-	local tested_ok_flag2=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
-	[[ -f $tested_ok_flag2 ]] || {
-		echo "Aborting: no $tested_ok_flag2 file." 2>&1
+	[[ -f $tested_ok_file ]] || {
+		echo "Aborting: no $tested_ok_file file." 2>&1
 		echo "Did you run \"pfx test\" first?" 2>&1
 		exit 1
 	}
@@ -1878,41 +1878,50 @@ function pfx_install {
 	echo "$me process running now in $pfx_build directory"
 	# back up public prefix files
 	cp -p $buildout_root/$px $buildout_root/$px.orig || err=y
-	cp -p $buildout_root/$pubpx $buildout_root/$pubpx.orig || err=y
-	cp -p $buildout_root/$n2tpx $buildout_root/$n2tpx.orig || err=y
-	[[ $err ]] && {
+	cp -p $buildout_root/htdocs/e/$pubpx{,.orig} || err=y
+	cp -p $buildout_root/htdocs/e/$n2tpx{,.orig} || err=y
+	#cp -p $buildout_root/$n2tpx $buildout_root/$n2tpx.orig || err=y
+	[[ $err && ! "$force" ]] && {
 		echo "Error backing up public prefix files" \
 			"($px, $pubpx, $n2tpx) to $nsf/*.orig" 2>&1
 		return 1
 	}
 	# ensure back up build directory exists
 	mkdir -p $pfx_build.orig || err=y
-	[[ $err ]] && {
+	[[ $err && ! "$force" ]] && {
 		echo "Error making directory for old prefix build files" \
 			"($pfx_build.orig/.*)" 2>&1
 		return 1
 	}
+	err=
 	cp -pr * $pfx_build.orig/ || err=y
-	[[ $err ]] && {
+	[[ $err && ! "$force" ]] && {
 		echo "Error backing up prefix build files from " \
 			"$pfx_build to $pfx_build.org" 2>&1
 		return 1
 	}
+	err=
 	cp -pr $nsf/pfx_work/build/* . || err=y
-	[[ $err ]] && {
+	[[ $err && ! "$force" ]] && {
 		echo "Error copying prefix build files from " \
 			"$nsf/pfx_work/build/" 2>&1
 		return 1
 	}
+	err=
 	echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx} to $buildout_root."
 	cp -p $nsf/$px $buildout_root || err=y
-	cp -p $nsf/$pubpx $nsf/$n2tpx $buildout_root/htdocs/e/ ||
-		err=y			 # these are publicly readable
 	[[ $err ]] && {
-		echo "Error copying in new prefix files" \
-			"($px, $pubpx, $n2tpx) to $buildout_root" 2>&1
+		echo "Error copying in new $px file to $buildout_root" 2>&1
 		return 1
 	}
+	cp -p $nsf/$pubpx $nsf/$n2tpx $buildout_root/htdocs/e/ ||
+		err=y			 # these are publicly readable
+	[[ $err && ! "$force" ]] && {
+		echo "Error copying new public files $pubpx and $n2tpx" \
+			"to $buildout_root/htdocs/e/" 2>&1
+		return 1
+	}
+	err=
 	local sum=$( cksum < $nsf/$px )
 	echo "`date`: rolled out new prefixes.yaml, cksum $sum" \
 		>> ~/logs/rollout_log
@@ -1951,7 +1960,7 @@ do
 			exit 1
 		}
 		;;
-	-f|--force)	# unused?
+	-f|--force)
 		shift
 		force=1
 		;;
@@ -2031,7 +2040,9 @@ pfx_build=$buildout_root/pfx_work/build	# one build area per BUILT SERVER TREE
 master_prefixes=$buildout_root/prefixes.yaml
 
 pfx_test=$buildout_root/../build/eggnog
-tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
+#tested_ok_flag=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
+tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
+#tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
 
 [[ "$verbose" ]] && {
 	echo buildout_root: $buildout_root
@@ -2117,11 +2128,20 @@ test)
 	echo "$me process running now in $pfx_test directory"
 	# remove temp dir to force re-build and clear $tested_ok_file
 	rm -fr td_egnapa
-	perl -Mblib t/zprefixes_n2t.t ||
+	perl -Mblib t/zprefixes_n2t.t
+	exit
+
+	#perl -Mblib t/zprefixes_n2t.t ||
+	#	exit 1
+	#exit 0
+	;;
+tested_ok)
+	# caller-controlled: create new file as flag of success
+	date > $tested_ok_file || {
+		echo "Did you call \"$me test\" first?" 2>&1
 		exit 1
-	# if successful, create new file as flag of success
-	date > $tested_ok_file
-	exit 0
+	}
+	exit
 	;;
 pushsync)
 	pfx_pushsync "$@"
