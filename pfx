@@ -1903,7 +1903,8 @@ function pfx_install {
 	[[ $err && ! "$force" ]] && {
 		echo "Error backing up prefix build files from " \
 			"$pfx_build to $pfx_build.org" 2>&1
-		return 1
+		# let this not be fatal, eg, first time with new framework
+		#return 1
 	}
 	err=
 	cp -pr $nsf/pfx_work/build/* . || err=y
