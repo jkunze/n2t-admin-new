@@ -69,11 +69,14 @@ USAGE
 
 DESCRIPTION
 
-This script automates common prefix-related tasks for the metaresolver.
+This script automates common prefix-related tasks for the N2T metaresolver.
 The prefix database is a yaml file built from processed component files.
 A crucial "base" prefix component file lives in and evolves with the
 eggnog source. Ingest of components is staged in order to automate entry
 of prefix changes while protecting the system from errors and instability.
+
+The following sub-commands may be executed in the order listed to update
+the prefixes running on the system.
 
   harvest   Assemble components from external sources (eg, daily via cron)
             -> these will be used for files missing from \$pfx_import dir
@@ -85,6 +88,14 @@ of prefix changes while protecting the system from errors and instability.
             won't overwrite newer files unless -f given
             -> there is one \$pfx_import/ per SERVICE VERSION (see "svu help")
             NB: does not disturb running system or previously built components
+  test      Test prefix lookup and redirect rules (only tests BUILD area)
+	    Calls (via eggnog's t/zprefixes_n2t.t) "tested_ok" if all tests
+	    succeeded.
+  rollout   Run "install" and restart the N2T Apache server. It's a good idea
+            to run "n2t test" next to make everything is still working.
+
+These sub-commands are at a slightly lower level.
+
   onboard   Assemble imported and system prefix components into \$pfx_build
             directory, often a temporary directory (eg, td_egnapa).
             Calls "prebuild" and "base prebuild", then returns the list of
@@ -100,15 +111,12 @@ of prefix changes while protecting the system from errors and instability.
             in the next stage (than the prefix database itself if prebuild).
             Prints list of triggering files, if any, on stdout.
             xxx-> -d has no effect except for "prebuild" case
-  test      Test prefix lookup and redirect rules (only tests BUILD area)
-	    Calls (via eggnog's t/zprefixes_n2t.t) "tested_ok" if all tests
-	    succeeded.
   install   Install new prefix file on running production system.
             Fails if previous "test" was not successful.
             NB: does not disturb running system until next web server restart.
-  rollout   Run "install" and restart Apache server.
 
-Lower level commands
+And these sub-commands are at an even lower level.
+
   tested_ok Create file as flag that "pfx test" succeeded
   prebuild  Assemble imported prefix components into \$pfx_build dir
             -> these will be used for the next prefix build
@@ -143,9 +151,6 @@ some operations to proceed that would otherwise be conditional.
   testall     NOPE test all lookups and redirect rules
   testlinks   NOPE test redirects by pinging external servers
   rollback    NOPE back out of the last rollout, reverting to the prior rollout
-
-yyyThe first four commands above reflect the normal sequence.
-yyyUse "rollback" only if "test" failed.
 
 EOT
 }
@@ -2024,17 +2029,6 @@ buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
 [[ ! "$buildout_root" ]] &&
 	buildout_root=$sv/apache2
 
-# If we get here, $buildout_root is defined.
-
-#master_prefixes=$sv/apache2/prefixes.yaml
-#master_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml    # from source dir
-#master_prefixes=$buildout_root/prefixes.yaml
-#
-# xxx xxx; fix next line
-#master_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml    # from source dir
-#pfx_work=$sv/apache2/pfx_work		# prefixes parent dir
-
-
 pfx_import=$sv/apache2/pfx_work/import	# one import area per SERVICE VERSION
 pfx_build=$buildout_root/pfx_work/build	# one build area per BUILT SERVER TREE
 master_prefixes=$buildout_root/prefixes.yaml
@@ -2044,20 +2038,16 @@ pfx_test=$buildout_root/../build/eggnog
 tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 #tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
 
+# yyy should put this init stuff in a function and not call it on
+#     nonsense commands or bad options
+
 [[ "$verbose" ]] && {
 	echo buildout_root: $buildout_root
 	echo pfx_import: $pfx_import
 	echo pfx_build: $pfx_build
 	echo master_prefixes: $master_prefixes
-	exit	# xxx
+	exit	# yyy find better way to display default values
 }
-
-# yyy needed?
-#pfx_current=$pfx_work/current		# running ("built") prefixes subdir
-#pfx_previous=$pfx_work/previous		# previous running prefixes subdir
-
-# yyy should put this init stuff in a function and not call it on
-#     nonsense commands or bad options
 
 [[ ! -d $pfx_import ]] && {	# make sure we're initialized yyy needed here?
 	pfx_init || exit
