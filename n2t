@@ -157,11 +157,12 @@ function n2t_rollout {	# assumes caller ran check_changes!
 			cgi-bin/{egg,nog}.sh \
 			conf/{httpd,rewrite-plus}.conf \
 			eggnog_conf eggnog_conf_default
-			#$px $pubpx eggnog_conf eggnog_conf_default
 		do
 			[[ -f $f ]] && {
 				echo Backing up contents of $f to $f.orig.
-				mv $f $f.orig || err=y
+				mv $f $f.orig || {
+					echo Error backing up $f to $f.orig 1>&2
+				}
 			}
 		done
 
@@ -171,7 +172,10 @@ function n2t_rollout {	# assumes caller ran check_changes!
 		for d in cgi-bin conf htdocs ssl eggnog_conf_default
 		do
 			echo Copying contents of $nsf/$d.
-			cp -pr $nsf/$d . || err=y
+			cp -pr $nsf/$d . || {
+				echo Error copying $nsf/$d to $aptop 1>&2
+				err=y
+			}
 		done
 		#d=binders/n2t
 		#echo Copying contents of $nsf/$d.
