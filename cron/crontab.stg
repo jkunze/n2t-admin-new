@@ -13,10 +13,11 @@ MAILTO=jak@ucop.edu
 # update stg operating system automatically on Thursdays
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
 
+# yyy comment out until transaction log fix
 # Backup twice daily -- first time with rotation, second time without.
 # Use bash -l so "svu cur" is in effect and ~/local/bin is in the PATH.
-37 2 * * * bash -lc "admegn backup; admegn backup_rotate" >> logs/backup_log 2>&1
-37 14 * * * bash -lc "admegn backup" >> logs/backup_log 2>&1
+#37 2 * * * bash -lc "admegn backup; admegn backup_rotate" >> logs/backup_log 2>&1
+#37 14 * * * bash -lc "admegn backup" >> logs/backup_log 2>&1
 
 #### Sundays at 4:03 am, delete log files older than 6 months.
 03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
