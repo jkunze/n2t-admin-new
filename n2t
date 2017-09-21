@@ -136,9 +136,14 @@ function n2t_rollout {	# assumes caller ran check_changes!
 	local px=prefixes.yaml
 	local pubpx=cdl_ebi_prefixes.yaml
 	local n2tpx=n2t_prefixes.yaml
-	make || err=y		# "make" again, in case "import" wasn't done
-	make install ||		# this installs both libraries and scripts
+	make || {		# "make" again, in case "import" wasn't done
+		echo "Error with make" 1>&2
 		err=y
+	}
+	make install || {	# this installs both libraries and scripts
+		echo "Error with make install" 1>&2
+		err=y
+	}
 
 	# This next line will need to change if switching to git as the
 	# DVCS (distributed version control system).  The file it saves
@@ -147,7 +152,10 @@ function n2t_rollout {	# assumes caller ran check_changes!
 	local dvcsid=$( hg identify | sed 's/ .*//' )
 
 	# change to directory of the running production server
-	(cd $aptop || err=y
+	(cd $aptop || {
+			echo "Error with cd $aptop" 1>&2
+			err=y
+		}
 
 		# yyy why do this when the cp dvcsid below should work?
 		# yyy why isn't this sufficient?
