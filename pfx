@@ -94,6 +94,28 @@ the prefixes running on the system.
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" next to make everything is still working.
 
+These sub-commands are purely about querying the prefix data itself.
+
+  [-s records|lines|count] find [ Term ]
+            Print records (def), summary lines, or a count of records
+	    matching the given Term argument, or a total count of existing
+	    records if no Term is given. If the Term begins with a ":"
+	    character, that character is removed and the rest of the Term
+	    is matched against the body of the record, otherwise the Term is
+	    matched against the record header. Matching is case-insensitive.
+	    Does NOT require a server to be running.
+
+  grok ID ...
+            Print a lexical analysis of each given ID (not ID lookup)
+	    DOES require a server to be running.
+
+This sub-command is for updating another host from the local host.
+
+  pushsync RemoteHost harvest|import|both
+            Copy given area to RemoteHost (did you test things first?).
+            NB: this does not alter the service running remotely; for that
+            you still need to do "pfx rollout" (to be fixed).
+
 These sub-commands are at a slightly lower level.
 
   onboard   Assemble imported and system prefix components into \$pfx_build
@@ -136,12 +158,6 @@ And these sub-commands are at an even lower level.
             -> -d strongly recommended
             NB: updates still invisible to running system until "n2t rollout"
             (to be fixed).
-  pushsync Host harvest|import|both
-            Copy given area to remote Host (did you test things first?).
-            NB: this does not alter the service running remotely; for that
-            you still need to do "n2t rollout" (to be fixed).
-  grok ID ...
-            Print a lexical analysis of each given ID (not ID lookup)
 
 Prefixes are built in a server tree directory given by, in precedence order,
 either the -d option or the EGNAPA_BUILDOUT_ROOT envirnoment variable. If
@@ -1929,10 +1945,111 @@ function pfx_install {
 	}
 	err=
 	local sum=$( cksum < $nsf/$px )
-	echo "`date`: rolled out new prefixes.yaml, cksum $sum" \
-		>> ~/logs/rollout_log
+	echo "`date`: rolled out new $px, cksum $sum" >> ~/logs/rollout_log
 	return 0
 }
+
+# NB: does not use running server, but just raw prefixes.yaml file
+#  [-s records|lines|count] find [ Term ]
+function pfx_find {
+
+	local term="$@"
+	echo "show:$show FIND term:$term"
+
+	# Perl script to manipulate installed $master_prefixes.
+	#
+	read -r -d '' perl_find << 'EOT'
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+	my $dt = '    ';		# indent is 4 spaces
+
+	# return printable indented string of details
+	sub rec_details { my( $k, $v )=@_;
+		return
+			"$k:\n" . join '' => map
+				"$dt$_: " . ($v->{$_} // '') . "\n",
+				sort keys %$v;
+	}
+
+	use YAML::Tiny 'LoadFile';
+	use Try::Tiny;		# for exceptions
+	use Safe::Isa;		# provides $_isa (yyy remind for what purpose?)
+
+	my $pfxfile = shift;			# first arg is filename
+	my $pfxs;
+	try {
+		$pfxs = LoadFile( $pfxfile );	# $master_prefixes
+	}
+	catch {
+		print "error loading $pfxfile: $_\n";
+		exit 1;
+	};
+
+	# second arg is what to show: lines, records, count
+	my $show = shift;
+	my $show_lines = $show =~ /^l/;
+	my $show_records = $show =~ /^r/;
+	my $show_count = $show =~ /^c/;
+
+	# remaining args are query terms
+	unless (scalar(@ARGV) and $ARGV[0]) {
+		say 'prefixes: ', scalar(keys %$pfxs);
+		exit 0;
+	}
+
+	my $q = shift;			# query term
+	my $anywhere_in_record =
+		$q =~ s/^://;		# remove initial colon, if any
+	my $qre = qr/$q/io;		# regex based on $q, case-insensitive
+	my ($hitkey, $hitvalue) = (0, 0);
+	my ($k, $v);			# keys and values
+	my $text_rec;			# formatted record, for search/print
+
+	# linear search
+	my $count = 0;			# number of matching records
+	foreach $k (sort keys %$pfxs) {
+		$text_rec = undef;
+		$v = $pfxs->{$k};
+		$k =~ m/$qre/ and
+			$hitkey = 1,		# matches in key
+			next,
+		;
+		$anywhere_in_record and (
+			$text_rec = rec_details($k, $v),
+			$text_rec =~ m/$qre/ and
+				$hitvalue = 1,		# matches in value
+				next,
+			),
+		;
+	}
+	continue {
+		$hitkey || $hitvalue and (
+			$count++,
+			$show_lines and
+				say("$k: ", $v->{name} // '', " [$v->{type}]"),
+			1, or
+			$show_records and
+				$text_rec //= rec_details($k, $v),
+				say($text_rec),
+			#	say("$k:\n",
+			#		map "$dt$_: " . ($v->{$_} // '') . "\n",
+			#			sort keys %$v),
+			),
+			$hitkey = $hitvalue = 0,
+		;
+	}
+	$show_count and
+		say "$count";
+EOT
+	perl -e "$perl_find" $master_prefixes $show "$@" || {
+		echo "Error: pfx_find failed" 2>&1
+		exit 1
+	}
+}
+
 
 #==========================
 
@@ -1944,6 +2061,7 @@ verbose=		# be more chatty
 yes=			# unused
 no_exec=		# unused
 cmd=help		# default
+show=lines		# default for "find"
 
 # Check environment in case we're called from eggnog's build_server_tree.
 # This is an important way to prevent prefix building from disrupting a
@@ -1957,11 +2075,22 @@ do
 	case $1 in
 	-d)
 		shift
-		buildout_root=$1
+		buildout_root=${1:-}
 		shift
 		[[ ! "$buildout_root" ]] && {
-			echo "Error: -d option requires an additional " \
+			echo "Error: -d option requires an additional" \
 				"directory argument" 2>&1
+			usage
+			exit 1
+		}
+		;;
+	-s|--show)		# show lines, records, or count (for "find")
+		shift
+		show=${1:-}
+		shift
+		[[ ! "$show" ]] && {
+			echo "Error: -s option requires an additional" \
+				"argument (lines, records, count)" 2>&1
 			usage
 			exit 1
 		}
@@ -2141,6 +2270,9 @@ pushsync)
 init)
 	pfx_init "$@"
 	exit
+	;;
+find)
+	pfx_find "$@"
 	;;
 grok)
 	pfx_grok "$@"
