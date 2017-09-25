@@ -1,0 +1,187 @@
+#!/usr/bin/perl
+
+use 5.010;
+use strict;
+use warnings;
+
+# Author:  John A. Kunze, jak@ucop.edu, California Digital Library
+# Copyright (c) 2017 UC Regents
+
+my $VERSION = "0.1";
+
+use File::Basename;
+my $me = basename $0;
+my $usage_text = << "EOT";
+
+SYNOPSIS                          ($0)
+    $me - measure and store log events
+
+USAGE
+    $me Interval LURL Dailyfile Rarg ..
+
+DESCRIPTION
+
+The $me script is meant as a long-running process that reads stdin for
+log events (especially eggnog transaction events) one line at a time, and
+
+  (a) records them directly in a file subject to rotation specified by Rarg
+      arguments, which are passed to "rotatelogs",
+  (b) gathers various counts over Interval seconds (an integer that must
+      evenly divide 60) and, if LURL looks like a URL, writes them to a
+      Librato API running at LRL, and
+  (c) gathers hourly and daily counts, writing them to Dailyfile.
+
+On start up, all Rarg arguments are passed to rotatelogs. For example:
+
+  monthly=(604800 * 4)			# 4 weeks in seconds
+  LDIR="\$srvref_root/logs/error_log.%Y.%m.%d"
+  LURL=librato.ucop.edu:12345 
+  $me 3 \$LURL \$LDIR/counts_log -l \$LDIR/txn_log.%Y.%m.%d \$monthly
+
+Every arg starting from "-l" is used to start or restart a rotatelogs process.
+Meanwhile, every 3 seconds hash count totals are written to \$LURL (which is
+re-opened whenever it is found disconnected) and cleared, but not before
+contributing their contents to hourly and daily hashes, which are written to
+\$LDIR/counts_log. Separate hashes count requests for resolution (anyone) and
+minting or binding from (separately) EZID, OCA (IA), and other.
+
+EOT
+
+sub HELP_MESSAGE { print $usage_text }
+
+use Getopt::Std;
+$Getopt::Std::STANDARD_HELP_VERSION = 1;	# --help to stdout
+
+my $opts = {};			# parsed command line options stored here
+getopts('fvh', $opts);
+
+$opts->{h} || $#ARGV < 0 and
+	HELP_MESSAGE(),
+	exit;
+
+my $args_required = 4;
+scalar(@ARGV) < $args_required and
+	say(STDERR "Error: expecting at least $args_required arguments"),
+	exit 1;
+
+! $ENV{$sv} ]] and
+	say(STDERR 'Error: an SVU mode must be in effect, eg, \"svu cur"'
+		'or "svu new".' 2>&1
+	exit 1;
+}
+[[ -d $sv ]] || {
+	echo "Service version directory doesn't exist: $sv" 2>&1
+	exit 1
+}
+
+
+__END__
+
+# Do popen to process with rotatelogs-type args, that
+#      rotatelogs="$aptop/bin/rotatelogs -l"
+#      let monthly=(604800 * 4)		# actually, just 4 weeks
+#  0.    interval_rotatelogs $srvref_root/logs/error_log.%Y.%m.%d $monthly"
+#      usage: interval_rotatelogs IntervalMins \
+#                      -l .../transaction_log.%Y.%m.%d $monthly
+# ErrorLog "|$rotatelogs $srvref_root/logs/error_log.%Y.%m.%d $monthly"
+#  1. itself does popen on a rotatelogs process R and
+#  2. also opens socket L to Librato API
+#  3. for every line read from stdin
+#   - writes line to R
+#   - collects counts (hashes) for N-minute intervals (N=3?),
+#   - at the end of every N minutes, writes stats to L
+#       ... and clears collected stats (hashes)
+
+# ** make it robust in re-opening any pipe/socket found closed
+
+	# Perl script to do the main work
+	#
+	read -r -d '' perl_slog << 'EOT'
+
+	use 5.010;
+	use strict;
+	use warnings;
+
+ival=$1		; shift		# interval
+lurl=$1		; shift
+dailyfile=$1	; shift
+rargs="$@"
+
+echo xxx $rargs, $dailyfile, $lurl, $ival
+
+	# second arg is what to show: lines, records, count
+	my $show = shift;
+	my $show_lines = $show =~ /^l/;
+	my $show_records = $show =~ /^r/;
+	my $show_count = $show =~ /^c/;
+
+	# remaining args are query terms
+	unless (scalar(@ARGV) and $ARGV[0]) {
+		say 'prefixes: ', scalar(keys %$pfxs);
+		exit 0;
+	}
+
+	my $q = shift;			# query term
+	my $anywhere_in_record =
+		$q =~ s/^://;		# remove initial colon, if any
+	my $qre = qr/$q/io;		# regex based on $q, case-insensitive
+	my ($hitkey, $hitvalue) = (0, 0);
+	my ($k, $v);			# keys and values
+	my $text_rec;			# formatted record, for search/print
+
+	# linear search
+	my $count = 0;			# number of matching records
+	foreach $k (sort keys %$pfxs) {
+		$text_rec = undef;
+		$v = $pfxs->{$k};
+		$k =~ m/$qre/ and
+			$hitkey = 1,		# matches in key
+			next,
+		;
+		$anywhere_in_record and (
+			$text_rec = rec_details($k, $v),
+			$text_rec =~ m/$qre/ and
+				$hitvalue = 1,		# matches in value
+				next,
+			),
+		;
+	}
+	continue {
+		$hitkey || $hitvalue and (
+			$count++,
+			$show_lines and
+				say("$k: ", $v->{name} // '', " [$v->{type}]"),
+			1, or
+			$show_records and
+				$text_rec //= rec_details($k, $v),
+				say($text_rec),
+			#	say("$k:\n",
+			#		map "$dt$_: " . ($v->{$_} // '') . "\n",
+			#			sort keys %$v),
+			),
+			$hitkey = $hitvalue = 0,
+		;
+	}
+	$show_count and
+		say "$count";
+EOT
+	perl -e "$perl_slog" $master_prefixes $show "$@" || {
+		echo "Error: pfx_find failed" 2>&1
+		exit 1
+	}
+
+value_err=
+[[ ! "$ival" =~ ^[0-9][0-9]*$ || "$ival" -le 0 || "$ival" -gt 60 ]] &&
+	value_err=1
+[[ ! "$value_err" ]] && {
+	(( x=( 60 / $ival * $ival ) ))	# if it evenly divides, then you
+	[[ $x != 60 ]] &&		# should get back to 60 by simply
+		value_err=1		# multiplying but the divisor
+}
+[[ "$value_err" ]] && {
+	echo "Error: interval ($ival) must be an integer that evenly" \
+		"divides 60" 2>&1
+	exit 1
+}
+
+echo xxx perl foo rotatelogs $rargs
