@@ -867,12 +867,16 @@ EOT
 		perl -00 -wne "$perl_mload"
 }
 
+# yyy make these destinations work better with new pfx file locations
+#
+ShouldersFile=~/shoulders/master_shoulders.txt	# default
 NAANsFile=~/shoulders/naans/master_naans	# default
+
 function validate_naans {
 
 	[[ "$1" ]] &&
 		NAANsFile="$1"
-	perl -00 - $NAANsFile << 'EOT'
+	perl - $NAANsFile $ShouldersFile << 'EOT'
 
 	# start embedded Perl program
 
@@ -884,7 +888,7 @@ function validate_naans {
 	my $lcnt = 0;		# current line number (line count)
 	my $ecnt = 0;		# current entry (count)
 	my $errs = 0;		# error count
-	my ($badseq1, $badseq2, %naans, %elems);
+	my ($badseq1, $badseq2, %naans, %elems, %org_name, %org_acro);
 
 	sub perr {
 		print(STDERR "Entry starting line $lcnt: ",
@@ -892,7 +896,7 @@ function validate_naans {
 		$errs++;
 	}
 
-	sub element_check { my( $k, $v )=@_;	# one key, value pair
+	sub element_check { my( $k, $v )=@_;	# one key/value pair
 
 		$k ||= '';
 		$k or
@@ -917,10 +921,20 @@ function validate_naans {
 		#
 		if ($k eq 'what') {		# duplicate check
 			++$naans{$v} > 1 and
-				perr("NAAN $v duplicated!");
+				perr("NAAN $v duplicated");
 			$v =~ /^(\d\d\d\d\d)$/ or
 				perr("malformed NAAN ($v): ",
 					"should be NNNNN");
+		}
+		elsif ($k eq 'who') {
+			my ($oname) = $v =~ m/^\s*(.*?)\s*\(=\)/ or
+				perr("Malformed organization name: $v");
+			my ($oacro) = $v =~ m/.*\(=\)\s*(.*?)$/ or
+				perr("Malformed organization acronym: $v");
+			++$org_name{$oname} > 1 and
+				perr("Organization name $oname duplicated");
+			++$org_acro{$oacro} > 1 and
+				perr("Acronym $oacro duplicated");
 		}
 		elsif ($k eq 'when') {
 			$v =~ /^(\d\d\d\d)\.(\d\d)\.(\d\d)$/ or
@@ -945,12 +959,16 @@ function validate_naans {
 		}
 	}
 
-	my $file = $ARGV[0];
+	my $naanfile = $ARGV[0];
 	my $contact_info =		# peek to see if file is anonymized
-		`grep -q '^\!contact' $file && echo 1`;
+		`grep -q '^\!contact' $naanfile && echo 1`;
 	chop $contact_info;
+
 	my ($c, $s, @uchars);
-	while (<>) {		# read file an entry (block) at a time
+	open FH, "< $naanfile" or
+		die();
+	$/ = "";		# paragraph mode
+	while (<FH>) {		# read file an entry (block) at a time
 		$badseq1 = $badseq2 = 0;
 		if ($. == 1 and ! /^erc:/m) {
 			print STDERR
@@ -1019,11 +1037,29 @@ function validate_naans {
 							for (@uchars);
 		}
 	}
+	close FH;
+
+	# check that every NAAN mentioned in shoulders file is also in
+	# the NAAN registry
+
+	my $shfile = $ARGV[1];
+	open FH, "sed -n 's,^:: ark:/*\\([0-9][0-9]*\\).*,\\1,p' $shfile |" or
+		die();
+
+	$/ = "\n";
+	while (<FH>) {
+		chop;
+		! $naans{$_} and print STDERR
+			"NAAN $_ from shoulders database missing from ",
+				"NAAN registry\n";
+	}
+	close FH;
+
 	if ($errs) {
-		print("NOT OK - $file: $ecnt entries, $errs errors\n");
+		print("NOT OK - $naanfile: $ecnt entries, $errs errors\n");
 		exit 1;
 	}
-	print("OK - $file: $ecnt entries, $lcnt lines\n");
+	print("OK - $naanfile: $ecnt entries, $lcnt lines\n");
 	exit;
 	# end embedded Perl program
 EOT

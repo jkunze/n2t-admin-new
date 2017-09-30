@@ -93,7 +93,8 @@ pmdir="$mintersdir/$populator"		# populator's minter directory
 
 # Create a two-element array.
 #
-a=( $(doip2naan $arg1 | perl -pe 's,^ark:/([^/]+)/(.*),\L$1 $2,') )
+a=( $(doip2naan $arg1 |
+	perl -pe 's,^ark:,ark:,i; s,^ark:/([^/]+)/(.*),\L$1 $2,') )
 naan=${a[0]}
 shdr=${a[1]}
 shdr_subdir=${shdr:-NULL}	# special case of empty shoulder

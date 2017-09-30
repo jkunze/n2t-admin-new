@@ -1624,7 +1624,7 @@ EOT
 # This is a YAML-format registry that enumerates the identifier prefixes
 # (identifier schemes) jointly recognized by the California Digital Library
 # (CDL) and the European Molecular Biology Laboratory - European
-# Bioinformatics Institute (EMBL-EBI) and their respective meta-resolvers:
+# Bioinformatics Institute (EMBL-EBI) and their respective meta-resolvers,
 #
 #    n2t.net and identifiers.org.
 #
@@ -1638,8 +1638,8 @@ EOT
 #
 #    <compact-id> := <prefix> + ':' + <prefix-specific-identifier>
 #
-# A compact-id is made actionable by using it for the path part of a URL
-# and using one of the meta-resolvers for the hostname, for example,
+# A compact-id is made actionable by using it as the path part of a URL
+# and prepending one of the meta-resolvers for the hostname, for example,
 #
 #     n2t.net/pmid:1234567
 #     identifiers.org/pmid:1234567
