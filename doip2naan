@@ -85,7 +85,7 @@ sub doip2naan { my $prefix = shift or return '';
 	# everything else will be untouched
 	$prefix =~
 		s{ \b (doi:)? 10\. (\d{1,5}) \b (\S*) }
-		 {    "ark:/" . d2n($2) . "\L$3\E"    }xeg;
+		 {    "ark:/" . d2n($2) . "\L$3\E"    }xeig;
 	return $prefix;
 }
 
