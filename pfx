@@ -2240,7 +2240,6 @@ combine)
 	exit
 	;;
 test)
-	echo "Warning: only testing build area, not installed prefixes."
 	cd $pfx_test || {
 		echo Could not chdir to $pfx_test. 2>&1
 		exit 1
@@ -2250,10 +2249,6 @@ test)
 	rm -fr td_egnapa
 	perl -Mblib t/zprefixes_n2t.t
 	exit
-
-	#perl -Mblib t/zprefixes_n2t.t ||
-	#	exit 1
-	#exit 0
 	;;
 tested_ok)
 	# caller-controlled: create new file as flag of success
