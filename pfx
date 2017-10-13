@@ -97,7 +97,7 @@ the prefixes running on the system.
 These sub-commands are purely about querying the prefix data itself.
 
   [-s records|lines|count] find [ Term ]
-            Print records (def), summary lines, or a count of records
+            Print summary lines (default), records, or a count of records
 	    matching the given Term argument, or a total count of existing
 	    records if no Term is given. If the Term begins with a ":"
 	    character, that character is removed and the rest of the Term
@@ -446,11 +446,7 @@ function pfx_updates_ready_in {
 	return 1			# or nothing's ready
 }
 
-# use case 0.8. pfx validate & build should be possible under a test
-# server; now: pfx uses $sv/apache2/pfx_work/build as root
-# while build_server_tree uses $buildout_root,
-# and n2t rollout installs it all and restarts (no need for a "pfx
-# rollout")
+# use case 0.8. pfx validate & build should be possible under a test server;
 
 # globals
 pfx_harvest=~/pfx_harvest			# one harvest area per HOST
@@ -713,6 +709,7 @@ function pfx_pushsync {
 			$pfx_maint_user@$host:sv/cur/apache2/pfx_work/
 }
 
+# yyy relies on caller putting us in the $pfx_build directory
 function pfx_prebuild {
 	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
 		pfx_init || return
@@ -1415,25 +1412,18 @@ function pfx_stage_pfxcoms {
 	return 0
 }
 
+# YYY relies on caller defining $pfx_build putting us in the dir it names
 function pfx_validate {
 
-#	echo "- validate_ebi"
-#		validate_ebi
-#return
-#		pfx_validate_prefixes
-#
-#	echo "- Validating n2t-added prefixes"
-#		validate_n2t_base
-#echo xxx early return
-#return
 	echo - Validating $naanFile
-		admegn validate_naans $naanFile || return 1
+		admegn validate_naans $naanFile $shdrFile || return 1
 	echo - Staging $naanFile, creating naans.anvl
 		pfx_stage_naans $naanFile || return 1
-	#echo xxx not yet Validating converted $naanFile
+		# are we Validating converted $naanFile?
 
 	echo - Validating $shdrFile
 		(cd ~/shoulders
+			echo "    using $pfx_build/$shdrFile"
 			./validate-shoulders $pfx_build/$shdrFile) ||
 				return 1
 
@@ -2227,7 +2217,7 @@ validate)
 		exit 1
 	}
 	echo "$me process running now in $pfx_build directory"
-	pfx_prebuild "$@" && pfx_validate "$@"
+	pfx_prebuild "$@" && pfx_validate "$@"		# yyy args unused
 	exit
 	;;
 combine)
@@ -2236,7 +2226,7 @@ combine)
 		exit 1
 	}
 	echo "$me process running now in $pfx_build directory"
-	pfx_combine "$@"
+	pfx_combine "$@"	# yyy args unused
 	exit
 	;;
 test)

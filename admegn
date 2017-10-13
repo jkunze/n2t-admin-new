@@ -867,7 +867,7 @@ EOT
 		perl -00 -wne "$perl_mload"
 }
 
-# yyy make these destinations work better with new pfx file locations
+# these sources usually overridden during pfx validation
 #
 ShouldersFile=~/shoulders/master_shoulders.txt	# default
 NAANsFile=~/shoulders/naans/master_naans	# default
@@ -876,6 +876,8 @@ function validate_naans {
 
 	[[ "$1" ]] &&
 		NAANsFile="$1"
+	[[ "$2" ]] &&
+		ShouldersFile="$2"
 	perl - $NAANsFile $ShouldersFile << 'EOT'
 
 	# start embedded Perl program
@@ -1049,9 +1051,9 @@ function validate_naans {
 	$/ = "\n";
 	while (<FH>) {
 		chop;
-		! $naans{$_} and print STDERR
+		! $naans{$_} and $errs++, print(STDERR
 			"NAAN $_ from shoulders database missing from ",
-				"NAAN registry\n";
+				"NAAN registry\n");
 	}
 	close FH;
 
