@@ -82,6 +82,19 @@ function llt()  { hd ls -lt ; }
 function llt1() { hd1 ls -lt ; }
 function llt2() { hd2 ls -lt ; }
 
+function modversion () {
+	[[ "$1" ]] || {
+		echo "Usage: modversion ModuleName ..."
+		return
+	}
+	local module file
+	for module in $@
+	do
+		file=$( perldoc -l $module )
+		echo -n "$module: "; grep '\<VERSION.*=' $file
+	done
+}
+
 function run () {
 	local me=run
 	local in=$me.in times=$me.times out=$me.out

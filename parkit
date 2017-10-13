@@ -95,8 +95,8 @@ n2t_item="ark:/13030/c7xk84q2j"
 # second time: upload $filebase.v2
 # ...
 
-xxx add this for each snapshot!
-   --metadata="bestest:https://n2t.net/$n2t_item" \
+#xxx add this for each snapshot!
+#   --metadata="bestest:https://n2t.net/$n2t_item" \
 
 ./ia upload "$item" "filename.v$version" \
    --metadata="collection:luck" \
