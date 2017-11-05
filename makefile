@@ -13,7 +13,7 @@ TMP=/tmp/n2t_create
 # removed recently: $(HOME)/init.d/apache 
 UTILITIES=$(LBIN)/n2t $(LBIN)/wegn $(LBIN)/wegnpw $(LBIN)/admegn \
 	$(LBIN)/logwhich $(LBIN)/logwatch $(LBIN)/bdbkeys $(LBIN)/mrm \
-		$(LBIN)/ezcl $(LBIN)/ezmdsadmin $(LBIN)/pfx \
+		$(LBIN)/ezcl $(LBIN)/ia $(LBIN)/ezmdsadmin $(LBIN)/pfx \
 		$(LBIN)/make_shdr $(LBIN)/shdr_exists $(LBIN)/make_ezacct \
 		$(LBIN)/doip2naan $(LBIN)/naan $(LBIN)/valsh \
 	$(LBIN)/granvl $(LBIN)/set_crontab $(LBIN)/replicate

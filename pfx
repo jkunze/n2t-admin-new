@@ -55,6 +55,7 @@ export PFX_redir=redirect
 mainout=prefixes.yaml
 pubout=cdl_ebi_prefixes.yaml
 pubregURL=https://n2t.net/e/$pubout
+pubregARK=https://n2t.net/ark:/13030/c7xk84q2j
 requestURL=https://n2t.net/e/prefix_request
 n2tregout=n2t_prefixes.yaml
 me=$( basename $0 )
@@ -1608,7 +1609,7 @@ EOT
 
 	echo "# Last modified: `date '+%Y.%m.%d_%H.%M.%S'`" > $pubout
 	cat >> $pubout << EOT
-# Updates available at: $pubregURL
+# Updates available at: $pubregARK
 # To request a prefix: $requestURL
 #
 # This is a YAML-format registry that enumerates the identifier prefixes
@@ -1664,6 +1665,10 @@ EOT
 # note (optional, repeatable)
 #   A text string containing arbitrary annotations.
 #
+# The contents of this file are dedicated to the public domain under the terms
+# of CC0 1.0 Universal https://creativecommons.org/publicdomain/zero/1.0/.
+# Please visit https://www.ebi.ac.uk/support/identifiers.org if you have
+# questions or feedback.
 
 EOT
 	# Expand any stray tabs to spaces because yaml hates tabs.
