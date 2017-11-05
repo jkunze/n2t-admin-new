@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+
+set -u			# treat unset variables as an error when substituting
+me=$( basename $0 )
+repo=archive.org
+resolver=n2t.net
+publisher='California Digital Library'
+collection=luck
+ezcreds=		# ezid credentials
+force=			# init flag
+test=			# init flag
+iso8601format='+%Y-%m-%dT%H:%M:%S%z'	# date format
+
+summary="
+    $me init [--force] [--test] File 'Creator|Title|Date' ['Subject[|...]']
+    $me rev File"
+
+function usage {
+	cat << EOT
+
+SYNOPSIS                          ($0)
+    $me - manage versioned ARK-hival object in LUCK collection at $repo
+
+USAGE $summary
+
+DESCRIPTION
+       The "$me" tool manages a versioned archival object, $me.File,
+       that mints and ARK identifier, associates it with a given File,
+       and deposits the object in the LUCK (Long-term UC Knowledge)
+       collection at $repo. The local file, $me.File, records
+       initial object metadata as well as subsequent version metadata.
+
+       The "init" form mints a new ARK and makes the first deposit of an
+       object that associates File with the given Dublin Core metadata.
+       The "--force" option overwrites an existing $me.File. Use the
+       "--test" option to mint a test ARK instead of a permanent ARK.
+
+       The "rev" form deposits a (presumably) new version of the File and
+       updates the ARK to resolve to the new version.
+       
+       Updates are done such that $resolver/<ARK> resolves to the latest,
+       and $resolver/<ARK>.vN resolves to version N (using Suffix
+       Passthrough).
+
+LIMITATIONS
+       ARK minting is limited to users with EZID admin credentials.
+       Deposit at $repo uses the "luck" collection and credentials of the
+       caller (use "ia configure" to set up a ~/.config/ia.ini file).
+
+SUMMARY $summary
+
+EOT
+}
+
+cmd=${1:-}	; shift
+
+[[ ! "$cmd" || $cmd == help ]] && {
+	usage
+	exit
+}
+
+function ark2iaid {
+	local ark=${1:-} ; shift
+	sed -e 's,^ark:/*,ark_,' -e 's,/,_,g' <<< $ark
+}
+
+function arkit_init {
+
+	while [[ "$1" =~ ^- ]]
+	do
+		case $1 in
+		--force|-f)	force=1 ;;
+		--test|-t)	test=1 ;;
+		*)
+			echo "Error: unknown option $1" 1>&2
+			return 1
+			;;
+		esac
+		shift
+	done
+
+	File=${1:-}	; shift
+	Meta=${1:-}	; shift
+	Subjects=${1:-}	; shift
+	[[ ! "$File" ]] && {
+		echo Error: no file specified 1>&2
+		usage 1>&2
+		return 1
+	}
+	[[ ! -r $File ]] && {
+		echo Error: cannot find file to archive: $File 1>&2
+		return 1
+	}
+	local File_date=$( date -r $File "$iso8601format" )
+
+	[[ ! "$Meta" ]] && {
+		echo Error: no metadata specified 1>&2
+		usage 1>&2
+		return 1
+	}
+	local ifs_saved="$IFS"
+	IFS='|'
+		# yyy should probably untaint $Meta and $Subjects
+		read -a erc <<< $Meta
+		read -a keywords <<< $Subjects
+	IFS="$ifs_saved"
+	local who=${erc[0]:-'(:unav)'}
+	local what=${erc[1]:-'(:unav)'}
+	local when=${erc[2]:-$File_date}
+	local objfile=$me.$File
+	[[ -r $objfile && ! "$force" ]] && {
+		echo "Error: object file \"$objfile\" exists;" \
+			"use --force to overwrite" 1>&2
+		return 1
+	}
+
+	local version=1
+	local version_string=""
+
+	# yyy should probably put these local values in an init file
+	local ezcreds='apitest:apitest'		# ezid credentials
+	local ezshoulder='ark:/99999/fk4'	# ezid shoulder
+	[[ ! "$test" ]] && {
+		ezcreds="admin:$(wegnpw ezidadmin)"
+		ezshoulder='ark:/13030/c7'
+	}
+	# reserved status allows us to delete the ARK if later we need to abort
+	local idstatus=reserved
+local ark=ark:/99999/fk4p275p26
+#	local ark=$( ezcl p "$ezcreds" mint $ezshoulder _status $idstatus |
+#		sed -n 's/^success: *//p' )
+	[[ ! "$ark" ]] && {
+		echo Error: failed to create ARK 1>&2
+		return 1
+	}
+	local iaid=$( ark2iaid $ark )	# derive IA identifier from $ark
+	local landing="https://$repo/download/$iaid"
+	local redirect="$landing/$File"
+
+	ezcl p "$ezcreds" update $ark \
+			erc.who "$who" erc.what "$what" erc.when "$when" \
+			_target "$redirect" bestest "$redirect" \
+			landing "$landing" plunging "$redirect" \
+			> /dev/null || {
+		echo Error: failed to add metadata to new ARK: $ark 1>&2
+		echo -n "Removing ARK: "
+		ezcl p "$ezcreds" delete $ark
+		return 1
+	}
+
+	echo Marking up new ARK identifier at EZID:
+	ezcl p "$ezcreds" view $ark | sed 's/^/    /'
+
+#	local exists_at_ia=$( ia list $iaid )
+	local exists_at_ia=
+	[[ "$exists_at_ia" ]] && {	# if it exists, start with clean slate
+		echo Removing $repo object files
+		ia delete $iaid --all || {
+			echo "Error: failed to delete $iaid files" 1>&2
+			echo -n "Removing ARK: "
+			ezcl p "$ezcreds" delete $ark
+			return 1
+		}
+	}
+	# xxx (now ready for future access as A or, via SPT, as A.vN)
+
+	local overall_metadata
+	read -r -d '' overall_metadata << EOT
+# === begin overall object metadata
+	# initial metadata for upload; comments must be on lines by themselves
+	--metadata="creator:$who"
+	--metadata="title:$what"
+	# creation date of first version
+	--metadata="date:$when"
+	--metadata="publisher:$publisher"
+	--metadata="identifier:https://$resolver/$ark"
+	--metadata="identifier-ark:https://$resolver/$ark"
+	--metadata="iaid:$iaid"
+	--metadata="collection:$collection"
+	--metadata="licenseurl:https://creativecommons.org/publicdomain/zero/1.0/"
+	--metadata="bestest:https://$resolver/$ark"
+	--metadata="landing:$landing"
+	--metadata="plunging:$redirect"
+	--metadata="highest_version:0"
+EOT
+	# this next line seems to be needed to get a final \n (bash bug?)
+	overall_metadata+="
+"
+	local keyword			# add keyword metadata
+	for keyword in "${keywords[@]}"
+	do
+		[[ ! "$keyword" ]] &&	# skipping blank keywords
+			continue
+		overall_metadata+="        --metadata=\"subject:$keyword\"
+"
+	done
+	overall_metadata+="# === end overall object metadata
+"
+	echo "$overall_metadata" > $objfile
+	echo -n "Uploading stub object $ark ($iaid): "
+	echo ia upload $iaid - <<< stub --remote-name="$File" \
+		$( perl -ne '/^\s*#/ or chomp(), print' < $objfile )
+
+exit
+
+	local version_metadata
+	read -r -d '' version_metadata << EOT
+# === begin version $version metadata
+	# version metadata, for VERSIONed file
+# NOT to the target below
+ia metadata
+--modify="highest_version:$version"
+
+local cksum=$( cksum /dev/null )
+
+ia upload
+	--target="files/$File.v$version"
+	--metadata="title:..., Version $version"
+	--metadata="updatedate:..."
+	--metadata="version:$version"
+	--metadata="cksum:$cksum"
+# === end version $version metadata
+EOT
+	#echo === $objfile === ; cat $objfile
+	echo version_metadata
+	echo "$version_metadata"
+
+echo "=== id status \"$idstatus\"; won't be permanent without \"commit\""
+
+
+	# ia upload ... ` cat $objfile `
+}
+
+version=0
+ia_item="ark_13030_c7xk84q2j"
+filebase="cdl_ebi_prefixes.yaml"
+target="https://archive.org/download/$ia_item/$filebase"
+n2t_item="ark:/13030/c7xk84q2j"
+
+case $cmd in
+
+init)
+	arkit_init "$@"
+	exit
+	;;
+rewrite-meta)		# rewrite object level metadata found in $me.$File
+	# ...
+	exit
+	;;
+rev)
+	exit
+	#version=$( sed -n \
+	#	's/.*--metadata="version: *\([0-9]*\)".*/\1/p' \
+	#		< $objfile )
+	#let version++
+	#version_string=", Version $version"
+
+
+	id=${1:-}	; shift
+	mdfile=${1:-}	; shift
+	policy=${1:-}	; shift
+	[[ "$id" && "$mdfile" && "$policy" ]] || {
+		echo "Error: upload needs identifier, metadata, and policy" 1>&2
+		exit 1
+	}
+	files=( $@ )
+	#for i in ${files[@]}
+	#do echo i is $i
+	#done
+	echo cmd is $cmd
+	exit
+	;;
+remove)
+	echo cmd is $cmd
+	exit
+	;;
+list)
+	echo cmd is $cmd
+	exit
+	;;
+*)
+	echo Error: unknown command: $cmd 1>&2
+	usage
+	exit 1
+	;;
+esac
+
+exit
+
+# ia upload myidjakkbl2 testia.txt --metadata="foo:bar" --metadata="collection:luck" && echo ok
+
+#target="https://archive.org/download/ark_13030_c7xk84q2j/cdl_ebi_prefixes.yaml"
+# upload item file options, where
+#  $item = object = identifier
+#  file = filename to add
+
+# All filenames end up accessible under stable IA "archival URL":
+#    https://archive.org/download/<identifier>/<filename>
+# SPT on https://archive.org/download/ark:/13030/c7xk84q2j/cdl_ebi_prefixes.yaml
+# once: upload $ia_item $filebase
+#       $n2t_item.set _t $target
+# first time: snag --mknextcopy $filebase
+#       upload $ia_item $filebase.v1
+#       SPT permits n2t.net/$n2t_item.v1 -> $target.v1
+# second time: upload $filebase.v2
+# ...
+
+#xxx add this for each snapshot!
+#   --metadata="bestest:https://n2t.net/$n2t_item" \
+
+ia upload "$item" "filename.v$version" \
+   --metadata="collection:luck" \
+   --metadata="creator:California Digital Library and European Bioinformatics Institute" \
+   --metadata="title:Registry of prefixes (namespaces) supported by identifiers.org and n2t.net" \
+   --metadata="date:2017-09-25" \
+   --metadata="subject:identifier" \
+   --metadata="subject:resolver" \
+   --metadata="subject:scheme" \
+
+
