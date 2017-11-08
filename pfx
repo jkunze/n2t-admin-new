@@ -59,6 +59,8 @@ pubregURL=https://n2t.net/e/$pubout
 pubregARK=https://n2t.net/ark:/13030/c7xk84q2j
 requestURL=https://n2t.net/e/prefix_request
 n2tregout=n2t_prefixes.yaml
+harvest_log=~/logs/pfx_harvest_log
+
 me=$( basename $0 )
 function usage {
 	cat << EOT
@@ -92,11 +94,19 @@ the prefixes running on the system.
             NB: does not disturb running system or previously built components
   test      Test prefix lookup and redirect rules (only tests BUILD area)
 	    Calls (via eggnog's t/zprefixes_n2t.t) "tested_ok" if all tests
-	    succeeded.
+	    succeeded. Starts with a completely empty build area.
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" now (but see "hitrnt" below).
+
+The highest level sub-commands are executed via crontab
+
   hitrnt    Harvest, import, test, rollout, and then run "n2t test" to make
-            sure everything is still working.
+            sure everything is still working. A return status of 0 indicates
+	    highest confidence (suitable for production rollout).
+  pfxsync   Copy fully tested ("hitrnt") prefixes to remote host for
+            installation and rollout on a running system.
+  test_rollout_n2t_test
+            Called on the remote host by "pfxsync" to install and rollout.
 
 These sub-commands are purely about querying the prefix data itself.
 
@@ -116,6 +126,7 @@ These sub-commands are purely about querying the prefix data itself.
 This sub-command is for updating another host from the local host.
 
   pushsync RemoteHost harvest|import|both
+	    (obsolete, see pfxsync)
             Copy given area to RemoteHost (did you test things first?).
             NB: this does not alter the service running remotely; for that
             you still need to do "pfx rollout" (to be fixed).
@@ -453,9 +464,9 @@ function pfx_updates_ready_in {
 # use case 0.8. pfx validate & build should be possible under a test server;
 
 # globals
+pfx_maint_user=n2t					# who maintains
 pfx_harvest=~/pfx_harvest			# one harvest area per HOST
 pfx_quarantine=$pfx_harvest/quarantine
-pfx_maint_user=n2t					# who maintains
 pfx_maint_host=$pfx_maint_user@ids-n2t-prd-2a.n2t.net	# where maintained
 ebireg=ebireg		# from http://identifiers.org/service/registryxml
 pfx_base=pfx_base.yaml				# yyy should be pfx_base.yaml
@@ -2048,8 +2059,18 @@ EOT
 	}
 }
 
+function pfx_test_rollout_n2t_test {
+
+	local mailto=${1:-$pfxadmin}
+	local output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
+	local status=$?
+	echo "$output" >> $harvest_log
+	mail -s "pfx updates ready: $u" $mailto <<< "$output"
+	return $status
+}
+
 # Run pfx harvest,import,test,rollout && n2t test. Meant to be called from
-# cron with $MAILTO as first arg, appending output to ~/logs/pfx_harvest_log
+# cron with $MAILTO as first arg, appending output to $harvest_log
 
 function pfx_hitrnt {
 
@@ -2071,8 +2092,34 @@ function pfx_hitrnt {
 		echo +==== import error
 		return 1
 	}
-	( pfx test && pfx rollout ) 2>&1 | 
-		mail -s "pfx updates ready: $u" $mailto
+	pfx_test_rollout_n2t_test $mailto
+}
+
+# Call with 2 args: remote host and $MAILTO
+# Install and rollout prefixes from current host to remote host,
+# output sent to $MAILTO.
+
+function pfx_pfxsync {
+
+	local rhost=${1:-'ids-n2t-dev.n2t.net'}
+	local mailto=${2:-$pfxadmin}
+	local srcdirs=( $pfx_import $pfx_harvest )
+	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
+		echo "Error: nothing to push" 2>&1
+		return 1
+	}
+	ssh $pfx_maint_user@$rhost pfx init
+	scp -pr ~/pfx_harvest $pfx_maint_user@$rhost:. || {
+		echo "Error: couldn't scp harvest area" 2>&1
+		return 1
+	}
+	scp -pr ~/sv/cur/apache2/pfx_work/import \
+			$pfx_maint_user@$rhost:sv/cur/apache2/pfx_work/ || {
+		echo "Error: couldn't scp import area" 2>&1
+		return 1
+	}
+	ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto"
+	return 0
 }
 
 #==========================
@@ -2213,8 +2260,16 @@ updates_ready_in)			# test if prefix updates are ready
 	pfx_updates_ready_in "$@"
 	exit
 	;;
+pfxsync)
+	pfx_pfxsync "$@"
+	exit
+	;;
 hitrnt)
 	pfx_hitrnt "$@"
+	exit
+	;;
+test_rollout_n2t_test)
+	pfx_test_rollout_n2t_test "$@"
 	exit
 	;;
 harvest)
