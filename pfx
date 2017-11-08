@@ -103,10 +103,12 @@ The highest level sub-commands are executed via crontab
   hitrnt    Harvest, import, test, rollout, and then run "n2t test" to make
             sure everything is still working. A return status of 0 indicates
 	    highest confidence (suitable for production rollout).
-  pfxsync   Copy fully tested ("hitrnt") prefixes to remote host for
-            installation and rollout on a running system.
-  test_rollout_n2t_test
+  pfxsync RemoteHost MailTo
+            Copy fully tested (see "hitrnt") prefixes to RemoteHost for
+            installation and rollout on a running system, email to MailTo.
+  test_rollout_n2t_test MailTo Message
             Called on the remote host by "pfxsync" to install and rollout.
+	    Send email notification to MailTo with subject line Message.
 
 These sub-commands are purely about querying the prefix data itself.
 
@@ -489,6 +491,7 @@ prd_master_base_prefixes=sv/cur/$source_base_prefixes
 # don't overwrite newer files unless -f given
 
 function pfx_harvest_validate {
+
 	[[ ! -d $pfx_harvest || ! -d $pfx_import ]] && {
 		pfx_init || return
 	}
@@ -532,6 +535,7 @@ function pfx_harvest_validate {
 # yyy In the process, filenames are normalized to internal conventions.
 
 function pfx_harvest {
+
 	[[ ! -d $pfx_quarantine ]] && {
 		mkdir -p $pfx_quarantine || {
 			echo "error: couldn't create $pfx_quarantine" 2>&1
@@ -726,6 +730,7 @@ function pfx_pushsync {
 
 # yyy relies on caller putting us in the $pfx_build directory
 function pfx_prebuild {
+
 	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
 		pfx_init || return
 	}
@@ -749,10 +754,6 @@ function pfx_prebuild {
 		cp -p $pfx_import/$f $pfx_build/$f
 	done
 	return 0	# yyy no error check
-
-# xxx don't forget to modify n2t rollout
-# xxx don't forget to modify build_server_tree
-#     to call pfx base build [ file ]
 }
 
 function pfx_init {
@@ -1847,10 +1848,10 @@ EOT
 	}
 }
 
-# yyy change build_server_tree to call this?
 # Errors indicated by status and message on stderr
 # On success, prints list of files triggering "updates_ready_in"
-# (by calling updates-ready_in).
+# (by calling updates_ready_in).
+# build_server_tree calls this
 
 function pfx_onboard {
 
@@ -2059,13 +2060,17 @@ EOT
 	}
 }
 
+# Two args: MAILTO and Subject line of message to send
+
 function pfx_test_rollout_n2t_test {
 
 	local mailto=${1:-$pfxadmin}
+	local update_msg=${2:-''}
 	local output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
 	local status=$?
 	echo "$output" >> $harvest_log
-	mail -s "pfx updates ready: $u" $mailto <<< "$output"
+	#mail -s "pfx updates ready: $u" $mailto <<< "$output"
+	mail -s $update_msg $mailto <<< "$output"
 	return $status
 }
 
@@ -2083,7 +2088,7 @@ function pfx_hitrnt {
 		return 1
 	fi
 	echo -n , 'harvested, updates ready: '
-	u=$( pfx updates_ready_in harvest ) || {
+	local u=$( pfx updates_ready_in harvest ) || {
 		echo '(none)'
 		return 0
 	}
@@ -2092,7 +2097,7 @@ function pfx_hitrnt {
 		echo +==== import error
 		return 1
 	}
-	pfx_test_rollout_n2t_test $mailto
+	pfx_test_rollout_n2t_test $mailto "pfx updates ready: $u"
 }
 
 # Call with 2 args: remote host and $MAILTO
@@ -2118,7 +2123,8 @@ function pfx_pfxsync {
 		echo "Error: couldn't scp import area" 2>&1
 		return 1
 	}
-	ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto"
+	local msg="pfxsync to $rhost"
+	ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto $msg"
 	return 0
 }
 
