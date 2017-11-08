@@ -2070,7 +2070,7 @@ function pfx_test_rollout_n2t_test {
 	local status=$?
 	echo "$output" >> $harvest_log
 	#mail -s "pfx updates ready: $u" $mailto <<< "$output"
-	mail -s $update_msg $mailto <<< "$output"
+	mail -s "$update_msg" $mailto <<< "$output"
 	return $status
 }
 
@@ -2124,7 +2124,7 @@ function pfx_pfxsync {
 		return 1
 	}
 	local msg="pfxsync to $rhost"
-	ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto $msg"
+	ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto '$msg'"
 	return 0
 }
 
