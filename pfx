@@ -66,7 +66,7 @@ function usage {
 	cat << EOT
 
 SYNOPSIS                          ($0)
-    $me - admin tool for the pfx service
+    $me - admin tool for N2T.net prefixes (schemes, NAANs, shoulders)
 
 USAGE
     $me [ -f ] [ -d ServerTreeDir ] Command
@@ -75,8 +75,8 @@ DESCRIPTION
 
 This script automates common prefix-related tasks for the N2T metaresolver.
 The prefix database is a yaml file built from processed component files.
-A crucial "base" prefix component file lives in and evolves with the
-eggnog source. Ingest of components is staged in order to automate entry
+A crucial "base" prefix component file lives in and evolves with N2T.net's
+EggNog source. Ingest of components is staged in order to automate entry
 of prefix changes while protecting the system from errors and instability.
 
 The following sub-commands may be executed in the order listed to update
@@ -93,8 +93,8 @@ the prefixes running on the system.
             -> there is one \$pfx_import/ per SERVICE VERSION (see "svu help")
             NB: does not disturb running system or previously built components
   test      Test prefix lookup and redirect rules (only tests BUILD area)
-	    Calls (via eggnog's t/zprefixes_n2t.t) "tested_ok" if all tests
-	    succeeded. Starts with a completely empty build area.
+            Calls (via eggnog's t/zprefixes_n2t.t) "tested_ok" if all tests
+            succeeded. Starts with a completely empty build area.
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" now (but see "hitrnt" below).
 
@@ -117,27 +117,27 @@ Some assistive sub-commands.
             perform a full refresh of the prefix set.
   test_rollout_n2t_test MailTo Message
             Called on the remote host by "pfxsync" to install and rollout.
-	    Send email notification to MailTo with subject line Message.
+            Send email notification to MailTo with subject line Message.
 
 These sub-commands are purely about querying the prefix data itself.
 
   [-s records|lines|count] find [ Term ]
             Print summary lines (default), records, or a count of records
-	    matching the given Term argument, or a total count of existing
-	    records if no Term is given. If the Term begins with a ":"
-	    character, that character is removed and the rest of the Term
-	    is matched against the body of the record, otherwise the Term is
-	    matched against the record header. Matching is case-insensitive.
-	    Does NOT require a server to be running.
+            matching the given Term argument, or a total count of existing
+            records if no Term is given. If the Term begins with a ":"
+            character, that character is removed and the rest of the Term
+            is matched against the body of the record, otherwise the Term is
+            matched against the record header. Matching is case-insensitive.
+            Does NOT require a server to be running.
 
   grok ID ...
             Print a lexical analysis of each given ID (not ID lookup)
-	    DOES require a server to be running.
+            DOES require a server to be running.
 
 This sub-command is for updating another host from the local host.
 
   pushsync RemoteHost harvest|import|both
-	    (obsolete, see pfxsync)
+            (obsolete, see pfxsync)
             Copy given area to RemoteHost (did you test things first?).
             NB: this does not alter the service running remotely; for that
             you still need to do "pfx rollout" (to be fixed).
@@ -190,9 +190,9 @@ either the -d option or the EGNAPA_BUILDOUT_ROOT environment variable. If
 both of those are empty, it uses ~/sv/cur/apache2. The -f option forces
 some operations to proceed that would otherwise be conditional.
 
-  testall     NOPE test all lookups and redirect rules
-  testlinks   NOPE test redirects by pinging external servers
-  rollback    NOPE back out of the last rollout, reverting to the prior rollout
+  testall     To do: test all lookups and redirect rules
+  testlinks   To do: test redirects by pinging external servers
+  rollback    To do: back out last rollout, reverting to the prior rollout
 
 EOT
 }
