@@ -1,0 +1,19 @@
+#!/bin/bash
+
+me=$( basename $0 )
+
+function showargs () {
+	[[ "$1" ]] || {
+		echo "$me - print args one per line"
+		echo "Usage: $me ..."
+		return
+	}
+	local i=0 arg
+	for arg in "$@"
+	do
+		(( i++ ))
+		echo $i. "$arg"
+	done
+}
+
+showargs "$@"
