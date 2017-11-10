@@ -98,14 +98,23 @@ the prefixes running on the system.
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" now (but see "hitrnt" below).
 
-The highest level sub-commands are executed via crontab
+The highest level sub-commands are executed via crontab.
 
-  hitrnt    Harvest, import, test, rollout, and then run "n2t test" to make
-            sure everything is still working. A return status of 0 indicates
-	    highest confidence (suitable for production rollout).
+  hitrnt MailTo [ RemoteHost ]
+            Harvest, import, test, rollout, and then run "n2t test" to make
+            sure everything is still working. Rigorous error checks will
+	    abort on any error. If there are no errors, even for post-rollout
+	    tests, and if RemoteHost is present, calls "pfxsync" to update
+	    and rollout on that host.
   pfxsync RemoteHost MailTo
             Copy fully tested (see "hitrnt") prefixes to RemoteHost for
             installation and rollout on a running system, email to MailTo.
+
+Some assistive sub-commands.
+
+  mark4refresh
+            Marks the harvest area so that a subsequent hitrnt cycle will
+            perform a full refresh of the prefix set.
   test_rollout_n2t_test MailTo Message
             Called on the remote host by "pfxsync" to install and rollout.
 	    Send email notification to MailTo with subject line Message.
@@ -216,161 +225,6 @@ mirfile=miriam.yaml
 n2tadds=pfx_base.yaml
 #n2taddsinURL=http://n2t.net/e/$n2tadds   # yyy drop
 
-# xxx obsolete function
-# This function updates a working copy ($wfile, arg 1) of a prefixes file
-# from a file ready to import ($ifile, derived from arg 2).  If no file is
-# ready for import, try to create one from the "defaults" subdirectory.
-# If nothing needs updating, nothing is done.  Returns 0 (success) if
-# a new file was imported, else returns non-zero.
-# NB: currently the to_import directory uses a standard system location.
-
-# xxx change to one arg only, (same name in either subdir)
-# xxx initialize defaults/ files
-
-# function pfx_update_file_obsolete {
-# 
-# 	local wfile=$1				# working file
-# 	local idir=$HOME/prefixes/to_import 	# system import directory
-# 	local ifile=$idir/$2		 	# "ready to import" file
-# 	local updated=				# pessimist
-# 	[[ ! -f $ifile ]] && {
-# 		cp -p defaults/$wfile $ifile || {
-# 		    echo "$ifile: couldn't create from default" 1>&2
-# 			return -1
-# 		}
-# 	}
-# 	# now that $ifile exists, check if $wfile exists
-# 	[[ ! -f "$wfile" ]] && {
-# 		cp -p $ifile $wfile || {
-# 			echo "$wfile: couldn't create from import file" 1>&2
-# 			return -1
-# 		}
-# 		updated=1		# this counts as an update
-# 	}
-# 	# now we know that $wfile exists too, so compare timestamps
-# 	[[ $ifile -nt $wfile ]] && {
-# 		cp -p $ifile $wfile || {
-# 		    echo "$wfile: couldn't update from $ifile" 1>&2
-# 			return -1
-# 		}
-# 		updated=1		# this was an actual update
-# 	}
-# 	[[ "$updated" ]] && {
-# 		echo "Updated $wfile"
-# 		return 0
-# 	}
-# 	return 1
-# }
-
-# # Run from $pfx_build under the eggnog source directory, this function
-# # updates the build directory copy if the candidate import file is newer.
-# # This function updates build copies ($bfile, arg 1) of ingredients for
-# # the prefixes file.  It uses files readied for import (pre_import) and
-# # one special file that lives in the source tree.
-# # If nothing needs updating, nothing is done.
-# # Returns 0 (success) if a new file was imported, else returns non-zero.
-# # NB: the $idir directory is in a standard service version (sv) location.
-# 
-# # uses global $idir directory
-# function pfx_update_file {
-# 
-# 	#local idir=$HOME/prefixes/to_import 	# system import directory
-# 	local bfile=$1			# file to bring in is arg1
-# 	local ifile=$2		 	# from "ready to import" file
-#  	local updated=			# pessimist
-# 	[[ "$2" == "" ]] &&		# if no arg2, use arg1 but
-# 		ifile=$idir/$bfile	# look for it in $idir
-# 
-# 	[[ ! -f "$ifile" ]] && {
-# 		echo "$ifile: no such file to import" 1>&2
-# 		return -1
-# 	}
-# 	# now we know $ifile exists, so check if $bfile exists,
-# 	[[ ! -f "$bfile" ]] && {
-# 		cp -p $ifile $bfile || {
-# 			echo "$bfile: couldn't create from import file" 1>&2
-# 			return -1
-# 		}
-# 		updated=1		# this counts as an update
-# 	}
-# 	# now we know that $bfile exists too, so compare timestamps
-# 	[[ $ifile -nt $bfile ]] && {
-# 		cp -p $ifile $bfile || {
-# 		    echo "$bfile: couldn't update from $ifile" 1>&2
-# 			return -1
-# 		}
-# 		updated=1		# this was an actual update
-# 	}
-# 	[[ "$updated" ]] && {
-# 		echo "Updated $bfile"
-# 		return 0
-# 	}
-# 	return 1
-# }
-# 
-# # Compares file timestamps between $pfx_build and $pfx_current and
-# # returns 1 if the former is newer, else returns 0.
-# 
-# function pfx_is_newer {
-# 
-# 	#local idir=$HOME/prefixes/to_import 	# system import directory
-# 	local bfile=$1			# build file is arg1
-# 	local ifile=$2		 	# "ready to import" file
-#  	local updated=			# pessimist
-# 	[[ "$2" == "" ]] &&		# if no arg2, use arg1 but
-# 		ifile=$idir/$bfile	# look for it in $idir
-# 
-# 	[[ ! -f "$ifile" ]] && {
-# 		echo "$ifile: no such file to import" 1>&2
-# 		return -1
-# 	}
-# 	# now we know $ifile exists, so check if $bfile exists,
-# 	[[ ! -f "$bfile" ]] && {
-# 		cp -p $ifile $bfile || {
-# 			echo "$bfile: couldn't create from import file" 1>&2
-# 			return -1
-# 		}
-# 		updated=1		# this counts as an update
-# 	}
-# 	# now we know that $bfile exists too, so compare timestamps
-# 	[[ $ifile -nt $bfile ]] && {
-# 		cp -p $ifile $bfile || {
-# 		    echo "$bfile: couldn't update from $ifile" 1>&2
-# 			return -1
-# 		}
-# 		updated=1		# this was an actual update
-# 	}
-# 	[[ "$updated" ]] && {
-# 		echo "Updated $bfile"
-# 		return 0
-# 	}
-# 	return 1
-# }
-
-# This function imports prefixes (schemes, shoulders, NAANs, etc) from
-# sources that are post-harvest, meaning they've been staged locally
-# after being harvested (eg, daily) from external sources.  An exit
-# status of zero means something was updated; as a special case, if the
-# installed "pfx" script is newer than the prefixes file, a zero status
-# is returned.
-
-# XXXXXXXXX add test and rollout ability for public prefixes
-# XXXXXXXXX set up import cron jobs to populate ~/prefixes/to_import
-# xxx need way to pull in ebi and pfxcoms updates from production
-#     onto non-production machines!
-
-## yyy kludge to insulate cron-driven process from build processes
-## yyy should update to a "to_test" directory that quarantines things
-## this assumes $idir exists; it only clobbers the $idir prefixes
-#function pfx_pre_import {
-#	(cd $HOME/shoulders/;
-#		# internal registries
-#		cp -p master_shoulders.txt naans/master_naans $idir
-#		# external registries
-#		cp -p ebireg_latest.xml lsregistry.yml $idir
-#	)
-#}
-
 # "live" prefixes are only clobbered upon "pfx rollout"
 
 # Use case 0.1 import prereq files from native locations (ie, from prd for
@@ -386,43 +240,22 @@ n2tadds=pfx_base.yaml
 # Use case 4. Rollback prefix files to previous version.
 # Use case 5. Initiate prefix rollout on remote server (esp. production),
 #     after condition met (esp. successful rollout in stage)
+
 # Prefix products:
 #  $sa/prefixes.yaml
 #  $sa/pfx_work
-#       | build/    # replaces need for quarantine/to_import area
-#       | current/
-#       | previous/
+#       | build/    # replaces need for quarantine/to_import area ?
 #  ~/backups/prefixes/current/    yyy should backups happen only on changes?
 #       | 2017.04.01...  (similar to minters)
 # Prefix sources:
 #   $se/t/n2t/pfx_base.yaml
-# External sources are imported directly to
-#  $sa/pfx_work/pfx_build/ on prd, then rsync'd to stg, and case 1 applied.
-
-# Returns shell status 0 (true) if updates to currently installed
-# prefixes ($pfx_current) are present, else returns 1 (false).
-# Prints list of triggering files to stdout, errors to stderr.
-
-# A separate function actually copies(...?)
-# from command line use "pfx updates_ready", as in
-# pfx updates_ready && { ... process updates ... }
-# xxx add -v option to say which file(s) are ready
-
-# Use case 1. Discover whether prefixes.yaml needs to be rebuilt
-#  by comparing it to harvested source files (eg, daily), and if so,
-#     rebuild it and rollout changed file and restart resolver.
-#  - use pfx_updates_ready to test
-#     $pfx_build dir can be anywhere
-# Compare mod dates of pre-requisite files and $master_prefixes
-# *** between $pfx_harvest/* and master prefixes?
-# *** between $pfx_import/* and master prefixes?
 
 function pfx_updates_ready_in {
 
 	# NB: -nt returns false for a non-existent first file arg
 	[[ $# -lt 1 ]] && {
 		echo "Error: missing operation-stage (harvest, import," \
-			"prebuild) to check for updates" 2>&1
+			"prebuild) to check for updates" 1>&2
 		return 1
 	}
 	local opstage=$1
@@ -447,14 +280,15 @@ function pfx_updates_ready_in {
 		[[ ! -r $ondeck/$f ]] && {
 			echo -e "Error: missing prefix source file from" \
 				"$opstage stage: $f\n" 1>&2
-		  return 1
+			return 1
 		}
 		file2=$cur/$f
 		[[ $opstage == prebuild ]] &&
 			file2=$master_prefixes
 		# next is true if file1 exists and file2 doesn't exist
-		[[ $ondeck/$f -nt $file2 ]] &&		# new file detected
+		[[ $ondeck/$f -nt $file2 ]] && {	# new file detected
 			ready+=( $( basename $ondeck/$f ) )
+		}
 	done
 	[[ ${#ready[@]} -gt 0 ]] && {
 		echo ${ready[@]}	# output the list
@@ -517,10 +351,20 @@ function pfx_harvest_validate {
 
 	if [[ $errcount -gt 0 ]]	# yyy why collect to end? why errcount?
 	then
-		echo -e $msg 2>&1
+		echo -e $msg 1>&2
 		return 1
 	fi
 	return 0
+}
+
+# Marks the harvest area so that a subsequent hitrnt cycle
+# will perform a full refresh of the prefix set.
+
+function pfx_mark4refresh {
+
+	# remove a not-so-important file from harvest area to trigger refresh
+
+	rm $pfx_harvest/master_shoulders.txt
 }
 
 # harvest: bring external files into $pfx_harvest directory (seldom)
@@ -538,7 +382,7 @@ function pfx_harvest {
 
 	[[ ! -d $pfx_quarantine ]] && {
 		mkdir -p $pfx_quarantine || {
-			echo "error: couldn't create $pfx_quarantine" 2>&1
+			echo "error: couldn't create $pfx_quarantine" 1>&2
 			return 1
 		}
 	}
@@ -596,7 +440,7 @@ function pfx_base {
 
 	[[ $# -lt 1 ]] && {
 		echo "Error: missing operation-stage (harvest, import," \
-			"prebuild) to copy base into" 2>&1
+			"prebuild) to copy base into" 1>&2
 		return 1
 	}
 	local opstage=$1
@@ -609,7 +453,7 @@ function pfx_base {
 	harvest)	dstdir=$pfx_harvest ;;
 	*)	echo \
 		"Error: unknown operation-stage ($opstage); should be one" \
-			"of (harvest, import, prebuild)" 2>&1
+			"of (harvest, import, prebuild)" 1>&2
 		return 1
 		;;
 	esac
@@ -621,7 +465,7 @@ function pfx_base {
 		shift
 	}
 	[[ ! -r $nfile ]] && {
-		echo "Error: cannot read given update file ($nfile)" 2>&1
+		echo "Error: cannot read given update file ($nfile)" 1>&2
 		return 1
 	}
 	cp -p $nfile $dstdir		# need to preserve modtimes
@@ -666,7 +510,7 @@ function pfx_import {
 		[[ ! -r $pfx_harvest/$f ]] && {
 			echo -e "Error: missing prefix source file from" \
 				"harvest: $f\n" "- consider running" \
-				'"pfx harvest" first' 2>&1
+				'"pfx harvest" first' 1>&2
 		  return 1
 		}
 	done
@@ -694,14 +538,14 @@ function pfx_import {
 function pfx_pushsync {
 
 	[[ $# -lt 1 ]] && {
-		echo "Error: missing remote hostname" 2>&1
+		echo "Error: missing remote hostname" 1>&2
 		return 1
 	}
 	local host=$1
 	shift
 	[[ $# -lt 1 ]] && {
 		echo "Error: missing ingest area (harvest, import," \
-			"both) to copy to $host" 2>&1
+			"both) to copy to $host" 1>&2
 		return 1
 	}
 	local area=$1
@@ -712,12 +556,12 @@ function pfx_pushsync {
 	both)		srcdirs=( $pfx_import $pfx_harvest ) ;;
 	*)	echo \
 		"Error: unknown ingest area ($area); should be one" \
-			"of (harvest, import, both)" 2>&1
+			"of (harvest, import, both)" 1>&2
 		return 1
 		;;
 	esac
 	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
-		echo "Error: nothing to push" 2>&1
+		echo "Error: nothing to push" 1>&2
 		return 1
 	}
 	ssh $pfx_maint_user@$host pfx init
@@ -740,7 +584,7 @@ function pfx_prebuild {
 		[[ ! -r $pfx_import/$f ]] && {
 			echo -e "Error: missing prefix source file from" \
 				"import area: $f\n" "- consider running" \
-				'"pfx import" (after "pfx harvest"?)' 2>&1
+				'"pfx import" (after "pfx harvest"?)' 1>&2
 		  return 1
 		}
 	done
@@ -758,11 +602,11 @@ function pfx_prebuild {
 
 function pfx_init {
 	mkdir -p $pfx_import $pfx_build || {
-		echo Could not create prefix work directories. 2>&1
+		echo Could not create prefix work directories. 1>&2
 		return 1
 	}
 	mkdir -p $pfx_harvest || {
-		echo Could not create $pfx_harvest directory. 2>&1
+		echo Could not create $pfx_harvest directory. 1>&2
 		return 1
 	}
 }
@@ -1838,12 +1682,12 @@ EOT
 	# xxx but not -Mblib all the time, right? make it a var?
 #	local srcdir=~/sv/cur/build/eggnog
 	cd $pfx_build || {
-		echo Could not chdir to $pfx_build. 2>&1
+		echo Could not chdir to $pfx_build. 1>&2
 		exit 1
 	}
 	#perl -Mblib -e "$perl_grok" $mainout "$@"
 	perl -e "$perl_grok" $mainout "$@" || {
-		echo "Error: pfx_grok failed" 2>&1
+		echo "Error: pfx_grok failed" 1>&2
 		exit 1
 	}
 }
@@ -1898,12 +1742,12 @@ function pfx_install {
 	local err=
 
 	[[ -f $tested_ok_file ]] || {
-		echo "Aborting: no $tested_ok_file file." 2>&1
-		echo "Did you run \"pfx test\" first?" 2>&1
+		echo "Aborting: no $tested_ok_file file." 1>&2
+		echo "Did you run \"pfx test\" first?" 1>&2
 		exit 1
 	}
 	cd $pfx_build || {
-		echo Could not chdir to $pfx_build. 2>&1
+		echo Could not chdir to $pfx_build. 1>&2
 		exit 1
 	}
 	echo "$me process running now in $pfx_build directory"
@@ -1914,21 +1758,21 @@ function pfx_install {
 	#cp -p $buildout_root/$n2tpx $buildout_root/$n2tpx.orig || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error backing up public prefix files" \
-			"($px, $pubpx, $n2tpx) to $nsf/*.orig" 2>&1
+			"($px, $pubpx, $n2tpx) to $nsf/*.orig" 1>&2
 		return 1
 	}
 	# ensure back up build directory exists
 	mkdir -p $pfx_build.orig || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error making directory for old prefix build files" \
-			"($pfx_build.orig/.*)" 2>&1
+			"($pfx_build.orig/.*)" 1>&2
 		return 1
 	}
 	err=
 	cp -pr * $pfx_build.orig/ || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error backing up prefix build files from " \
-			"$pfx_build to $pfx_build.org" 2>&1
+			"$pfx_build to $pfx_build.org" 1>&2
 		# let this not be fatal, eg, first time with new framework
 		#return 1
 	}
@@ -1936,21 +1780,21 @@ function pfx_install {
 	cp -pr $nsf/pfx_work/build/* . || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error copying prefix build files from " \
-			"$nsf/pfx_work/build/" 2>&1
+			"$nsf/pfx_work/build/" 1>&2
 		return 1
 	}
 	err=
 	echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx} to $buildout_root."
 	cp -p $nsf/$px $buildout_root || err=y
 	[[ $err ]] && {
-		echo "Error copying in new $px file to $buildout_root" 2>&1
+		echo "Error copying in new $px file to $buildout_root" 1>&2
 		return 1
 	}
 	cp -p $nsf/$pubpx $nsf/$n2tpx $buildout_root/htdocs/e/ ||
 		err=y			 # these are publicly readable
 	[[ $err && ! "$force" ]] && {
 		echo "Error copying new public files $pubpx and $n2tpx" \
-			"to $buildout_root/htdocs/e/" 2>&1
+			"to $buildout_root/htdocs/e/" 1>&2
 		return 1
 	}
 	err=
@@ -2055,7 +1899,7 @@ function pfx_find {
 		say "$count";
 EOT
 	perl -e "$perl_find" $master_prefixes $show "$@" || {
-		echo "Error: pfx_find failed" 2>&1
+		echo "Error: pfx_find failed" 1>&2
 		exit 1
 	}
 }
@@ -2069,17 +1913,21 @@ function pfx_test_rollout_n2t_test {
 	local output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
 	local status=$?
 	echo "$output" >> $harvest_log
-	#mail -s "pfx updates ready: $u" $mailto <<< "$output"
-	mail -s "$update_msg" $mailto <<< "$output"
+	mail -s "$update_msg" $mailto <<< "$output" ||
+		echo "+==== Error in notification:" \
+			"mail -s \"$update_msg\" $mailto" >> $harvest_log
 	return $status
 }
 
 # Run pfx harvest,import,test,rollout && n2t test. Meant to be called from
 # cron with $MAILTO as first arg, appending output to $harvest_log
+# If optional 2nd arg is absent, return. Otherwise use 2nd arg as remote
+# host to call pfxsync with.
 
 function pfx_hitrnt {
 
 	local mailto=${1:-$pfxadmin}
+	local rhost=${2:-}
 	echo -n +==== `date`
 	pfx harvest
 	if [[ $? -eq 1 ]]
@@ -2088,8 +1936,10 @@ function pfx_hitrnt {
 		return 1
 	fi
 	echo -n , 'harvested, updates ready: '
-	local u=$( pfx updates_ready_in harvest ) || {
-		echo '(none)'
+	local u
+	# NB: don't do "local" with init, or kiss your return status goodbye!
+	u=$( pfx updates_ready_in harvest ) || {
+		echo '(none)'		# no updates, so no email sent
 		return 0
 	}
 	echo $u'; processing updates'
@@ -2097,7 +1947,14 @@ function pfx_hitrnt {
 		echo +==== import error
 		return 1
 	}
-	pfx_test_rollout_n2t_test $mailto "pfx updates ready: $u"
+	pfx_test_rollout_n2t_test $mailto "pfx updates ready: $u" || {
+		echo +==== test_rollout_n2t_test error
+		return 1
+	}
+	[[ ! "$rhost" ]] &&		# if no 2nd arg present
+		return 0			# done
+	# else sync to remote host
+	pfx_pfxsync $rhost $mailto
 }
 
 # Call with 2 args: remote host and $MAILTO
@@ -2110,17 +1967,17 @@ function pfx_pfxsync {
 	local mailto=${2:-$pfxadmin}
 	local srcdirs=( $pfx_import $pfx_harvest )
 	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
-		echo "Error: nothing to push" 2>&1
+		echo "Error: nothing to push" 1>&2
 		return 1
 	}
 	ssh $pfx_maint_user@$rhost pfx init
 	scp -pr ~/pfx_harvest $pfx_maint_user@$rhost:. || {
-		echo "Error: couldn't scp harvest area" 2>&1
+		echo "Error: couldn't scp harvest area" 1>&2
 		return 1
 	}
 	scp -pr ~/sv/cur/apache2/pfx_work/import \
 			$pfx_maint_user@$rhost:sv/cur/apache2/pfx_work/ || {
-		echo "Error: couldn't scp import area" 2>&1
+		echo "Error: couldn't scp import area" 1>&2
 		return 1
 	}
 	local msg="pfxsync to $rhost"
@@ -2156,7 +2013,7 @@ do
 		shift
 		[[ ! "$buildout_root" ]] && {
 			echo "Error: -d option requires an additional" \
-				"directory argument" 2>&1
+				"directory argument" 1>&2
 			usage
 			exit 1
 		}
@@ -2167,7 +2024,7 @@ do
 		shift
 		[[ ! "$show" ]] && {
 			echo "Error: -s option requires an additional" \
-				"argument (lines, records, count)" 2>&1
+				"argument (lines, records, count)" 1>&2
 			usage
 			exit 1
 		}
@@ -2193,7 +2050,7 @@ do
 		no_exec=1
 		;;
 	*)
-		echo "Error: unknown option: $1" 2>&1
+		echo "Error: unknown option: $1" 1>&2
 		shift
 		usage
 		exit 1
@@ -2224,11 +2081,11 @@ fi
 
 [[ "$sv" ]] || {
 	echo 'An SVU mode must be in effect, eg, "svu cur" ' \
-		'or "svu new".' 2>&1
+		'or "svu new".' 1>&2
 	exit 1
 }
 [[ -d $sv ]] || {
-	echo "Service version directory doesn't exist: $sv" 2>&1
+	echo "Service version directory doesn't exist: $sv" 1>&2
 	exit 1
 }
 
@@ -2274,6 +2131,10 @@ hitrnt)
 	pfx_hitrnt "$@"
 	exit
 	;;
+mark4refresh)
+	pfx_mark4refresh "$@"
+	exit
+	;;
 test_rollout_n2t_test)
 	pfx_test_rollout_n2t_test "$@"
 	exit
@@ -2312,7 +2173,7 @@ build)
 	;;
 validate)
 	cd $pfx_build || {
-		echo Could not chdir to $pfx_build. 2>&1
+		echo Could not chdir to $pfx_build. 1>&2
 		exit 1
 	}
 	echo "$me process running now in $pfx_build directory"
@@ -2321,7 +2182,7 @@ validate)
 	;;
 combine)
 	cd $pfx_build || {
-		echo Could not chdir to $pfx_build. 2>&1
+		echo Could not chdir to $pfx_build. 1>&2
 		exit 1
 	}
 	echo "$me process running now in $pfx_build directory"
@@ -2330,7 +2191,7 @@ combine)
 	;;
 test)
 	cd $pfx_test || {
-		echo Could not chdir to $pfx_test. 2>&1
+		echo Could not chdir to $pfx_test. 1>&2
 		exit 1
 	}
 	echo "$me process running now in $pfx_test directory"
@@ -2342,7 +2203,7 @@ test)
 tested_ok)
 	# caller-controlled: create new file as flag of success
 	date > $tested_ok_file || {
-		echo "Did you call \"$me test\" first?" 2>&1
+		echo "Did you call \"$me test\" first?" 1>&2
 		exit 1
 	}
 	exit
