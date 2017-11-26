@@ -1471,9 +1471,9 @@ EOT
 # Updates available at: $pubregARK
 # To request a prefix: $requestURL
 #
-# This is a YAML-format registry that enumerates the identifier prefixes
-# (identifier schemes) jointly recognized by the California Digital Library
-# (CDL) and the European Molecular Biology Laboratory - European
+# This is a YAML-format registry that enumerates the Compact Identifier
+# prefixes (id schemes) jointly recognized by the California Digital
+# Library (CDL) and the European Molecular Biology Laboratory - European
 # Bioinformatics Institute (EMBL-EBI) and their respective meta-resolvers,
 #
 #    n2t.net and identifiers.org.
@@ -1525,9 +1525,9 @@ EOT
 #   A text string containing arbitrary annotations.
 #
 # The contents of this file are dedicated to the public domain under the terms
-# of CC0 1.0 Universal https://creativecommons.org/publicdomain/zero/1.0/.
-# Please visit https://www.ebi.ac.uk/support/identifiers.org if you have
-# questions or feedback.
+# of CC0 1.0 Universal https://creativecommons.org/publicdomain/zero/1.0/
+# and FAIRsharing entry https://fairsharing.org/bsg-s001091.  Please visit
+# https://www.ebi.ac.uk/support/identifiers.org for questions or feedback.
 
 EOT
 	# Expand any stray tabs to spaces because yaml hates tabs.
