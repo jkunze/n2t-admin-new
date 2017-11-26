@@ -3,6 +3,7 @@
 set -u			# treat unset variables as an error when substituting
 me=$( basename $0 )
 
+alias py_ia="python2.7 ~/local/bin/ia"		# requires 2.7
 repo=archive.org
 resolver=n2t.net
 publisher='California Digital Library'
@@ -15,8 +16,8 @@ noexec=						# init flag
 test=						# init flag
 
 summary="
-    $me init [--force] [--test] File 'Creator|Title|Date' ['Subject[|...]']
-    $me rev File"
+    $me init [ Options ] File 'Creator|Title|Date' ['Subject[|...]']
+    $me addversion File"
 
 function usage {
 	cat << EOT
@@ -35,20 +36,27 @@ DESCRIPTION
 
        The "init" form mints a new ARK and makes the first deposit of an
        object that associates File with the given Dublin Core metadata.
-       The "--force" option overwrites an existing $me.File. Use the
-       "--test" option to mint a test ARK instead of a permanent ARK.
 
-       The "rev" form deposits a (presumably) new version of the File and
-       updates the ARK to resolve to the new version.
-       
-       Updates are done such that $resolver/<ARK> resolves to the latest,
-       and $resolver/<ARK>.vN resolves to version N (using Suffix
-       Passthrough).
+       The "addversion" form finds a file of the form File.vN for the
+       highest number N, or uses N=0 if none. It then uploads the contents
+       of File to be added to the archival object as a new version N+1,
+       and updates the ARK to resolve to the new version. Version updates
+       are done such that $resolver/<ARK> resolves to the latest, and
+       $resolver/<ARK>.vN resolves to version N (using Suffix Passthrough).
+
+OPTIONS
+    -n, --noexec
+       The "--noexec" option does a dry run, informing you what actions it
+       would take but without actually taking those actions.
+    -f, --force
+       Use "--force" with "init" to overwrite an existing $me.File.
+    -t, --test
+       Use "--test" with "init" to mint a test ARK instead of a permanent ARK.
 
 LIMITATIONS
        ARK minting is limited to users with EZID admin credentials.
        Deposit at $repo uses the "luck" collection and credentials of the
-       caller (use "ia configure" to set up a ~/.config/ia.ini file).
+       caller (use "py_ia configure" to set up a ~/.config/ia.ini file).
 
 SUMMARY $summary
 
@@ -90,16 +98,113 @@ function delete_iaid {		# delete Internet Archive id
 		return 1
 	}
 	echo -n "Removing IA object $iaid: "
-	ia delete $iaid --all || {
+	py_ia delete $iaid --all || {
 		echo "Error: failed to delete $iaid files" 1>&2
 		return 1
 	}
 	return 0
 }
 
+function arkit_addversion {
+
+	while [[ "${1:-}" =~ ^- ]]
+	do
+		case $1 in
+		--force|-f)	force=1 ;;
+		--test|-t)	test=1 ;;
+		--noexec|-n)	noexec='+' ;;	# boolean/sigil
+		*)
+			echo "Error: unknown option $1" 1>&2
+			return 1
+			;;
+		esac
+		shift
+	done
+
+	File=${1:-}	; shift
+	[[ ! "$File" ]] && {
+		echo Error: no file specified 1>&2
+		return 1
+	}
+	[[ ! -r $File ]] && {
+		echo Error: cannot find file to archive: $File 1>&2
+		return 1
+	}
+	local objfile=$me.$File
+	[[ ! -r $objfile ]] && {
+		echo "Error: object file \"$objfile\" does not exist;" \
+			'use "init" to create' 1>&2
+		return 1
+	}
+	local File_date=$( date -r $File "$iso8601format" )
+
+	local version version_string vfile
+
+	#vfile=$( ls $File.v* 2>&1 )
+	#prefixes.v003.yaml
+	# NB: so SPT works, .vN must appear at end, not before,
+	#     eg, foo.yaml.v003 not foo.v003.yaml
+	# yyy what to do if this interferes with content-type inferencing
+	#     based on suffix?
+	version=( $( ls $File.v* 2>&1 | \
+		perl -ne 's/^.*\.v(\d+)$/$1/ and print' \
+		| sort -n | tail -1 ) )
+	# The vn_vfile array should contain 2 elements:
+	#   a version number and it's corresponding filename
+	# $vfile contains '' or "N $File.v*" where N is number for highest
+	#   existing version file
+echo version is "${vn_vfile[0]}"
+echo file is "${vn_vfile[1]}"
+	if [[ ! "$vfile" ]] && {
+		version=0
+		version_string=''
+	}
+exit
+# Updates available at: https://n2t.net/ark:/13030/c7xk84q2j
+# xxx Permalink to updated content: https://n2t.net/ark:/13030/c7xk84q2j
+# xxx Permalink to this version: https://n2t.net/ark:/13030/c7xk84q2j.v005
+# To request a prefix: https://n2t.net/e/prefix_request
+
+	local File_date=$( date -r $File "$iso8601format" )
+
+	local version_metadata
+# extract highest version, increment
+# compute cksum on current and new versions
+# add version file with version metadata
+# write out modified object data
+	read -r -d '' version_metadata <<-EOT
+	# === begin version $version metadata
+		# version metadata, for VERSIONed file
+	# NOT to the target below
+	py_ia metadata
+	--modify="highest_version:$version"
+
+	local cksum=$( cksum /dev/null )
+
+	py_ia upload
+		--target="files/$File.v$version"
+		--metadata="title:..., Version $version"
+		--metadata="updatedate:..."
+		--metadata="version:$version"
+	--metadata="fixing:..."
+	--metadata="rising:..."
+		--metadata="cksum:$cksum"
+	# === end version $version metadata
+	EOT
+
+	#echo === $objfile === ; cat $objfile
+	echo version_metadata
+	echo "$version_metadata"
+
+echo "=== id status \"$idstatus\"; wont be permanent without \"commit\""
+
+
+	# py_ia upload ... ` cat $objfile `
+}
+
 function arkit_init {
 
-	while [[ "$1" =~ ^- ]]
+	while [[ "${1:-}" =~ ^- ]]
 	do
 		case $1 in
 		--force|-f)	force=1 ;;
@@ -149,9 +254,6 @@ function arkit_init {
 			"use --force to overwrite" 1>&2
 		return 1
 	}
-
-	local version=1
-	local version_string=""
 
 	# yyy should probably put these local values in an init file
 	local ezcreds='apitest:apitest'		# ezid credentials
@@ -214,9 +316,9 @@ EOT
 	local exists_at_ia=
 	if [[ "$noexec" ]]
 	then
-		echo $noexec ia list $iaid
+		echo $noexec py_ia list $iaid
 	else
-		exists_at_ia=$( ia list $iaid )
+		exists_at_ia=$( py_ia list $iaid )
 	fi
 	[[ "$exists_at_ia" ]] && {	# if it exists, start with clean slate
 		echo Removing $repo object files
@@ -229,24 +331,25 @@ EOT
 	# xxx (now ready for future access as A or, via SPT, as A.vN)
 
 	local overall_metadata
-	read -r -d '' overall_metadata << EOT
-# === begin overall object metadata
-	# initial metadata for upload; comments must be on lines by themselves
-	--metadata="creator:$who"
-	--metadata="title:$what"
-	# creation date of first version
-	--metadata="date:$when"
-	--metadata="publisher:$publisher"
-	--metadata="identifier:https://$resolver/$ark"
-	--metadata="identifier-ark:https://$resolver/$ark"
-	--metadata="iaid:$iaid"
-	--metadata="collection:$collection"
-	--metadata="licenseurl:$cc0url"
-	--metadata="bestest:https://$resolver/$ark"
-	--metadata="landing:$landing"
-	--metadata="plunging:$redirect"
-	--metadata="highest_version:0"
-EOT
+	read -r -d '' overall_metadata <<-EOT	# - in <<- strips initial tabs
+	# === begin overall object metadata
+		# comments must be on lines by themselves
+		--metadata="creator:$who"
+		--metadata="title:$what"
+		# creation date of first version
+		--metadata="date:$when"
+		--metadata="publisher:$publisher"
+		--metadata="identifier:https://$resolver/$ark"
+		--metadata="identifier-ark:https://$resolver/$ark"
+		--metadata="iaid:$iaid"
+		--metadata="collection:$collection"
+		--metadata="licenseurl:$cc0url"
+		--metadata="bestest:https://$resolver/$ark"
+		--metadata="landing:$landing"
+		--metadata="plunging:$redirect"
+		--metadata="highest_version:0"
+	EOT
+
 	# this next line seems to be needed to get a final \n (bash bug?)
 	overall_metadata+=$'\n'
 	local keyword			# add keyword metadata
@@ -254,65 +357,40 @@ EOT
 	do
 		[[ ! "$keyword" ]] &&	# skipping blank keywords
 			continue
-		overall_metadata+=" --metadata=\"subject:$keyword\"$'\n'
+		overall_metadata+="--metadata=\"subject:$keyword\""$'\n'
 	done
-	overall_metadata+="# === end overall object metadata$'\n'
+	overall_metadata+="# === end overall object metadata"$'\n'
+
 	local ia_mdata_args=
+	IFS=$'\n' read -d '' -a ia_mdata_args \
+		<<< "$( perl -ne '/^\s*#/ or print' <<< $overall_metadata )"
+	# IFS will have reverted after one-time change
+	echo $noexec "Uploading stub object $ark ($iaid):"
 
 	if [[ "$noexec" ]]
 	then
-		echo $noexec writing metadata to $objfile:
-		echo "$overall_metadata"
-		echo $noexec ia upload $iaid - <<< stub --remote-name="$File" \
-			"$( perl -ne '/^\s*#/ or chomp(), print' < $objfile )"
+		echo $noexec eval "py_ia upload $iaid $File ${ia_mdata_args[@]}"
+		#showargs eval "py_ia upload $iaid $File ${ia_mdata_args[@]}"
 	else
-		echo "$overall_metadata" > $objfile
-		echo -n "Uploading stub object $ark ($iaid): "
-		IFS=$'\n' read -d '' -a ia_mdata_args \
-			<<< "$( perl -ne '/^\s*#/ or print' < arkit.t.yaml )"
-		# IFS will have reverted after one-time change
-
-		#showargs "${ia_mdata_args[@]}"
-		#showargs ia upload $iaid - <<< stub --remote-name="$File" 
-		#ia --debug upload $iaid $File "${ia_mdata_args[@]}" || {
-		#ia --debug upload $iaid $File "${ia_mdata_args[@]}"
-		eval "ia --debug upload $iaid $File $( perl -ne '/^\s*#/ or print' < arkit.t.yaml )"
-		local st=$?
-		[[ "$st" != 0 ]] && {
-			echo st is $st
+		# eval plus array-based metadata args -- a delicate quote-based
+		# solution painfully arrived at by trial and error
+		# yyy maybe these quoting problems should be avoided by
+		#     simply aiming for string construction and eval from
+		#     the get go
+		eval "py_ia upload $iaid $File ${ia_mdata_args[@]}" || {
 			echo "Error: failed to upload metadata for $iaid" 1>&2
 			delete_ark $ark
+			return 1
 		}
 	fi
-
-exit
-
-	local version_metadata
-	read -r -d '' version_metadata << EOT
-# === begin version $version metadata
-	# version metadata, for VERSIONed file
-# NOT to the target below
-ia metadata
---modify="highest_version:$version"
-
-local cksum=$( cksum /dev/null )
-
-ia upload
-	--target="files/$File.v$version"
-	--metadata="title:..., Version $version"
-	--metadata="updatedate:..."
-	--metadata="version:$version"
-	--metadata="cksum:$cksum"
-# === end version $version metadata
-EOT
-	#echo === $objfile === ; cat $objfile
-	echo version_metadata
-	echo "$version_metadata"
-
-echo "=== id status \"$idstatus\"; won't be permanent without \"commit\""
-
-
-	# ia upload ... ` cat $objfile `
+	echo $noexec Writing metadata to local object: $objfile
+	[[ ! "$noexec" ]] && {
+		echo "$overall_metadata" > $objfile ||
+			return 1
+	}
+	echo XXX should automatically run addversion now
+	#arkit_addversion
+	return
 }
 
 version=0
@@ -331,27 +409,8 @@ rewrite-meta)		# rewrite object level metadata found in $me.$File
 	# ...
 	exit
 	;;
-rev)
-	exit
-	#version=$( sed -n \
-	#	's/.*--metadata="version: *\([0-9]*\)".*/\1/p' \
-	#		< $objfile )
-	#let version++
-	#version_string=", Version $version"
-
-
-	id=${1:-}	; shift
-	mdfile=${1:-}	; shift
-	policy=${1:-}	; shift
-	[[ "$id" && "$mdfile" && "$policy" ]] || {
-		echo "Error: upload needs identifier, metadata, and policy" 1>&2
-		exit 1
-	}
-	files=( $@ )
-	#for i in ${files[@]}
-	#do echo i is $i
-	#done
-	echo cmd is $cmd
+addversion)
+	arkit_addversion "$@"
 	exit
 	;;
 remove)
@@ -371,7 +430,7 @@ esac
 
 exit
 
-# ia upload myidjakkbl2 testia.txt --metadata="foo:bar" --metadata="collection:luck" && echo ok
+# py_ia upload myidjakkbl2 testia.txt --metadata="foo:bar" --metadata="collection:luck" && echo ok
 
 #target="https://archive.org/download/ark_13030_c7xk84q2j/cdl_ebi_prefixes.yaml"
 # upload item file options, where
@@ -392,7 +451,8 @@ exit
 #xxx add this for each snapshot!
 #   --metadata="bestest:https://n2t.net/$n2t_item" \
 
-ia upload "$item" "filename.v$version" \
+
+py_ia upload "$item" "filename.v$version" \
    --metadata="collection:luck" \
    --metadata="creator:California Digital Library and European Bioinformatics Institute" \
    --metadata="title:Registry of prefixes (namespaces) supported by identifiers.org and n2t.net" \
