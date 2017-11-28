@@ -19,7 +19,7 @@ map KF :+,$!msfold''
 map KG 70| 
 map KJ 76|F 
 map KH 71|F 
-map KK /^From /mz*O:g/^Subject:/y s'zddj"hd/^$/k
+map KK i<C-R>=strftime("%Y.%m.%d")<CR><CR>
 map KN :w:nn
 map KI "mP
 map KP "mp

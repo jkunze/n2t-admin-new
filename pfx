@@ -115,9 +115,10 @@ Some assistive sub-commands.
   mark4refresh
             Marks the harvest area so that a subsequent hitrnt cycle will
             perform a full refresh of the prefix set.
-  test_rollout_n2t_test MailTo Message
+  test_rollout_n2t_test MailTo ChangedFiles
             Called on the remote host by "pfxsync" to install and rollout.
-            Send email notification to MailTo with subject line Message.
+            Send email notification to MailTo about the space-separated
+	    list of files given by the ChangedFiles argument string.
 
 These sub-commands are purely about querying the prefix data itself.
 
@@ -873,7 +874,8 @@ EOT
 	# in $err so we can test if duplicate detection is working.
 	#
 	# xxx move -00 and -w into script, where it belongs
-	local err=$( env NOTHING_TO_PASS=niente \
+	local err
+	err=$( env NOTHING_TO_PASS=niente \
 		perl -00 -we "$perl_prog" \
 			< $ebireg.yaml > ebireg_tmp 2>&1 )
 	[[ $? -ne 0 ]] && {
@@ -1138,7 +1140,8 @@ EOT
 	# in $err so we can test if duplicate detection is working.
 	# Use iconv to convert to utf8.
 	#
-	local err=$( env NOTHING_TO_PASS=niente \
+	local err
+	err=$( env NOTHING_TO_PASS=niente \
 		perl -e "$perl_prog" ebi.yaml |
 			iconv -f ISO-8859-1 -t UTF-8 2>&1 > $ebi_outfile )
 	[[ "$err" ]] &&
@@ -1239,7 +1242,8 @@ EOT
 	# in $err so we can test if duplicate detection is working.
 	#
 	# xxx move -00 into script, where it belongs
-	local err=$( env NOTHING_TO_PASS=niente \
+	local err
+	err=$( env NOTHING_TO_PASS=niente \
 		sed '/^[#!]/d' $naans |		# drop comment and private lines
 			perl -00 -e "$perl_prog" \
 		> naans.anvl )
@@ -1262,7 +1266,8 @@ function pfx_stage_pfxcoms {
 	echo '' >> pfxcoms.anvl		# make sure it ends in a blank line
 # xxx load into yaml and keep other fields: description, title, etc
 #   convert keywords to "subject"
-	local n=$( grep -c '^:: ' pfxcoms.anvl)
+	local n
+	n=$( grep -c '^:: ' pfxcoms.anvl)
 	[[ ${n:-0} -lt 9 ]] && {
 		echo "error: suspiciously low ($n) number of prefixes"
 		return 1
@@ -1798,7 +1803,8 @@ function pfx_install {
 		return 1
 	}
 	err=
-	local sum=$( cksum < $nsf/$px )
+	local sum
+	sum=$( cksum < $nsf/$px )
 	echo "`date`: rolled out new $px, cksum $sum" >> ~/logs/rollout_log
 	return 0
 }
@@ -1909,9 +1915,27 @@ EOT
 function pfx_test_rollout_n2t_test {
 
 	local mailto=${1:-$pfxadmin}
-	local update_msg=${2:-''}
-	local output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
+	local changed_files=${2:-''}
+	local update_msg="pfx updates ready: $changed_files"
+	local file old new diffs=
+	for file in $changed_files
+	do
+		old=$pfx_build/$file
+		new=$pfx_import/$file
+		diffs+=$( \
+			echo diff $old $new; \
+			echo -ne '--- '; \
+			ls -l $old | sed s/^..........................//; \
+			echo -ne '+++ '; \
+			ls -l $new | sed s/^..........................//; \
+			diff --ignore-space-change $old $new; \
+		)
+	done
+	local output	# NB: local ALWAYS succeeds, so don't initialize
+	# via command in a "local" and expect to save the return status!
+	output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
 	local status=$?
+	output+=$'\nDIFFS\n'"$diffs"
 	echo "$output" >> $harvest_log
 	mail -s "$update_msg" $mailto <<< "$output" ||
 		echo "+==== Error in notification:" \
@@ -1947,7 +1971,7 @@ function pfx_hitrnt {
 		echo +==== import error
 		return 1
 	}
-	pfx_test_rollout_n2t_test $mailto "pfx updates ready: $u" || {
+	pfx_test_rollout_n2t_test $mailto "$u" || {
 		echo +==== test_rollout_n2t_test error
 		return 1
 	}
