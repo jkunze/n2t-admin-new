@@ -235,8 +235,8 @@ function repltest {
 	fi
 
 	mkdir -p $tmongo_dbdir
-	local port out args instance
-	local host=$( hostname -f )	# host where daemon will run
+	local port out args instance host
+	host=$( hostname -f )	# host where daemon will run
 	local repSetHosts=''		# list of servers in replica set
 	local members=''		# server members of replica set
 	# members needed?
@@ -1336,10 +1336,11 @@ function bootwatch {
 #    (this is used to detect when a system reboot is indicated)
 function sysupdate {
 
-	local makecache=$( yum makecache fast )		# update repo metadata 
-	local updates=$( yum check-update | grep -v '^Loaded plugins' )
-	local noise=$( egrep '^db|perl|mongodb' <<< "$updates" )
-	local count=$( grep -c '.' <<< "$updates" )	# non-empty lines
+	local makecache updates noise count
+	makecache=$( yum makecache fast )		# update repo metadata 
+	updates=$( yum check-update | grep -v '^Loaded plugins' )
+	noise=$( egrep '^db|perl|mongodb' <<< "$updates" )
+	count=$( grep -c '.' <<< "$updates" )	# non-empty lines
 
 	echo -n "+==== sysupdate start: "		# for log file
 	date
@@ -1352,7 +1353,8 @@ function sysupdate {
 			echo ", including"
 			echo "$noise"
 		echo "# $( hostname -f ) | mdump | $( date +%Y.%m.%d_%H:%M:%S )"
-			local h=$( hostname -f )
+			local h
+			h=$( hostname -f )
 			mail -s "WARNING: critical software updated on $h!" \
 				$notify <<< "$noise"
 		else
@@ -1397,7 +1399,8 @@ function sysupdate {
 	fi
 
 	# If we get here, do the update
-	local msg=$( sudo yum $dontask update )
+	local msg
+	msg=$( sudo yum $dontask update )
 	echo "$msg"
 	echo 'Restarting apache and running "n2t test"'
 	~/init.d/apache restart || {
@@ -1501,7 +1504,8 @@ function class {
 
 function backup {
 
-	local now=$( date '+%Y.%m.%d_%H:%M:%S' )
+	local now
+	now=$( date '+%Y.%m.%d_%H:%M:%S' )
 	local src dst took
 	local txnlog=~/sv/cur/apache2/logs/transaction_log.rlog
 	local pfx_work=~/sv/cur/apache2/pfx_work
@@ -1527,7 +1531,8 @@ function backup {
 	cp -Lpr $pfx_work $pfx_harvest $dst
 
 	echo Backing up binders.
-	local binders=$( shopt -s nullglob; echo ~/binders/* )
+	local binders
+	binders=$( shopt -s nullglob; echo ~/binders/* )
 	for binder in $binders
 	do
 		b=$( basename $binder )
@@ -1684,7 +1689,8 @@ function backup_rotate {
 
 	# date +%j gives a 3-digit decimal number in the range 000-366.
 	# We strip leading zeroes so that it won't be seen as octal.
-	local dayofyear=$( date "+%j" | sed 's/^00*//' )
+	local dayofyear
+	dayofyear=$( date "+%j" | sed 's/^00*//' )
 	let day7th=( $dayofyear % 7 == 0 )	# is it a 7th day?
 	let day28th=( $dayofyear % 28 == 0 )	# is it a 28th day?
 

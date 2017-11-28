@@ -57,7 +57,8 @@ function check_default_minders {
 	[[ $minder_type != binders ]] &&
 		return			# we don't check minters or shoulders
 	# if we get here, we're checking for default binders
-	local binders=$( shopt -s nullglob; echo $nsf/$minder_type/* )
+	local binders
+	binders=$( shopt -s nullglob; echo $nsf/$minder_type/* )
 	[[ "$binders" == "" ]] && {
 		echo "Error: new server binder directory exists but is" \
 			"empty: $nsf/$minder_type"
@@ -149,7 +150,10 @@ function n2t_rollout {	# assumes caller ran check_changes!
 	# DVCS (distributed version control system).  The file it saves
 	# to should already be independent of hg or git.
 	#
-	local dvcsid=$( hg identify | sed 's/ .*//' )
+	# NB: local ALWAYS succeeds, so don't initialize via command
+	# in a "local" and expect to save the return status!
+	local dvcsid
+	dvcsid=$( hg identify | sed 's/ .*//' )
 
 	# change to directory of the running production server
 	(cd $aptop || {
