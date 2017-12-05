@@ -60,6 +60,9 @@ pubregARK=https://n2t.net/ark:/13030/c7xk84q2j
 requestURL=https://n2t.net/e/prefix_request
 n2tregout=n2t_prefixes.yaml
 harvest_log=~/logs/pfx_harvest_log
+function temper {
+	date '+%Y.%m.%d_%H.%M.%S/%z'
+}
 
 me=$( basename $0 )
 function usage {
@@ -1910,7 +1913,23 @@ EOT
 	}
 }
 
+# send arg1 string (could be many lines) to stdout and to email address
+# given by arg2, subject line given by arg3
+
+function PrintAndMail {
+
+	local output=${1:-}
+	local mailto=${2:-$pfxadmin}
+	local update_msg=${3:-}
+	echo "$output"
+	echo			# make sure there's a final newline
+	mail -s "$update_msg" $mailto <<< "$output" ||	# unlikely error
+		echo "+==== Error in email notification:" \
+			"mail -s \"$update_msg\" $mailto"
+}
+
 # Two args: MAILTO and Subject line of message to send
+# All output and errors to stdout.
 
 function pfx_test_rollout_n2t_test {
 
@@ -1918,35 +1937,57 @@ function pfx_test_rollout_n2t_test {
 	local changed_files=${2:-''}
 	local update_msg="pfx updates ready: $changed_files"
 	local file old new diffs=
+	local diffsfile="$pfx_import/diffs"
 	for file in $changed_files
 	do
 		old=$pfx_build/$file
-		new=$pfx_import/$file
-		diffs+=$( \
-			echo diff $old $new; \
-			echo -ne '--- '; \
-			ls -l $old | sed s/^..........................//; \
-			echo -ne '+++ '; \
-			ls -l $new | sed s/^..........................//; \
-			diff --ignore-space-change $old $new; \
-		)
+		new=$pfx_import/build/$file
+		(
+			echo diff $old $new;
+			echo -ne '--- ';
+			ls -l $old | sed s/^..........................//;
+			echo -ne '+++ ';
+			ls -l $new | sed s/^..........................//;
+			diff --ignore-space-change $old $new; 
+		) >  $diffsfile
+		# want much quieter diff, eg, only want text changes,
+		# not the line position of every text change
 	done
-	local output	# NB: local ALWAYS succeeds, so don't initialize
+	cat <<< "$diffs" > $diffsfile
+
+	local output=	# NB: local ALWAYS succeeds, so don't initialize
 	# via command in a "local" and expect to save the return status!
-	output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
-	local status=$?
-	output+=$'\nDIFFS\n'"$diffs"
-	echo "$output" >> $harvest_log
-	mail -s "$update_msg" $mailto <<< "$output" ||
-		echo "+==== Error in notification:" \
-			"mail -s \"$update_msg\" $mailto" >> $harvest_log
-	return $status
+	output+="+==== diffs in $diffsfile"$'\n\n'
+	output+=$( pfx test 2>&1 ) || {
+		echo "+==== Error: pfx test failed"
+		PrintAndMail "$output" "$mailto" "$update_msg"
+		return 1
+	}
+	output+=$( pfx rollout 2>&1 ) || {
+		echo "+==== Error: pfx rollout failed"
+		PrintAndMail "$output" "$mailto" "$update_msg"
+		return 1
+	}
+	output+=$( n2t test 2>&1 ) || {
+		echo "+==== Error: n2t test failed"
+		PrintAndMail "$output" "$mailto" "$update_msg"
+		return 1
+	}
+	PrintAndMail "$output" "$mailto" "$update_msg"
+	return
+	#output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
+	#output+=$'\nDIFFS\n'"$diffs"
+	#echo "$output" >> $harvest_log
+	#mail -s "$update_msg" $mailto <<< "$output" ||	# unlikely error
+	#	echo "+==== Error in notification:" \
+	#		"mail -s \"$update_msg\" $mailto" >> $harvest_log
+	#return 1
 }
 
-# Run pfx harvest,import,test,rollout && n2t test. Meant to be called from
-# cron with $MAILTO as first arg, appending output to $harvest_log
-# If optional 2nd arg is absent, return. Otherwise use 2nd arg as remote
-# host to call pfxsync with.
+# Run pfx harvest,import,test,rollout && n2t test, printing to stdout.
+# Meant to be called from cron with $MAILTO as 1st arg and caller appending
+# output to $harvest_log. If optional 2nd arg is absent, return.
+# Otherwise use 2nd arg as remote host to call pfxsync with.
 
 function pfx_hitrnt {
 
@@ -1956,25 +1997,46 @@ function pfx_hitrnt {
 	pfx harvest
 	if [[ $? -eq 1 ]]
 	then
-		echo , pfx harvest error
+		echo ", pfx harvest error; bailing out"
 		return 1
 	fi
 	echo -n , 'harvested, updates ready: '
-	local u
+
+	# Semaphore file $aborted_update, of form
+	#   line  1. <list of space-separated names of changed files>
+	#   lines 2-n. <error msg>
 	# NB: don't do "local" with init, or kiss your return status goodbye!
-	u=$( pfx updates_ready_in harvest ) || {
-		echo '(none)'		# no updates, so no email sent
-		return 0
-	}
+
+	local u
+	if [[ -f $aborted_update ]]
+	then			# proceed with previously aborted update
+		u=$( head -1 $aborted_update )
+	else			# proceed if there are any new updates
+		u=$( pfx updates_ready_in harvest ) || {
+			echo '(none)'		# no updates, caller meant to
+			return 0		# see 0 as "keep quiet"
+		}
+	fi
+
 	echo $u'; processing updates'
 	pfx import || {
-		echo +==== import error
+		echo "+==== import error; bailing out"
+		echo -e "$u\n+==== import error; bailing out" \
+			> $aborted_update
 		return 1
 	}
 	pfx_test_rollout_n2t_test $mailto "$u" || {
-		echo +==== test_rollout_n2t_test error
+		echo "+==== test_rollout_n2t_test error; bailing out"
+		echo -e "$u\n+==== test_rollout_n2t_test error; bailing out" \
+			> $aborted_update
 		return 1
 	}
+	# If we get here, update was successful.
+	rm -fr $aborted_update
+	echo "$( temper ) changed files: $u; naans N; prefixes: N; ..." \
+		>> $ok_updates
+	# yyy to do: add stats about numbers of naans, prefixes, etc.
+
 	[[ ! "$rhost" ]] &&		# if no 2nd arg present
 		return 0			# done
 	# else sync to remote host
@@ -2119,6 +2181,8 @@ buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
 
 pfx_import=$sv/apache2/pfx_work/import	# one import area per SERVICE VERSION
 pfx_build=$buildout_root/pfx_work/build	# one build area per BUILT SERVER TREE
+aborted_update=$buildout_root/pfx_work/aborted_update
+ok_updates=$buildout_root/pfx_work/ok_updates
 master_prefixes=$buildout_root/prefixes.yaml
 
 pfx_test=$buildout_root/../build/eggnog
