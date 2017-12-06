@@ -1974,14 +1974,8 @@ function pfx_test_rollout_n2t_test {
 		return 1
 	}
 	PrintAndMail "$output" "$mailto" "$update_msg"
-	return
-	#output=$( ( pfx test && pfx rollout && n2t test ) 2>&1 )
-	#output+=$'\nDIFFS\n'"$diffs"
-	#echo "$output" >> $harvest_log
-	#mail -s "$update_msg" $mailto <<< "$output" ||	# unlikely error
-	#	echo "+==== Error in notification:" \
-	#		"mail -s \"$update_msg\" $mailto" >> $harvest_log
-	#return 1
+	echo -e "\n+==== OK: pfx hitrnt successful"
+	return 0
 }
 
 # Run pfx harvest,import,test,rollout && n2t test, printing to stdout.
