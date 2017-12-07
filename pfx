@@ -101,27 +101,29 @@ the prefixes running on the system.
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" now (but see "hitrnt" below).
 
-The highest level sub-commands are executed via crontab.
+The highest level sub-commands, the first meant to be initiated via crontab.
 
-  hitrnt MailTo [ RemoteHost ]
+  cron_hitrnt Mailto [ RemoteHost ]
+            Meant to be called directly from crontab, this calls "hitrnt".
+  hitrnt
             Harvest, import, test, rollout, and then run "n2t test" to make
-            sure everything is still working. Rigorous error checks will
-	    abort on any error. If there are no errors, even for post-rollout
-	    tests, and if RemoteHost is present, calls "pfxsync" to update
-	    and rollout on that host.
-  pfxsync RemoteHost MailTo
-            Copy fully tested (see "hitrnt") prefixes to RemoteHost for
-            installation and rollout on a running system, email to MailTo.
+            sure everything is still working. Any error should trigger an
+	    abort. If there are no errors, even for post-rollout tests, and
+	    if RemoteHost is present, calls "pfxsync" to update and rollout
+	    on that host. Output is written to stdout.
+  pfxsync RemoteHost
+            Copy fully tested prefixes (see "hitrnt") to RemoteHost for
+            installation and rollout on a running system.
 
 Some assistive sub-commands.
 
   mark4refresh
             Marks the harvest area so that a subsequent hitrnt cycle will
             perform a full refresh of the prefix set.
-  test_rollout_n2t_test MailTo ChangedFiles
-            Called on the remote host by "pfxsync" to install and rollout.
-            Send email notification to MailTo about the space-separated
-	    list of files given by the ChangedFiles argument string.
+  test_rollout_n2t_test ChangedFiles
+            Called by "hitrnt" and "pfxsync" to install and rollout.
+	    ChangedFiles should be the space-separated list of names of
+	    files that have changed.
 
 These sub-commands are purely about querying the prefix data itself.
 
@@ -776,8 +778,11 @@ function validate_ebi {
 		elsif (grep /location: .*USA/, @$provider_tags) {
 			$score = 4;		# first preferred n2t funder
 		}
-		elsif (grep /location: .*UK/, @$provider_tags) {
+		elsif (grep / intenz/, @$provider_tags) {
 			$score = 3;		# second preferred n2t funder
+		}
+		elsif (grep /location: .*UK/, @$provider_tags) {
+			$score = 2;		# second preferred n2t funder
 		}
 		unshift @$provider_tags, "sort_score: $score\n";
 		return $provider_tags;
@@ -1913,29 +1918,29 @@ EOT
 	}
 }
 
-# send arg1 string (could be many lines) to stdout and to email address
-# given by arg2, subject line given by arg3
-
-function PrintAndMail {
-
-	local output=${1:-}
-	local mailto=${2:-$pfxadmin}
-	local update_msg=${3:-}
-	echo "$output"
-	echo			# make sure there's a final newline
-	mail -s "$update_msg" $mailto <<< "$output" ||	# unlikely error
-		echo "+==== Error in email notification:" \
-			"mail -s \"$update_msg\" $mailto"
-}
+## send arg1 string (could be many lines) to stdout and to email address
+## given by arg2, subject line given by arg3
+#
+#function PrintAndMail {
+#
+#	local output=${1:-}
+#	local mailto=${2:-$pfxadmin}
+#	local update_msg=${3:-}
+#	echo "$output"
+#	echo			# make sure there's a final newline
+#	mail -s "$update_msg" $mailto <<< "$output" ||	# unlikely error
+#		echo "+==== Error in email notification:" \
+#			"mail -s \"$update_msg\" $mailto"
+#}
 
 # Two args: MAILTO and Subject line of message to send
 # All output and errors to stdout.
 
 function pfx_test_rollout_n2t_test {
 
-	local mailto=${1:-$pfxadmin}
+	#local mailto=${1:-$pfxadmin}
+	#local update_msg="pfx updates ready: $changed_files"
 	local changed_files=${2:-''}
-	local update_msg="pfx updates ready: $changed_files"
 	local file old new diffs=
 	local diffsfile="$pfx_import/diffs"
 	for file in $changed_files
@@ -1957,38 +1962,89 @@ function pfx_test_rollout_n2t_test {
 
 	local output=	# NB: local ALWAYS succeeds, so don't initialize
 	# via command in a "local" and expect to save the return status!
-	output+="+==== diffs in $diffsfile"$'\n\n'
-	output+=$( pfx test 2>&1 ) || {
+	echo -e "+==== diffs in $diffsfile\n\n"
+	pfx test 2>&1 || {
 		echo "+==== Error: pfx test failed"
-		PrintAndMail "$output" "$mailto" "$update_msg"
 		return 1
 	}
-	output+=$( pfx rollout 2>&1 ) || {
+	pfx rollout 2>&1 || {
 		echo "+==== Error: pfx rollout failed"
-		PrintAndMail "$output" "$mailto" "$update_msg"
 		return 1
 	}
-	output+=$( n2t test 2>&1 ) || {
+	n2t test 2>&1 || {
 		echo "+==== Error: n2t test failed"
-		PrintAndMail "$output" "$mailto" "$update_msg"
 		return 1
 	}
-	PrintAndMail "$output" "$mailto" "$update_msg"
-	echo -e "\n+==== OK: pfx hitrnt successful"
 	return 0
+
+#	local output=	# NB: local ALWAYS succeeds, so don't initialize
+#	# via command in a "local" and expect to save the return status!
+#	output+="+==== diffs in $diffsfile"$'\n\n'
+#	output+=$( pfx test 2>&1 ) || {
+#		echo "+==== Error: pfx test failed"
+#		#PrintAndMail "$output" "$mailto" "$update_msg"
+#		return 1
+#	}
+#	output+=$( pfx rollout 2>&1 ) || {
+#		echo "+==== Error: pfx rollout failed"
+#		#PrintAndMail "$output" "$mailto" "$update_msg"
+#		return 1
+#	}
+#	output+=$( n2t test 2>&1 ) || {
+#		echo "+==== Error: n2t test failed"
+#		#PrintAndMail "$output" "$mailto" "$update_msg"
+#		return 1
+#	}
+#	#PrintAndMail "$output" "$mailto" "$update_msg"
+#	echo -e "\n+==== OK: pfx hitrnt successful"
+#	return 0
 }
 
-# Run pfx harvest,import,test,rollout && n2t test, printing to stdout.
-# Meant to be called from cron with $MAILTO as 1st arg and caller appending
-# output to $harvest_log. If optional 2nd arg is absent, return.
-# Otherwise use 2nd arg as remote host to call pfxsync with.
+# Meant to be called from cron with $MAILTO as 1st arg. If optional 2nd arg
+# is absent, return, else use 2nd arg as remote host to call pfxsync with.
+# Appends output to $harvest_log and sends it to $MAILTO.
 
-function pfx_hitrnt {
+function pfx_cron_hitrnt {
 
 	local mailto=${1:-$pfxadmin}
 	local rhost=${2:-}
+	local msg=
+	local output=	# NB: local ALWAYS succeeds, so don't initialize
+	# via command in a "local" and expect to save the return status!
+	output+=$( pfx hitrnt 2>&1 ) || {
+		msg="+==== Error: pfx hitrnt"
+		output+="$msg"
+		echo "$output" >> $harvest_log
+		mail -s "$msg" $mailto < "$output"
+		return 1
+	}
+	[[ ! "$rhost" ]] && {		# if no 2nd arg present
+		mail -s "ok: cron hitrnt" $mailto < "$output"
+		return 0			# done
+	}
+
+	# else sync to remote host
+	output+="+==== launching \"pfx_pfxsync $rhost $mailto\""
+	#echo "$msg" >> $harvest_log
+	output+=$( pfx_pfxsync $rhost 2>&1 ) || {
+		msg="+==== Error: pfx pfxsync $rhost"
+		output+="$msg"
+		echo "$output" >> $harvest_log
+		mail -s "$msg" $mailto < "$output"
+		return 1
+	}
+	mail -s "ok: cron pfxsync and hitrnt" $mailto < "$output"
+	return
+}
+
+# Run pfx harvest,import,test,rollout && n2t test, printing to stdout.
+
+function pfx_hitrnt {
+
+	#local mailto=${1:-$pfxadmin}
+	#local rhost=${2:-}
 	echo -n +==== `date`
-	pfx harvest
+	pfx harvest 2>&1
 	if [[ $? -eq 1 ]]
 	then
 		echo ", pfx harvest error; bailing out"
@@ -2007,19 +2063,23 @@ function pfx_hitrnt {
 		u=$( head -1 $aborted_update )
 	else			# proceed if there are any new updates
 		u=$( pfx updates_ready_in harvest ) || {
+					# yyy not checking for real errors
 			echo '(none)'		# no updates, caller meant to
 			return 0		# see 0 as "keep quiet"
 		}
 	fi
 
-	echo $u'; processing updates'
-	pfx import || {
+	echo "$u; processing updates"
+	pfx import 2>&1 || {
+		echo "$u"
 		echo "+==== import error; bailing out"
 		echo -e "$u\n+==== import error; bailing out" \
 			> $aborted_update
 		return 1
 	}
-	pfx_test_rollout_n2t_test $mailto "$u" || {
+	#pfx_test_rollout_n2t_test $mailto "$u" || 
+	pfx_test_rollout_n2t_test "$u" 2>&1 || {
+		echo "$u"
 		echo "+==== test_rollout_n2t_test error; bailing out"
 		echo -e "$u\n+==== test_rollout_n2t_test error; bailing out" \
 			> $aborted_update
@@ -2030,38 +2090,40 @@ function pfx_hitrnt {
 	echo "$( temper ) changed files: $u; naans N; prefixes: N; ..." \
 		>> $ok_updates
 	# yyy to do: add stats about numbers of naans, prefixes, etc.
-
-	[[ ! "$rhost" ]] &&		# if no 2nd arg present
-		return 0			# done
-	# else sync to remote host
-	pfx_pfxsync $rhost $mailto
 }
 
-# Call with 2 args: remote host and $MAILTO
+# Call with 2 args: remote host and space-separated list of changed files.
 # Install and rollout prefixes from current host to remote host,
-# output sent to $MAILTO.
+# output sent to stdout.
 
 function pfx_pfxsync {
 
 	local rhost=${1:-'ids-n2t-dev.n2t.net'}
-	local mailto=${2:-$pfxadmin}
+	local changed_files=${2:-}
+			# empty string ok to pass to test_rollout_n2t_test
+	#local mailto=${2:-$pfxadmin}
 	local srcdirs=( $pfx_import $pfx_harvest )
 	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
-		echo "Error: nothing to push" 1>&2
+		echo "Error: nothing to push"
 		return 1
 	}
 	ssh $pfx_maint_user@$rhost pfx init
 	scp -pr ~/pfx_harvest $pfx_maint_user@$rhost:. || {
-		echo "Error: couldn't scp harvest area" 1>&2
+		echo "Error: couldn't scp harvest area"
 		return 1
 	}
 	scp -pr ~/sv/cur/apache2/pfx_work/import \
 			$pfx_maint_user@$rhost:sv/cur/apache2/pfx_work/ || {
-		echo "Error: couldn't scp import area" 1>&2
+		echo "Error: couldn't scp import area"
 		return 1
 	}
 	local msg="pfxsync to $rhost"
-	ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto '$msg'"
+	ssh $pfx_maint_user@$rhost \
+			"pfx test_rollout_n2t_test '$changed_files'" 2>&1 || {
+		echo "+==== pfxsync error"
+		return 1
+	}
+	#ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto '$msg'"
 	return 0
 }
 
@@ -2207,6 +2269,10 @@ updates_ready_in)			# test if prefix updates are ready
 	;;
 pfxsync)
 	pfx_pfxsync "$@"
+	exit
+	;;
+cron_hitrnt)
+	pfx_cron_hitrnt "$@"
 	exit
 	;;
 hitrnt)
