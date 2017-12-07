@@ -5,7 +5,8 @@ MAILTO=jak@ucop.edu
 # Fetch/import prefixes from EBI at 05:30 GMT.
 #
 # yyy are prefix backups being done?
-30 21 * * 1-7 h=logs/pfx_harvest_log; bash -lc "pfx hitrnt $MAILTO ids-n2t-dev.n2t.net" >> $h 2>&1 || (echo tail $h: ; echo ; tail $h) | mail -s 'ERROR running pfx hitrnt' $MAILTO
+#30 21 * * 1-7 h=logs/pfx_harvest_log; bash -lc "pfx hitrnt $MAILTO ids-n2t-dev.n2t.net" >> $h 2>&1 || (echo tail $h: ; echo ; tail $h) | mail -s 'ERROR running pfx hitrnt' $MAILTO
+30 21 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO ids-n2t-dev.n2t.net"
 
 # update stg operating system automatically on Thursdays
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
