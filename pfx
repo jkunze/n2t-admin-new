@@ -1918,21 +1918,6 @@ EOT
 	}
 }
 
-## send arg1 string (could be many lines) to stdout and to email address
-## given by arg2, subject line given by arg3
-#
-#function PrintAndMail {
-#
-#	local output=${1:-}
-#	local mailto=${2:-$pfxadmin}
-#	local update_msg=${3:-}
-#	echo "$output"
-#	echo			# make sure there's a final newline
-#	mail -s "$update_msg" $mailto <<< "$output" ||	# unlikely error
-#		echo "+==== Error in email notification:" \
-#			"mail -s \"$update_msg\" $mailto"
-#}
-
 # Two args: MAILTO and Subject line of message to send
 # All output and errors to stdout.
 
@@ -1976,28 +1961,6 @@ function pfx_test_rollout_n2t_test {
 		return 1
 	}
 	return 0
-
-#	local output=	# NB: local ALWAYS succeeds, so don't initialize
-#	# via command in a "local" and expect to save the return status!
-#	output+="+==== diffs in $diffsfile"$'\n\n'
-#	output+=$( pfx test 2>&1 ) || {
-#		echo "+==== Error: pfx test failed"
-#		#PrintAndMail "$output" "$mailto" "$update_msg"
-#		return 1
-#	}
-#	output+=$( pfx rollout 2>&1 ) || {
-#		echo "+==== Error: pfx rollout failed"
-#		#PrintAndMail "$output" "$mailto" "$update_msg"
-#		return 1
-#	}
-#	output+=$( n2t test 2>&1 ) || {
-#		echo "+==== Error: n2t test failed"
-#		#PrintAndMail "$output" "$mailto" "$update_msg"
-#		return 1
-#	}
-#	#PrintAndMail "$output" "$mailto" "$update_msg"
-#	echo -e "\n+==== OK: pfx hitrnt successful"
-#	return 0
 }
 
 # Meant to be called from cron with $MAILTO as 1st arg. If optional 2nd arg
@@ -2015,11 +1978,11 @@ function pfx_cron_hitrnt {
 		msg="+==== Error: pfx hitrnt"
 		output+="$msg"
 		echo "$output" >> $harvest_log
-		mail -s "$msg" $mailto < "$output"
+		mail -s "$msg" $mailto <<< "$output"
 		return 1
 	}
 	[[ ! "$rhost" ]] && {		# if no 2nd arg present
-		mail -s "ok: cron hitrnt" $mailto < "$output"
+		mail -s "ok: cron hitrnt" $mailto <<< "$output"
 		return 0			# done
 	}
 
@@ -2030,10 +1993,10 @@ function pfx_cron_hitrnt {
 		msg="+==== Error: pfx pfxsync $rhost"
 		output+="$msg"
 		echo "$output" >> $harvest_log
-		mail -s "$msg" $mailto < "$output"
+		mail -s "$msg" $mailto <<< "$output"
 		return 1
 	}
-	mail -s "ok: cron pfxsync and hitrnt" $mailto < "$output"
+	mail -s "ok: cron pfxsync and hitrnt" $mailto <<< "$output"
 	return
 }
 
