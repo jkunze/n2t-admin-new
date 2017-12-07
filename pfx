@@ -2000,7 +2000,7 @@ function pfx_cron_hitrnt {
 	}
 
 	# else sync to remote host
-	output+="+==== launching \"pfx_pfxsync $rhost $mailto\"$'\n'
+	output+="+==== launching \"pfx_pfxsync $rhost $mailto\""$'\n'
 	output+=$( pfx_pfxsync $rhost 2>&1 )$'\n' || {
 		msg="+==== Error: pfx pfxsync $rhost"
 		output+="$msg"
