@@ -1282,8 +1282,7 @@ function pfx_stage_pfxcoms {
 		echo "error: suspiciously low ($n) number of prefixes"
 		return 1
 	}
-#xxx temporarily comment out
-#	echo "Found $n pfxcoms entries"
+	echo "Found $n pxc (prefix commons) entries"
 	return 0
 }
 
@@ -1291,8 +1290,13 @@ function pfx_stage_pfxcoms {
 # YYY relies on caller defining $pfx_build putting us in the dir it names
 function pfx_validate {
 
+	local s Nnaans Nshoulders Nebi Npxc	# Numbers of prefixes
+
 	echo - Validating $naanFile
 		admegn validate_naans $naanFile $shdrFile || return 1
+	Nnaans=$( grep -c '^what:[ 	]*[0-9]' $naanFile )
+	#echo Nnaans=$Nnaans
+
 	echo - Staging $naanFile, creating naans.anvl
 		pfx_stage_naans $naanFile || return 1
 		# are we Validating converted $naanFile?
@@ -1305,17 +1309,35 @@ function pfx_validate {
 
 		echo - Staging $shdrFile, creating shoulders.anvl
 			pfx_stage_shoulders $shdrFile || return 1
+	Nshoulders=$( grep -c '^type: shoulder' $pfx_build/$shdrFile )
+	#echo Nshoulders=$Nshoulders
 
 	echo "- Validating ebi prefixes, staging in $ebi_outfile"
-		validate_ebi || return 1
-		pfx_validate_prefixes
+	s=$( validate_ebi ) || {
+		echo "$s"
+		return 1
+	}
+	Nebi=$( perl -ne '/yaml: (\d+) prefix/ and print "$1\n"' <<< "$s" )
+	# verified prefix array in ebi.yaml: 751 prefix/provider code combinations
+	echo "$s"
+	#echo Nebi=$Nebi
+	pfx_validate_prefixes
+
 	echo "- Validating n2t base prefixes"
 		validate_n2t_base || return 1
 
-	#echo xxx not yet Validating $pfxcomsFile
-#xxx temporarily comment out
-#	echo - Staging $pfxcomsFile, creating pfxcoms.anvl
-		pfx_stage_pfxcoms || return 1
+	echo - Staging $pfxcomsFile, creating pfxcoms.anvl
+	s=$( pfx_stage_pfxcoms ) || {
+		echo "$s"
+		return 1
+	}
+	Npxc=$( perl -ne '/^Found (\d+) pxc/ and print "$1\n"' <<< "$s" )
+	echo "$s"
+	#echo Npxc=$Npxc
+
+	echo "+==== STATS (NAANs shoulders EBIs PXCs):" \
+			 $Nnaans $Nshoulders $Nebi $Npxc
+
 	return 0
 }
 
@@ -2025,7 +2047,7 @@ function pfx_hitrnt {
 		echo "pfx harvest error; bailing out"
 		return 1
 	fi
-	echo -n "harvested, updates ready: "
+	echo -n "harvested updates ready: "
 
 	# Semaphore file $aborted_update, of form
 	#   line  1. <list of space-separated names of changed files>
@@ -2043,26 +2065,26 @@ function pfx_hitrnt {
 			return 0		# see 0 as "keep quiet"
 		}
 	fi
-	echo "$u; processing updates"
+	echo "$u"
 
 	pfx import 2>&1 || {
-		echo "$u"
-		echo "+==== import error; bailing out"
-		echo -e "$u\n+==== import error; bailing out" \
-			> $aborted_update
+		echo -e "$u\n+==== import error; bailing out"
+		echo -e "$u\n+==== import error; bailing out" > $aborted_update
 		return 1
 	}
-	#pfx_test_rollout_n2t_test $mailto "$u" || 
-	pfx_test_rollout_n2t_test "$u" 2>&1 || {
-		echo "$u"
-		echo "+==== test_rollout_n2t_test error; bailing out"
+	local s		# save string briefly so we can grep for STATS line
+	s=$( pfx_test_rollout_n2t_test "$u" 2>&1 ) || {
+		echo "$s"
+		echo -e "$u\n+==== test_rollout_n2t_test error; bailing out"
 		echo -e "$u\n+==== test_rollout_n2t_test error; bailing out" \
 			> $aborted_update
 		return 1
 	}
+	echo "$s"
+	s=$( grep '+==== STATS' <<< "$s" )	# isolate STATS line
 	# If we get here, update was successful.
 	rm -fr $aborted_update
-	echo "$( temper ) changed files: $u; naans N; prefixes: N; ..." \
+	echo "$( temper ) changed files: $u; $s" \
 		>> $ok_updates
 	# yyy to do: add stats about numbers of naans, prefixes, etc.
 }
