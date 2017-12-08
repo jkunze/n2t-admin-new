@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# xxx make validate_naans enforce acronym uniqueness
-
 # defined service/deployment classes and hostnames
 classfmt="CLASS CANONICAL_NAME OTHER_NAMES ..."
 hostclass=(
