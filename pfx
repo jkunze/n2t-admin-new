@@ -107,15 +107,16 @@ The highest level sub-commands, the first meant to be initiated via crontab.
 
   cron_hitrnt Mailto [ RemoteHost ]
             Meant to be called directly from crontab, this calls "hitrnt".
+            With only one argument, return, else call "pfxsync" with
+            RemoteHost. Append output to \$harvest_log and send to Mailto.
   hitrnt
             Harvest, import, test, rollout, and then run "n2t test" to make
             sure everything is still working. Any error should trigger an
-	    abort. If there are no errors, even for post-rollout tests, and
-	    if RemoteHost is present, calls "pfxsync" to update and rollout
-	    on that host. Output is written to stdout.
-  pfxsync RemoteHost
-            Copy fully tested prefixes (see "hitrnt") to RemoteHost for
-            installation and rollout on a running system.
+            abort.
+  pfxsync RemoteHost ChangedFiles
+            Copy fully tested prefixes (see "hitrnt") to RemoteHost and
+            initiate installation and rollout on a running system.
+            ChangedFiles is a space-separated list of changed files.
 
 Some assistive sub-commands.
 
@@ -124,8 +125,8 @@ Some assistive sub-commands.
             perform a full refresh of the prefix set.
   test_rollout_n2t_test ChangedFiles
             Called by "hitrnt" and "pfxsync" to install and rollout.
-	    ChangedFiles should be the space-separated list of names of
-	    files that have changed.
+            ChangedFiles should be the space-separated list of names of
+            files that have changed.
 
 These sub-commands are purely about querying the prefix data itself.
 
@@ -1943,20 +1944,18 @@ EOT
 	}
 }
 
-# Two args: MAILTO and Subject line of message to send
-# All output and errors to stdout.
+# Call with one arg that is a string of space-separated names of changed files.
+# All output and errors to stdout. (trnt stands for "test rollout n2t test"
 
 function pfx_test_rollout_n2t_test {
 
-	#local mailto=${1:-$pfxadmin}
-	#local update_msg="pfx updates ready: $changed_files"
-	local changed_files=${2:-''}
+	local changed_files=${1:-''}
 	local file old new diffs=
 	local diffsfile="$pfx_import/diffs"
 	for file in $changed_files
 	do
 		old=$pfx_build/$file
-		new=$pfx_import/build/$file
+		new=$pfx_work/build/$file
 		(
 			echo diff $old $new;
 			echo -ne '--- ';
@@ -1972,19 +1971,29 @@ function pfx_test_rollout_n2t_test {
 
 	local output=	# NB: local ALWAYS succeeds, so don't initialize
 	# via command in a "local" and expect to save the return status!
-	echo "+==== diffs in $diffsfile"
-	pfx test 2>&1 || {
-		echo "+==== Error: pfx test failed"
+	echo "+==== trnt: diffs in $diffsfile"
+	local output statsline
+	output=$( pfx test 2>&1 ) || {
+		echo "$output"
+		echo "+==== Error: trnt: pfx test failed"
 		return 1
 	}
+	# isolate STATS line in order to prepend so it shows up early
+	statsline=$( grep '+==== STATS' <<< "$output" )
+	echo "${statsline:-+==== Warning: no STATS line}"
+	echo "$output"
 	pfx rollout 2>&1 || {
-		echo "+==== Error: pfx rollout failed"
+		echo "+==== Error: trnt: pfx rollout failed"
 		return 1
 	}
 	n2t test 2>&1 || {
-		echo "+==== Error: n2t test failed"
+		echo "+==== Error: trnt: n2t test failed"
 		return 1
 	}
+	# If we get here, update was successful, so remove aborted "flag".
+	rm -fr $aborted_trnt			# make sure file is gone
+
+	echo "$( temper ) changed files: $u; $s" >> $ok_updates
 	return 0
 }
 
@@ -2006,7 +2015,7 @@ function pfx_cron_hitrnt {
 		mail -s "$msg" $mailto <<< "$output"
 		return 1
 	}
-	msg=
+
 	if [[ ! "$rhost" ]]
 	then
 		msg="no pfxsync"
@@ -2038,9 +2047,7 @@ function pfx_cron_hitrnt {
 
 function pfx_hitrnt {
 
-	#local mailto=${1:-$pfxadmin}
-	#local rhost=${2:-}
-	echo -n "+==== $( date ) cron hitrnt: "
+	echo -n "+==== $( date ) hitrnt: "
 	pfx harvest 2>&1
 	if [[ $? -eq 1 ]]
 	then
@@ -2049,15 +2056,15 @@ function pfx_hitrnt {
 	fi
 	echo -n "harvested updates ready: "
 
-	# Semaphore file $aborted_update, of form
+	# Semaphore file $aborted_trnt, of form
 	#   line  1. <list of space-separated names of changed files>
 	#   lines 2-n. <error msg>
 	# NB: don't do "local" with init, or kiss your return status goodbye!
 
 	local u
-	if [[ -f $aborted_update ]]
+	if [[ -f $aborted_trnt ]]
 	then			# proceed with previously aborted update
-		u=$( head -1 $aborted_update )
+		u=$( head -1 $aborted_trnt )
 	else			# proceed if there are any new updates
 		u=$( pfx updates_ready_in harvest ) || {
 					# yyy not checking for real errors
@@ -2069,24 +2076,14 @@ function pfx_hitrnt {
 
 	pfx import 2>&1 || {
 		echo -e "$u\n+==== import error; bailing out"
-		echo -e "$u\n+==== import error; bailing out" > $aborted_update
 		return 1
 	}
-	local s		# save string briefly so we can grep for STATS line
-	s=$( pfx_test_rollout_n2t_test "$u" 2>&1 ) || {
-		echo "$s"
-		echo -e "$u\n+==== test_rollout_n2t_test error; bailing out"
-		echo -e "$u\n+==== test_rollout_n2t_test error; bailing out" \
-			> $aborted_update
+	pfx_test_rollout_n2t_test "$u" 2>&1 || {
+		# Above call prints its own messages and updates (on
+		# error) or removes (on success) the $aborted_trnt file.
+		# On success, it appends stats to the $ok_updates file.
 		return 1
 	}
-	echo "$s"
-	s=$( grep '+==== STATS' <<< "$s" )	# isolate STATS line
-	# If we get here, update was successful.
-	rm -fr $aborted_update
-	echo "$( temper ) changed files: $u; $s" \
-		>> $ok_updates
-	# yyy to do: add stats about numbers of naans, prefixes, etc.
 }
 
 # Call with 2 args: remote host and space-separated list of changed files.
@@ -2232,9 +2229,10 @@ buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
 [[ ! "$buildout_root" ]] &&
 	buildout_root=$sv/apache2
 
-pfx_import=$sv/apache2/pfx_work/import	# one import area per SERVICE VERSION
+pfx_work=$sv/apache2/pfx_work
+pfx_import=$pfx_work/import	# one import area per SERVICE VERSION
 pfx_build=$buildout_root/pfx_work/build	# one build area per BUILT SERVER TREE
-aborted_update=$buildout_root/pfx_work/aborted_update
+aborted_trnt=$buildout_root/pfx_work/aborted_update
 ok_updates=$buildout_root/pfx_work/ok_updates
 master_prefixes=$buildout_root/prefixes.yaml
 
