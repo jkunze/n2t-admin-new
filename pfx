@@ -64,8 +64,9 @@ The highest level sub-commands, the first meant to be initiated via crontab.
 
   cron_hitrnt Mailto [ RemoteHost ]
             Meant to be called directly from crontab, this calls "hitrnt".
-            With only one argument, return, else call "pfxsync" with
-            RemoteHost. Append output to \$harvest_log and send to Mailto.
+            Given only one argument, return. Otherwise call "pfxsync" with
+            RemoteHost. All output is appended to \$harvest_log and sent
+            to Mailto.
   hitrnt
             Harvest, import, test, rollout, and then run "n2t test" to make
             sure everything is still working. Any error should trigger an
@@ -256,6 +257,10 @@ function pfx_updates_ready_in {
 			ready+=( $( basename $ondeck/$f ) )
 		}
 	done
+	[[ -e $ondeck/mark4refresh ]] && {
+		ready+=( $( cat $ondeck/mark4refresh ) )
+		rm -f $ondeck/mark4refresh
+	}
 	[[ ${#ready[@]} -gt 0 ]] && {
 		echo ${ready[@]}	# output the list
 		return 0		# either something's ready
@@ -280,10 +285,6 @@ pfx_sources=(					# yyy normalized names
 ) # $pfx_base is also a component, but not listed in $pfx_sources
 source_base_prefixes=build/eggnog/t/n2t/$pfx_base
 prd_master_base_prefixes=sv/cur/$source_base_prefixes
-
-
-# xxx drop pfx_update_file?
-# XXX modify build_server_tree and n2t scripts!
 
 # first check for errors in harvested sources; if none move out of
 # quarantine; if there's an error in a quarantined file, it stays
@@ -325,12 +326,17 @@ function pfx_harvest_validate {
 
 # Marks the harvest area so that a subsequent hitrnt cycle
 # will perform a full refresh of the prefix set.
+# Optional first argument (master_shoulders.txt) is a filename
+# to pretend is being refreshed.
 
 function pfx_mark4refresh {
 
-	# remove a not-so-important file from harvest area to trigger refresh
+	local  markfile=$pfx_harvest/mark4refresh
+	local mark=${1:-master_shoulders.txt}
 
-	rm $pfx_harvest/master_shoulders.txt
+	mark=$( basename $mark )
+	echo "$mark" > $markfile
+	echo "$(cat $markfile) marked for refresh"
 }
 
 # harvest: bring external files into $pfx_harvest directory (seldom)
@@ -380,14 +386,12 @@ function pfx_harvest {
 			"$pfx_quarantine" 1>&2
 		return 1
 	}
+	# by default, dns, connect, and read timeouts are 900 secs (15 mins)
+	# yyy --timeout=90 ?
 	wget -q -O $pfx_quarantine/ebireg.xml $ebi_url || {
 		echo "Error running wget from $ebi_url" 1>&2
 		return 1
 	}
-	# normalize those filenames needing it			# yyy dumb 
-#	mv $pfx_quarantine/{pfx_base.yaml,n2tadds.yaml}		# yyy drop soon
-#	mv $pfx_quarantine/{master_naans,naan_registry.txt}	# yyy drop soon
-#	mv $pfx_quarantine/{ebireg_latest.xml,ebireg.xml}	# yyy drop soon
 
 	pfx_harvest_validate ||	# if ok, moves files up out of quarantine
 		return 1
@@ -1950,7 +1954,8 @@ function pfx_test_rollout_n2t_test {
 	# If we get here, update was successful, so remove aborted "flag".
 	rm -fr $aborted_trnt			# make sure file is gone
 
-	echo "$( temper ) changed files: $u; $statsline" >> $ok_updates
+	echo "$( temper ) changed files: $changed_files; $statsline" \
+		>> $ok_updates
 	return 0
 }
 
@@ -1962,7 +1967,7 @@ function pfx_cron_hitrnt {
 
 	local mailto=${1:-$pfxadmin}
 	local rhost=${2:-}
-	local msg
+	local msg=
 	local output=	# NB: local ALWAYS succeeds, so don't initialize
 	# via command in a "local" and expect to save the return status!
 	output+=$( pfx hitrnt 2>&1 )$'\n' || {
