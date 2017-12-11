@@ -1,48 +1,5 @@
 #!/usr/bin/env bash
 
-# xxx fix invalid field from validate shoulders
-# xxx track prefix numbers in CSV file
-
-# xxx n2t.net/xyz: -> passes empty id to remote (xyz's landing page)
-# xxx n2t.net/xyz -> reports on scheme directly from n2t (local info)
-# xxx n2t.net/xyz:/12345 -> reports on naan directly from n2t
-# xxx n2t.net/hdl:10.12345 -> reports on prefix directly from n2t
-# xxx have an inflection that doesn't redirect, but just returns possible
-#     URLs it could redirect to, eg, "abc:12345?/", where "/" suggests "path":
-#     eg, abc:12345>?
-#     eg, abc:12345>
-# and this might match the prefixcommons use case
-#     Overview:
-#       what: resolver-generated target information
-#       resolver: n2t.net
-#       identifier: abc:12345
-#       inflected form: https://n2t.net/<identifier>?/
-#     Default target:
-#       where: a.example.net/xy12345
-#	what:  <title>
-#	who:   <provider>
-#     Alternate target 1:
-#       where: b.example.net/foo?q=12345
-#	what:  <title>
-#	who:   <provider>
-#     Alternate target 2:
-#       where: c.example.net/12345/bar
-#	what:  <title>
-#	who:   <provider>
-
-# X. extra credit: remove pfxcoms entries with no URL in redirect rule
-# X. extra credit: resolve these: scheme, scheme:, scheme:naan
-# X. extra credit: add minter knowlege to shoulders
-
-# XXX prefix database improvements
-#    for ark: prefix, add 12345 probe/tests that are serious objects in
-#       real collections
-#    for most rules:  remove http(s):// so that either can be used
-
-# XXX shouldn't pmid be main name with "pubmed" as alias?
-
-# yyy separate, private repo for warts directories on all host classes?
-
 set -u			# treat unset variables as an error when substituting
 export PFX_redir=redirect
 
