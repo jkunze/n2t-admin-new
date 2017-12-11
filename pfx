@@ -1950,7 +1950,7 @@ function pfx_test_rollout_n2t_test {
 	# If we get here, update was successful, so remove aborted "flag".
 	rm -fr $aborted_trnt			# make sure file is gone
 
-	echo "$( temper ) changed files: $u; $s" >> $ok_updates
+	echo "$( temper ) changed files: $u; $statsline" >> $ok_updates
 	return 0
 }
 
