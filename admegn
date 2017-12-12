@@ -29,6 +29,7 @@ summary="
      $me pingwhen
      $me logdelete [ N ]
      $me logscrub Logfile ...
+     $me logrename [ -n ] [ Dir ]
      $me backup
      $me backup_rotate"
 
@@ -128,6 +129,11 @@ DESCRIPTION
        access_log files by editing the files "in place", saving backup
        copies with a ".orig" suffix.  This doesn't work on error_log files,
        which may be retained to support business processes (see "logdelete").
+
+       The "logrename" form, usually run once a day from cron, looks in Dir
+       (defaults to ~/sv/cur/apache2/logs) for any filename of the form
+       transaction_log.N and changes its name to transaction_log.YYYY.MM.DD
+       based on the file's modtime.
 
        The "backup" form creates backups -- db_hotbackup for binders,
        admegn dumps for minters, and directory copies for shoulders.
@@ -1500,6 +1506,51 @@ function class {
 	return 1
 }
 
+# Some common log directories: $ap_top/logs, ~/.eggnog/logs 
+
+function logrename {
+
+	local dir=${1:-$ap_top/logs}		# default
+	local t=transaction_log
+	local mtime suffix rawls
+	local sorted=()
+
+	cd $dir || {
+		echo "Error: unable to cd to $dir" 1>&2
+		return 1
+	}
+	( shopt -s extglob	# automatically restored when subshell exits
+	rawls=$( ls $t.+([0-9]) 2>&1 ) || {
+		echo "nothing to rename this time"
+		return
+	}
+	sorted=( $( sort -n -t . -k 2 <<< "$rawls" ) )
+	#sorted=( $( ls $t.+([0-9]) | sort -n -t . -k 2 ) )
+	for f in ${sorted[@]}
+	do
+		mtime=$( stat -f %m $f )
+		suffix=$( date -r $mtime "+%Y.%m.%d" )
+
+		# expect no such file, but don't clobber an existing file
+		# input files are sorted so that lower numbered files are
+		# appended before higher numbered files
+
+		[[ -f $t.$suffix ]] && {
+			echo "Warning: rename will append to a" \
+			"timestamped log file that already exists" 1>&2
+		}
+		if [[ "$no_exec" ]]
+		then
+			echo -E "- cat $f >> $t.$suffix; rm $f"
+		else
+			echo renaming $f to $t.$suffix
+			cat $f >> $t.$suffix
+			rm $f
+		fi
+	done
+	)
+}
+
 function backup {
 
 	local now
@@ -1856,6 +1907,10 @@ logscrub)
 		echo Error: problem anonymizing Apache log file
 		exit 1
 	}
+	exit
+	;;
+logrename)
+	logrename "$@"
 	exit
 	;;
 backup)
