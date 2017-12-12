@@ -1525,11 +1525,15 @@ function logrename {
 		return
 	}
 	sorted=( $( sort -n -t . -k 2 <<< "$rawls" ) )
-	#sorted=( $( ls $t.+([0-9]) | sort -n -t . -k 2 ) )
 	for f in ${sorted[@]}
 	do
-		mtime=$( stat -f %m $f )
-		suffix=$( date -r $mtime "+%Y.%m.%d" )
+		suffix=
+		mtime=$( stat -f %m $f ) && {		# try Mac OS way
+			suffix=$( date -r $mtime "+%Y.%m.%d" 2>&1 )
+		}
+		[[ ! "$suffix" ]] && {			# else try Linux way
+			suffix=$( date -r $f "+%Y.%m.%d" )
+		}
 
 		# expect no such file, but don't clobber an existing file
 		# input files are sorted so that lower numbered files are
