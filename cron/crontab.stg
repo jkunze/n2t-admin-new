@@ -8,8 +8,9 @@ MAILTO=jak@ucop.edu
 30 21 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO ids-n2t-dev.n2t.net"
 
 # Look once a night for rotated transaction_log files to rename.
+# xxx -n for no_exec, testing with new file every second
 #
-15 00 * * 1-7 bash -lc "admegn logrename"
+15 00 * * 1-7 bash -lc "admegn logrename -n"
 
 # update stg operating system automatically on Thursdays
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
