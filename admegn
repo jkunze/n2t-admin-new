@@ -1528,16 +1528,17 @@ function logrename {
 	for f in ${sorted[@]}
 	do
 		suffix=
-		mtime=$( stat -f %m $f ) && {		# try Mac OS way
+		# Damned incompatibility of "stat" between Mac and Linux
+		mtime=$( stat -f %m $f 2>&1 ) && {	# try the Mac OS way
 			suffix=$( date -r $mtime "+%Y.%m.%d" 2>&1 )
 		}
-		[[ ! "$suffix" ]] && {			# else try Linux way
+		[[ ! "$suffix" ]] && {	# if it didn't work, try the Linux way
 			suffix=$( date -r $f "+%Y.%m.%d" )
 		}
 
-		# expect no such file, but don't clobber an existing file
+		# Expect no such file, but don't clobber an existing file
 		# input files are sorted so that lower numbered files are
-		# appended before higher numbered files
+		# appended before higher numbered files.
 
 		[[ -f $t.$suffix ]] && {
 			echo "Warning: rename will append to a" \
