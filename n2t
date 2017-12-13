@@ -138,11 +138,11 @@ function n2t_rollout {	# assumes caller ran check_changes!
 	local pubpx=cdl_ebi_prefixes.yaml
 	local n2tpx=n2t_prefixes.yaml
 	make || {		# "make" again, in case "import" wasn't done
-		echo "Error with make" 1>&2
+		echo "Error with make"
 		err=y
 	}
 	make install || {	# this installs both libraries and scripts
-		echo "Error with make install" 1>&2
+		echo "Error with make install"
 		err=y
 	}
 
@@ -157,7 +157,7 @@ function n2t_rollout {	# assumes caller ran check_changes!
 
 	# change to directory of the running production server
 	(cd $aptop || {
-			echo "Error with cd $aptop" 1>&2
+			echo "Error with cd $aptop"
 			err=y
 		}
 
@@ -173,7 +173,7 @@ function n2t_rollout {	# assumes caller ran check_changes!
 			[[ -f $f ]] && {
 				echo Backing up contents of $f to $f.orig.
 				mv $f $f.orig || {
-					echo Error backing up $f to $f.orig 1>&2
+					echo Error backing up $f to $f.orig
 				}
 			}
 		done
@@ -185,7 +185,7 @@ function n2t_rollout {	# assumes caller ran check_changes!
 		do
 			echo Copying contents of $nsf/$d.
 			cp -pr $nsf/$d . || {
-				echo Error copying $nsf/$d to $aptop 1>&2
+				echo Error copying $nsf/$d to $aptop
 				err=y
 			}
 		done
