@@ -71,9 +71,9 @@ The highest level sub-commands, the first meant to be initiated via crontab.
             Harvest, import, test, rollout, and then run "n2t test" to make
             sure everything is still working. Any error should trigger an
             abort.
-  pfxsync RemoteHost ChangedFiles
+  pfxsync RemoteHost [ ChangedFiles ]
             Copy fully tested prefixes (see "hitrnt") to RemoteHost and
-            initiate installation and rollout on a running system.
+            initiate installation and rollout on a running system.  Optional
             ChangedFiles is a space-separated list of changed files.
 
 Some assistive sub-commands.
@@ -81,10 +81,10 @@ Some assistive sub-commands.
   mark4refresh
             Marks the harvest area so that a subsequent hitrnt cycle will
             perform a full refresh of the prefix set.
-  test_rollout_n2t_test ChangedFiles
+  test_rollout_n2t_test [ ChangedFiles ]
             Called by "hitrnt" and "pfxsync" to install and rollout.
-            ChangedFiles should be the space-separated list of names of
-            files that have changed.
+            If present, ChangedFiles should be a space-separated list of
+            names of files that have changed.
 
 These sub-commands are purely about querying the prefix data itself.
 
@@ -100,14 +100,6 @@ These sub-commands are purely about querying the prefix data itself.
   grok ID ...
             Print a lexical analysis of each given ID (not ID lookup)
             DOES require a server to be running.
-
-This sub-command is for updating another host from the local host.
-
-  pushsync RemoteHost harvest|import|both
-            (obsolete, see pfxsync)
-            Copy given area to RemoteHost (did you test things first?).
-            NB: this does not alter the service running remotely; for that
-            you still need to do "pfx rollout" (to be fixed).
 
 These sub-commands are at a slightly lower level.
 
@@ -504,43 +496,6 @@ function pfx_import {
 # shoulders.txt	default: use very stripped down master_shoulders
 # ebi.xml		default: empty, none?
 # lsregistry.yml	default: empty, none?
-
-function pfx_pushsync {
-
-	[[ $# -lt 1 ]] && {
-		echo "Error: missing remote hostname" 1>&2
-		return 1
-	}
-	local host=$1
-	shift
-	[[ $# -lt 1 ]] && {
-		echo "Error: missing ingest area (harvest, import," \
-			"both) to copy to $host" 1>&2
-		return 1
-	}
-	local area=$1
-	shift
-	case $area in
-	import)		srcdirs=( sv/cur/pfx_work/import ) ;;
-	harvest)	srcdirs=( \~/pfx_harvest ) ;;
-	both)		srcdirs=( $pfx_import $pfx_harvest ) ;;
-	*)	echo \
-		"Error: unknown ingest area ($area); should be one" \
-			"of (harvest, import, both)" 1>&2
-		return 1
-		;;
-	esac
-	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
-		echo "Error: nothing to push" 1>&2
-		return 1
-	}
-	ssh $pfx_maint_user@$host pfx init
-	[[ $area == harvest || $area == both ]] &&
-		scp -pr ~/pfx_harvest $pfx_maint_user@$host:.
-	[[ $area == import || $area == both ]] &&
-		scp -pr ~/sv/cur/apache2/pfx_work/import \
-			$pfx_maint_user@$host:sv/cur/apache2/pfx_work/
-}
 
 # yyy relies on caller putting us in the $pfx_build directory
 function pfx_prebuild {
@@ -1905,7 +1860,7 @@ EOT
 	}
 }
 
-# Call with one arg that is a string of space-separated names of changed files.
+# One optional arg: a string of space-separated names of changed files.
 # All output and errors to stdout. (trnt stands for "test rollout n2t test"
 
 function pfx_test_rollout_n2t_test {
@@ -1993,8 +1948,8 @@ function pfx_cron_hitrnt {
 	}
 
 	# else sync to remote host
-	output+="+==== launching \"pfx_pfxsync $rhost $mailto\""$'\n'
-	output+=$( pfx_pfxsync $rhost 2>&1 )$'\n' || {
+	output+="+==== launching \"pfx pfxsync $rhost\""$'\n'
+	output+=$( pfx pfxsync $rhost 2>&1 )$'\n' || {
 		msg="+==== Error: pfx pfxsync $rhost"
 		output+="$msg"
 		echo "$output" >> $harvest_log
@@ -2048,7 +2003,7 @@ function pfx_hitrnt {
 	}
 }
 
-# Call with 2 args: remote host and space-separated list of changed files.
+# 2 args: remote host and optional space-separated list of changed files.
 # Install and rollout prefixes from current host to remote host,
 # output sent to stdout.
 
@@ -2057,29 +2012,31 @@ function pfx_pfxsync {
 	local rhost=${1:-'ids-n2t-dev.n2t.net'}
 	local changed_files=${2:-}
 			# empty string ok to pass to test_rollout_n2t_test
-	#local mailto=${2:-$pfxadmin}
 	local srcdirs=( $pfx_import $pfx_harvest )
 	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
-		echo "Error: nothing to push"
+		echo "+==== error: nothing to push"
 		return 1
 	}
-	ssh $pfx_maint_user@$rhost pfx init
+	echo +==== initializing pfx on $rhost
+	ssh -n $pfx_maint_user@$rhost pfx init
+	echo +==== copying harvest files
 	scp -pr ~/pfx_harvest $pfx_maint_user@$rhost:. || {
-		echo "Error: couldn't scp harvest area"
+		echo "+==== error: couldn't scp harvest area"
 		return 1
 	}
+	echo +==== copying import files
 	scp -pr ~/sv/cur/apache2/pfx_work/import \
 			$pfx_maint_user@$rhost:sv/cur/apache2/pfx_work/ || {
-		echo "Error: couldn't scp import area"
+		echo "+==== error: couldn't scp import area"
 		return 1
 	}
 	local msg="pfxsync to $rhost"
-	ssh $pfx_maint_user@$rhost \
+	echo +==== running test_rollout_n2t_test
+	ssh -n $pfx_maint_user@$rhost \
 			"pfx test_rollout_n2t_test '$changed_files'" 2>&1 || {
-		echo "+==== pfxsync error"
+		echo "+==== error: test_rollout_n2t_test failed"
 		return 1
 	}
-	#ssh $pfx_maint_user@$rhost "pfx test_rollout_n2t_test $mailto '$msg'"
 	return 0
 }
 
@@ -2311,10 +2268,6 @@ tested_ok)
 		echo "Did you call \"$me test\" first?" 1>&2
 		exit 1
 	}
-	exit
-	;;
-pushsync)
-	pfx_pushsync "$@"
 	exit
 	;;
 init)
