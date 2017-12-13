@@ -1507,12 +1507,19 @@ function class {
 }
 
 # Some common log directories: $ap_top/logs, ~/.eggnog/logs 
+# Filenames of the form transaction_log.N contain log intervals, the smaller
+# the value of N, the younger it is, eg, youngest to oldest:
+#    transaction_log
+#    transaction_log.1
+#    transaction_log.2
+#    ...
+#    transaction_log.999
 
 function logrename {
 
 	local dir=${1:-$ap_top/logs}		# default
 	local t=transaction_log
-	local mtime suffix rawls
+	local mtime suffix raw_ls
 	local sorted=()
 
 	cd $dir || {
@@ -1520,11 +1527,11 @@ function logrename {
 		return 1
 	}
 	( shopt -s extglob	# automatically restored when subshell exits
-	rawls=$( ls $t.+([0-9]) 2>&1 ) || {
+	raw_ls=$( ls $t.+([0-9]) 2>&1 ) || {
 		echo "nothing to rename this time"
 		return
 	}
-	sorted=( $( sort -n -t . -k 2 <<< "$rawls" ) )
+	sorted=( $( sort --reverse -n -t . -k 2 <<< "$raw_ls" ) )
 	for f in ${sorted[@]}
 	do
 		suffix=
@@ -1536,9 +1543,10 @@ function logrename {
 			suffix=$( date -r $f "+%Y.%m.%d" )
 		}
 
-		# Expect no such file, but don't clobber an existing file
-		# input files are sorted so that lower numbered files are
-		# appended before higher numbered files.
+		# Expect no such file, but don't clobber an existing file.
+		# Input files are sorted so that lower numbered files are
+		# appended after higher numbered (older) files. Reverse sort
+		# on original suffix N puts newer log entries after older.
 
 		[[ -f $t.$suffix ]] && {
 			echo "Warning: rename will append to a" \
