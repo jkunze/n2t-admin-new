@@ -20,7 +20,7 @@ alias blib="perl -Mblib"
 # $PERL_INSTALL_BASE interpolated at run time, eg, when "svu cur" in effect
 alias mkperl='perl Makefile.PL INSTALL_BASE=$PERL_INSTALL_BASE'
 
-n2prda='n2t@ias-n2t-prd-2a.n2t.net'	# note: still iAs
+n2prda='n2t@ids-n2t-prd-2a.n2t.net'	# note: still iAs
 	alias n2prda="ssh $n2prda"
 
 n2stga='n2t@ids-n2t-stg-2a.n2t.net'	# note: iDs not iAs
