@@ -10,7 +10,7 @@ MAILTO=jak@ucop.edu
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.
 #
-15 00 * * 1-7 bash -lc "admegn logrename"
+15 00 * * 1-7 bash -lc "admegn logrename | grep -v ^nothing"
 
 # update stg operating system automatically on Thursdays
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
