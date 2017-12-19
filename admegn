@@ -1837,7 +1837,8 @@ class)
 	exit
 	;;
 mong)
-	mongodaemon "$@" - - -
+	echo ERROR: admegn mong is DEPRECATED
+	#mongodaemon "$@" - - -
 	exit
 	;;
 mdump)

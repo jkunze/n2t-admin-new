@@ -7,10 +7,10 @@ Usage:
 	apache command
 	egnapa command
 
-Control a public-facing combination HTTPD and MongoDB server, unless
-invoked as "egnapa" (eggnog apache) in which case control a non-public
-combination server under an "svu new" or "svu old" mode (type "svu"
-for more information).  Commands:
+Control a public-facing combination HTTPD and MongoDB server (custom "mg"
+command), unless invoked as "egnapa" (eggnog apache) in which case control
+a non-public combination server under an "svu new" or "svu old" mode
+(type "svu" for more information).  Commands:
 
     start          start the server
     restart        restart the server as if with "apachectl graceful"
@@ -67,7 +67,8 @@ listening=$( sed 's/ Listen/,/' <<< $listening )	# and modify
 function httpd () {
 	$apache_top/bin/httpd -k $1 -d $apache_top -f $apache_conf
 	local apstatus=$?
-	admegn mong $1
+	mg $1
+	#admegn mong $1
         return $apstatus
 }
 
@@ -133,7 +134,8 @@ status)
 		echo "UP ($cfg_info) -- $listening"
 	fi
 	# yyy no probe no "graceful"
-	admegn mong status
+	mg status
+	#admegn mong status
 	[[ $? -ne 0 ]] &&
 		let up--
 	[[ $up -le 0 ]] ||
