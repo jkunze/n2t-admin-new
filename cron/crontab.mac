@@ -2,21 +2,13 @@
 
 MAILTO=jak@ucop.edu
 
-# xxx prefix backups not done
-# harvest prefixes daily
-#12 09 * * 1-7 bash -lc "pfx harvest; if [[ \$? -eq 1 ]]; then echo +==== pfx update error; exit 1; fi; echo +==== harvested; pfx updates_ready_in harvest || { echo +==== no updates present; exit 0; }; pfx import || { echo +==== import error; exit 1; }; pfx test;" >> logs/pfx_harvest_log 2>&1
-
-#14 10 * * 1-7 cd ~/pfx_harvest; scp -p n2t@ids-n2t-stg-2a.n2t.net:pfx_harvest/'{pfx_base.yaml,master_shoulders.txt,ebireg.xml,naans/master_naans,lsregistry.yml}' .; cp -p master_naans naans/
-#14 10 * * 1-7 cd ~/shoulders; scp -p n2t@ids-n2t-prd-2a.n2t.net:shoulders/'{master_shoulders.txt,ebireg_latest.xml,naans/master_naans}' .; mv master_naans naans/; pfx pre_import
-#36 18 * * 1-7 (echo -n "=== "; date; cd ~/shoulders; scp -p n2t@ids-n2t-prd-2a.n2t.net:shoulders/'{master_shoulders.txt,ebireg_latest.xml,naans/master_naans}' .; mv master_naans naans/; pfx pre_import; echo === $? === ) >> logs/pfxupdate_log 2>&1
-
-
-# xxx drop pfxupdate from admegn?
-#52 22 * * 1-7 bash -lc "admegn pfxupdate; if [[ \$? -eq 1 ]]; then echo +==== pfx update error; elif [[ \$? -eq 2 ]]; then echo +==== nothing to update; else echo +==== stuff to update; fi" >> logs/pfxupdate_log 2>&1
-
-#20 19 * * 1-7 bash -lc "which admegn; bash -c 'which pfx'" >> logs/pfxupdate_log 2>&1
-
 #20,50 9-21 * * * if [ -e /Users/jak/shoulders/ok ]; then open /Users/jak/shoulders; fi
 
-# loose update of latest prefixes file components
-#bash -lc "admegn pfxupdate; if [[ \$? -eq 1 ]]; then echo +==== pfx update error; elif [[ \$? -eq 2 ]]; then echo +==== nothing to update; else echo +==== stuff to update; fi" >> logs/pfxupdate_log 2>&1
+# Look once a night for rotated transaction_log files to rename.
+# Note that such files are generally created only once a week.
+#
+15 00 * * 1-7 bash -lc "admegn logrename | grep -v ^nothing"
+
+#### Sundays at 4:03 am, delete log files older than 6 months.
+03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
+

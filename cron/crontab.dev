@@ -2,9 +2,6 @@
 
 MAILTO=jak@ucop.edu
 
-# loose update of latest prefixes file components
-14 10 * * 1-7 cd ~/shoulders; scp -p n2t@ids-n2t-prd-2a.n2t.net:shoulders/'{master_shoulders.txt,ebireg_latest.xml,naans/master_naans}' .; mv master_naans naans/
-
 # update operating system automatically on Mondays
 38 5 * * 1 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
 
@@ -14,3 +11,12 @@ MAILTO=jak@ucop.edu
 # status, which is tested (via ||) for an apache restart.
 #
 */3 * * * * bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
+
+# Look once a night for rotated transaction_log files to rename.
+# Note that such files are generally created only once a week.
+#
+15 00 * * 1-7 bash -lc "admegn logrename | grep -v ^nothing"
+
+#### Sundays at 4:03 am, delete log files older than 6 months.
+03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
+

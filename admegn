@@ -1869,14 +1869,6 @@ bootwatch)
 	bootwatch $@
 	exit
 	;;
-#pfxupdate)
-#	[[ $no_exec ]] && {
-#		echo 'Error: -n not yet supported for "$cmd"'
-#		exit 1
-#	}
-#	pfxupdate $@
-#	exit
-#	;;
 sysupdate)
 	[[ $no_exec ]] && {
 		echo 'Error: -n not yet supported for "$cmd"'
