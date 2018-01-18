@@ -7,11 +7,6 @@ MAILTO=jak@ucop.edu
 # yyy are prefix backups being done?
 30 21 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO ids-n2t-dev.n2t.net"
 
-# Look once a night for rotated transaction_log files to rename.
-# Note that such files are generally created only once a week.
-#
-15 00 * * 1-7 bash -lc "admegn logrename | grep -v ^nothing"
-
 # update stg operating system automatically on Thursdays
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
 
@@ -20,6 +15,11 @@ MAILTO=jak@ucop.edu
 # Use bash -l so "svu cur" is in effect and ~/local/bin is in the PATH.
 #37 2 * * * bash -lc "admegn backup; admegn backup_rotate" >> logs/backup_log 2>&1
 #37 14 * * * bash -lc "admegn backup" >> logs/backup_log 2>&1
+
+# Look once a night for rotated transaction_log files to rename.
+# Note that such files are generally created only once a week.
+#
+15 00 * * 1-7 bash -lc "admegn logrename | grep -v ^nothing"
 
 #### Sundays at 4:03 am, delete log files older than 6 months.
 03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
