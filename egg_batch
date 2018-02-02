@@ -1,0 +1,63 @@
+#!/bin/env bash
+
+script=$1
+binder=${2:-ezid}
+batchsize=${3:-5000}
+sleep=${4:-2}
+
+# read from stdin
+me=$( basename $0 )
+[[ "$1" ]] || {
+	echo "Usage: $me ScriptOfEggCommands[.gz] [Binder [Batchsize [Sleep]]]"
+	echo "    Binder: ezid | oca | yamz (default ezid)"
+	echo "    Batchsize: number of commands per batch (default 5000)"
+	echo "    Sleep: seconds to pause between batches (default 2)"
+	exit
+}
+
+wdir=$( mktemp -d -t egg_batch.XXXX )		# working directory
+if [[ "$script" =~ \.gz$ ]]
+then
+	tosplit=$( basename -s .gz $script )
+	zcat $script > $wdir/$tosplit
+else
+	tosplit=$( basename $script )
+	cp $script $wdir/$tosplit
+fi
+cd $wdir || exit 1
+
+# From here on we can safely assume we're in the temporary directory.
+
+linestotal=$( wc -l < $tosplit )
+binderdir=~/sv/cur/apache2/binders
+binderpath=$binderdir/$binder
+out=batch_output
+batchprefix=egg_
+
+echo "Batch started: $(date)" | tee $out	# initialize $out file
+
+cat << EOT | tee -a $out	# from here on, append to $out
+now in working directory $wdir
+splitting $linestotal lines into $batchsize-line batches
+output will be in $wdir/$out
+EOT
+
+# "split -a 4" says split file suffixes have length 4, so they sort correctly
+# for a large number of batches, ie, file glob order preserves pre-split order
+split -a 4 --lines=$batchsize $tosplit $batchprefix
+#ls $batchprefix*
+
+n=0
+for b in $batchprefix*			# for each batch $b...
+do
+	egg -d $binderpath - < $b >> $out
+	(( n+=$batchsize ))
+	(( percent=(( $n * 100 ) / $linestotal ) ))
+	[[ $percent -gt 100 ]] && {
+		percent=100
+		sleep=0		# no need to pause after the last batch
+	}
+	echo processed batch $b, progress $percent%
+	sleep $sleep	# pause, releasing DB lock so others can use it too
+done
+echo "Batch ended: $(date)" | tee -a $out

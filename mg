@@ -38,6 +38,8 @@ SUMMARY $summary
 EOT
 }
 
+rsetname_default=rset
+
 # Usage: out_if exitcode [ error | stderr | any ] [ message ]
 #
 # Output message based on exitcode and condition:
@@ -94,7 +96,7 @@ repSetAdd=''			# list of servers to add to set
 function replset_gen_params {
 
 	local set_name n max even i host starter_port
-	set_name=${1:-$tmongo_replset}	# number of names to generate
+	set_name=${1:-$tmongo_replset}	# replica set name
 	n=${2:-$def_set_size}		# number of names to generate
 	[[ "$n" == '-' ]] &&		# default number of replicas
 		n=5
@@ -103,9 +105,13 @@ function replset_gen_params {
 	(( even=( "$n" / 2 * 2 ) ))		# or $n == 1
 	if [[ $even -eq 0 || $n -eq $even || $n -lt 0 || $n -ge $max ]]
 	then
-		echo "error: replica count ($n) should be an odd" \
-			"integer < $max and > 1" 1>&2
-		return 1
+		[[ $n -ne 1 ]] && {
+			echo "error: replica count ($n) should be an odd" \
+				"integer < $max and > 1" 1>&2
+			return 1
+		}
+		# if we get here, $n -eq 1, which we allow under caution
+		echo "replica count 1 (no replicas) -- baseline testing" 1>&2
 	fi
 	host=${3:-$( hostname -f )}	# host where daemon runs
 	starter_port=${4:-$tmongo_port}		# base port where daemon runs
@@ -128,93 +134,390 @@ function replset_gen_params {
 		# First element must always be host:port combination.
 
 		instance_args+=( "${instance[@]}" )
-		repSetHosts+=",$hostport"		# push on replica list
-		repSetAdd+=";rs.add('$hostport')"	# add to "add" list
 		(( i++ ))
 	done
 	args_per_instance=${#instance[@]}
 	return
 }
 
-# call with one arg: rs_port
+# call with: port args...
+# args...?
+
+function instance_startup {
+
+	# yyy why isolate $port at all?
+	local port=$1			# set -u aborts if not set
+	shift
+	local retstatus=0		# optimist
+	local cmd="$me $verbose start $port $*"
+	[[ "$verbose" ]] &&
+		echo "+ doing \"$cmd via port $port"
+	# start daemon
+	# yyy why have another process? because it's not
+	# encapsulated in a function, but inlined in case statement
+	[[ "$noexec" ]] &&
+		cmd="echo + '"$cmd"'"
+	$cmd || {
+		echo "error in \"$cmd\"" 1>&2
+		return 1
+	}
+}
+
+# call with: hostport|port [ 'hard-stop' ]
+
+function instance_shutdown {
+
+	local hostport=$1			# set -u aborts if not set
+	local port=${hostport##*:}
+	local op=${2:-stop}		# stop (default) or hard-stop
+	local retstatus=0		# optimist
+	local cmd="$me $verbose $op $port"
+	[[ "$verbose" ]] &&
+		echo "+ doing \"$cmd via port $port"
+	[[ "$noexec" ]] &&
+		cmd="echo + '"$cmd"'"
+	$cmd || {
+		echo "error in \"$cmd\"" 1>&2
+		return 1
+	}
+}
+
+# runs mongo shell operation and parses outputs
+# call with: operation, rs_conn, [ returnvar ]
+# returns output via MSH_out global variable
+# also returns broken-out values in {returnvar}_* if returnvar present
+
+function mongosh {
+
+	local op=$1
+	local rs_conn=$2
+	local r=${3:-}
+	local out json retstatus error=
+
+	# JSON.stringify has two virtues: (a) it makes the JSON parsable to
+	# the jq tool and (b) puts it all on one line, making it possible to
+	# filter out connection messages and diagnostics.
+
+	out=$( mongo --eval "JSON.stringify($op)" $rs_conn ) || {
+		retstatus=$?
+		echo "mongosh: error invoking JSON.stringify($op) on $rs_conn"
+		if [[ "$verbose" ]]
+		then
+			sed 's/^/  /' <<< "$out" 1>&2
+		else
+			# next line is supposed to pull out error messages from
+			# sometimes copious warnings and informational messages
+			grep '^....-..-..T..:..:......-.... E ' <<< "$out"
+			# yyy kludgy check for error condition
+		fi
+		return $retstatus
+	}
+
+	local emsg=
+	MSH_out="$out"			# this global return always set yyy?
+	grep --quiet '^{.*"ok":1' <<< "$out" ||		# or error occurred
+		error=1
+	emsg=$( grep '"error:' <<< "$out" ) &&
+		error=1
+
+	[[ "$error" && ! "$r" ]] &&	# if error and user delined messages
+		r=MSH			# they're going to get them anyway
+	[[ ! "$r" ]] &&			# set on error or if user requests
+		return 0
+
+	# If we get here, we take time to break out values into shell vars.
+
+	eval "${r}_mongomsgs"'=$(egrep -v "^{|^\d\d\d\d-\d\d-\d\d" <<< "$out")'
+	eval "${r}_mongologs"'=$(grep "^\d\d\d\d-\d\d-\d\d" <<< "$out")'
+
+	json=$( grep "^{" <<< "$out" )
+	eval "${r}_json"'="$json"'
+	eval $( jq -r "
+		@sh \"${r}_ok=\(.ok)\",
+		@sh \"${r}_info=\(.info)\",
+		@sh \"${r}_info2=\(.info2)\",
+		@sh \"${r}_errmsg=\(.errmsg)\",
+		@sh \"${r}_primary=\(.primary)\",
+		@sh \"${r}_hosts=( \(.hosts) )\"
+	" <<< "$json" )
+	[[ "$error" ]] && {
+		local ok errmsg
+		eval ok=\"\$${r}_ok\" errmsg=\"\$${r}_errmsg\"
+		echo "mongosh: error return status from $op: $ok"
+		[[ "$errmsg" != null ]] &&	# from json, test "null"
+			echo " - $errmsg"
+		[[ "$emsg" ]] &&		# from grep, test ""
+			echo " - $emsg"
+		return 1
+	}
+	return 0
+}
+
+# initialize replica set
+# call with: hostport
+# NB: rs.initiate on server S seems to add S as first replica
+#     ie, no need to add S itself?
 
 function rs_init {
 
-	local rs_port=$1
+	local hostport=$1		# set -u aborts if not set
+	#local rsetname=${1:--}
+	#[[ $rsetname == '-' ]] &&
+	#	rsetname=$rsetname_default
+	#local port=${hostport##*:}	# delete up to last ':'
 	local retstatus=0		# optimist
 	[[ "$verbose" ]] &&
-		echo "Doing rs.initiate() on via port $rs_port"
-	out=$( echo mongo --port $final --eval "rs.initiate()" )
+		echo "+ doing rs.initiate() via $hostport"
+	#out=$( mongo --port $port --eval "rs.initiate()" )
+	mongosh "rs.initiate()" $hostport m
 	retstatus=$?
-	out_if $retstatus error "$out"
+	#out_if $retstatus error "$out"
 	[[ "$verbose" ]] && {
-		echo "rs.initiate():"
-		echo "$out"
+		echo "+ $out"
 	}
 	return $retstatus
 }
 
-# call with two args: rs_port, rs_name, hostport
-# $rs_port is port number of local daemon that our client is talking to
-# (always the one that we called rs.initiate on, at least for first "add"?)
-# $hostport is what we're operating on
+# puts hostport of replica set primary on stdout and messages on stderr
+# call with: rs_conn
+#	{'_id' : $j, 'host' : '$instance', 'stateStr' : 'PRIMARY'},"
+
+function rs_primary {
+
+	local rs_conn=$1
+	local rsnam=${rs_conn##*=}	# YYY must end in replicaSet=foo!!
+	#local hostport=$2		# set -u aborts if not set
+	#local port=${hostport##*:}	# delete up to last ':'
+	local retstatus=0		# optimist
+	[[ "$verbose" ]] &&
+		echo "+ doing rs_primary via $rs_conn for rset $rsnam" 1>&2
+		#echo "doing db.isMaster() via port $port" 1>&2
+	#local op="JSON.stringify(db.isMaster('$hostport'))"
+	local op="JSON.stringify(db.isMaster())"
+	local out
+	#out=$( mongo --quiet --port $port --eval "$op" ) || 
+	out=$( mongo --quiet --eval "$op" $rs_conn | grep '^{' ) || {
+		#	| perl -ne '/^\d{4}-\d\d-\d\dT\d\d/ or print' ) || 
+		echo "error: $op call failed on $rs_conn" 1>&2
+		#echo "error: $op call failed on port $port" 1>&2
+		sed 's/^/  /' <<< "$out" 1>&2
+		#echo "$out" 1>&2
+		return 1
+	}
+	[[ "$verbose" ]] && {
+		sed 's/^/  /' <<< "$out" 1>&2
+	}
+	# JSON output looks like
+	#        "setName" : "rst",
+	#        "setVersion" : 1,
+	#        "ismaster" : true,
+	#        "primary" : "jak-macbook.local:47018",
+	#        "secondary" : false,
+	# -r does "raw output", removing quotes around strings
+	fields=( $( jq -r '.setName, .primary' <<< "$out" ) )
+	local snam=${fields[0]:-}
+	local primary=${fields[1]:-}
+	[[ "$snam" == "$rsnam" ]] || {
+		#echo -n "error: requested hostport ($hostport) is not a" 
+		echo -n "error: requested hostport (hostport) is not a" \
+			"member of replica set \"$rsnam\"" 1>&2
+			[[ "$snam" ]] &&
+				 echo -n ", but is a member of \"$snam\"" 1>&2
+		echo 1>&2	# end the line
+		return 1	# no output
+	}
+	[[ "$primary" ]] || {
+		echo "no primary" 1>&2
+		#echo "fields is ${fields[@]}" 1>&2
+		return 1	# no output
+	}
+	echo "$primary"		# main return value
+	[[ "$verbose" ]] &&
+		echo "+ primary is $primary" 1>&2
+	return 0		# return status probably ignored
+}
+
+# puts ','-separated list of replicas on stdout, with primary first
+# call with: rs_conn
+#	{'_id' : $j, 'host' : '$instance', 'stateStr' : 'PRIMARY'},"
+
+function rs_list {
+	local rep rs_conn=$1
+	mongosh "db.isMaster()" $rs_conn m
+	if [[ $? == 0 ]]
+	then
+		echo "+ replicas:" $( sed -e 's| |,|g' \
+			-e "s|\(${m_primary:-null}\)|*\1|" <<< "${m_hosts[@]}" )
+	else		# yyy not even checking $m_ok
+		echo "error in mongo db.isMaster"
+	fi
+	return 0
+}
+
+# add replica instance
+# call with: rs_conn hostport
 
 function rs_add {
 
-	local rs_port=$1
-	local hostport=$2
+	local rs_conn=$1
+	local hostport=$2		# set -u aborts if not set
+	#local port=${hostport##*:}	# delete up to last ':'
 	local retstatus=0		# optimist
 
-	[[ "$verbose" ]] && {
-		echo "removing $tmongo_dbdir/data_$rs_port/*"
-		echo contacting port $rs_port to add $hostport
-	}
-	# Docs: "Make sure the new member’s data directory does not contain
-	# data. The new member will copy the data from an existing member."
-	rm -fr $tmongo_dbdir/data_$rs_port
-	mkdir -p $tmongo_dbdir/data_$rs_port
-
-	out=$( echo mongo --port $rs_port --eval "rs.add('$hostport')" )
+	local out
+	#out=$( mongo --port $port --eval "rs.add('$hostport')" )
+	#local op="JSON.stringify(rs.add('$hostport'))"
+	#out=$( mongo --eval "$op" $rs_conn | grep '^{' )
+	mongosh "rs.add('$hostport')" $rs_conn m
 	retstatus=$?
-	out_if $restatus error "$out"
+	#out_if $retstatus error "$MSH_out"
 	[[ "$verbose" ]] &&
-		echo "$out"
+		sed 's/^/  /' <<< "$MSH_out"
 	return $retstatus
 }
 
-function rs_del {
+# must shutdown instance before you do rs.remove(hostport)
+function rs_del {	# call with: rs_conn hostport
 
-	local rs_port=$1
-	local hostport=$2
+	local rs_conn=$1
+	local hostport=$2		# set -u aborts if not set
 	local retstatus=0		# optimist
 
-	[[ "$verbose" ]] &&
-		echo contacting port $rs_port to remove $hostport
-	out=$( echo mongo --port $rs_port --eval "rs.remove('$hostport')" )
+	mongosh "rs.remove('$hostport')" $rs_conn m
 	retstatus=$?
-	out_if $restatus error "$out"
 	[[ "$verbose" ]] &&
-		echo "$out"
+		sed 's/^/  /' <<< "$m_out"
 	return $retstatus
+}
+
+# Called via "trap" on receipt of signal for the purpose of doing cleanup
+# Args are only passed at trap definition time, so the current state of a
+# replica set connection string has to reside in a global, grs_conn.
+# call without args.
+
+function repltest_wrapup {
+	echo "SIGINT caught: now killing test servers"
+	repltest_teardown $grs_conn
+}
+
+# clean up by shutting down servers that we started
+# call with: rs_conn
+
+function repltest_teardown {
+
+	local rs_conn=$1 cmd hostport
+	local i iport			# an instance and its port
+	local stop_op=stop
+
+	local instances
+	# small optimization: reverse the replica list since primary would
+	# otherwise likely be the first
+	instances=( $( command ls $tmongod_proc* | sort -r ) )
+	local total=${#instances[@]}		# total instances remaining
+
+	echo "beginning teardown of $total servers"
+	for i in ${instances[@]}		# for each instance i
+	do
+		# yyy ignoring host part of host:port
+		hostport=${i##*_}		# delete to last '_'
+		iport=${i##*:}			# delete to last ':'
+		[[ $total -eq 2 ]] && {
+			echo "fewer than 3 instances requires hard-stop"
+			stop_op=hard-stop
+		}
+		# NB: must shutdown instance before removing from replica set
+		instance_shutdown $iport $stop_op || {
+			echo "error in \"instance_shutdown $iport\""
+			read -t 30 -p "Force shutdown? [y] " ||
+				echo "Timeout or EOF -- assuming yes"
+			[[ "${REPLY:-y}" =~ ^[yY] ]] && {
+				instance_shutdown $iport hard-stop ||
+					echo " - 'hard-stop' failed"
+			}
+			continue
+		}
+		if [[ $total -gt 2 ]]		# otherwise there's no primary
+		then				# that can perform rs.remove
+			cmd="rs_del $rs_conn ${i##*_}"
+			[[ "$verbose" ]] &&
+				echo  "+ doing $cmd"
+			$cmd ||
+				echo "error: $cmd failed"
+			rs_conn=$( rs_connect_str del $rs_conn $hostport )
+			grs_conn="$rs_conn"	# update global
+			rs_list $rs_conn
+		else
+			rs_conn=$( rs_connect_str del $rs_conn $hostport )
+			grs_conn="$rs_conn"	# update global
+		fi
+		rm $i
+		(( total-- ))
+	done
+}
+
+repSetOpts=				# replica set connection string options
+repSetOpts+="socketTimeoutMS=30000&"	# wait up to 30 secs for reply
+#repSetOpts+="socketTimeoutMS=45000&"	# wait up to 45 secs for reply
+# XXX commented out maxTimeMS setting for now because it triggers
+#     an error message even though the connection seems to succeed
+#     The perl module docs say this is an important attribute to
+#     set, so we want to uncomment this next line when we figure
+#     out what's wrong (eg, a module bug gets fixed?)
+#repSetOpts+="maxTimeMS=15000&"		# wait up to 15 secs to do DB command
+			# NB: maxTimeMS must be shorter than socketTimeoutMS
+#repSetOpts+="readPreference=$readpref&"	# replica to read from
+
+# args either: init setname hostport [ dbname ]
+# args or:     add|del connstr hostport
+
+function rs_connect_str {
+
+	local hostport cs setname dbname rs_conn
+	local cmd=${1:-}
+	case "$cmd" in
+	add|del)
+		cs=$2			# connection string
+		hostport=$3		# to add or delete
+		if [[ $cmd == add ]]; then
+			cs=$( perl -pe "s|//|//$hostport,|" <<< "$cs" )
+			# add hostport to list in mongodb://...,.../ URL
+		else
+			cs=$( perl -pe "s|$hostport,?||; s|,/|/|" <<< "$cs" )
+			# drop hostport and if it was last, drop trailing ,
+		fi
+		echo "$cs"
+		return 0
+		;;
+	init)
+		setname=$2
+		hostport=$3
+		dbname=${4:-}
+		# NB: options MUST precede replicaSet=foo, which must terminate
+		# the string.
+		rs_conn="mongodb://$hostport/$dbname?$repSetOpts"
+		rs_conn+="replicaSet=$setname"
+		echo "$rs_conn"
+		return 0
+		;;
+	*)
+		echo "error: rs_connect_str usage: command hostport ..." 1>&2
+		return 1
+		;;
+	esac
 }
 
 function repltest {
 
 	local n=${1:-$def_set_size}		# proposed set size
-	local setname=${2:-$tmongo_replset}	# set name
+	local snam=${2:-$tmongo_replset}	# set name
 
-	# next call inits $instance_args, $repSetAdd, and $repSetHosts
-	replset_gen_params $setname "$n" || {
+	# next call inits $instance_args
+	replset_gen_params $snam "$n" || {
 		echo "error: could not generate instance names" 1>&2
 		return 1
 	}
 	# If we get here, results are in the instance_args array, a 2-d
 	# array projected onto a 1-d array, which we use to start instances.
-
-#	echo REMOVING OLD REPLICA SET
-#	echo rm -fr $tmongo_dbdir
-#	rm -fr $tmongo_dbdir		# yyy too crude? more of realclean?
-#	mkdir -p $tmongo_dbdir
 
 	local set_size
 	(( set_size=" ${#instance_args[@]} / $args_per_instance " ))
@@ -223,8 +526,14 @@ function repltest {
 	local arg2 rest
 	(( rest=" $args_per_instance - 1 " ))	# number of args to consume
 
-	echo Starting $n servers with --replSet $setname
-	local i=0 cmd
+	echo Starting $n servers
+	#echo Starting $n servers with --replSet $snam
+	local i=0 cmd rset
+
+	local rs_conn=			# replica set connection string
+	grs_conn=			# global version of the same
+	trap repltest_wrapup SIGINT	# trigger cleanup using global
+
 	while [[ $i -lt ${#instance_args[@]} ]]
 	do
 		hostport=${instance_args[$i]}
@@ -235,64 +544,55 @@ function repltest {
 		args="${instance_args[@]:$arg2:$rest}"
 		#args="$port $dbpath $tmongo_dblog $tmongo_replset $set_size"
 
-		cmd="$me $verbose start $port $args"
-		(( i+= $args_per_instance ))
-		# start daemon
-		# yyy why have another process? because it's not
-		# encapsulated in a function, but inlined in case statement
-		echo echo $me $verbose start $port $args || {
-			echo "error in \"$cmd\"" 1>&2
+		[[ "$verbose" ]] && {
+			echo "+ purging files $tmongo_dbdir/data_$port/*"
+		}
+		# Docs: "Make sure the new member’s data directory does not
+		# contain data. The new member will copy the data from an
+		# existing member."
+		rm -fr $tmongo_dbdir/data_$port
+		mkdir -p $tmongo_dbdir/data_$port
+# yyy ?need to remove all server data dirs before starting in case previous
+#     run failed and left things in a bad state?
+
+		instance_startup $port $args ||  {
+			echo "error in \"instance_startup $port\"" 1>&2
 			continue
 		}
 		# if no error in starting, save to a file
-		echo $cmd > $tmongod_proc$port
+		echo "instance_startup $port $args" > $tmongod_proc$hostport
+
+		if [[ $i == 0 ]]	# first time through, init replica set
+		then
+			rs_init $hostport ||
+				return 1
+			rs_conn=$( rs_connect_str init $snam $hostport )
+			grs_conn="$rs_conn"	# update global
+			rs_list $rs_conn
+		else
+			# Connect mongo shell to replica set (NB: no dbname
+			# in this particular string):
+			# mongo mongodb://10.10.10.15:27001,10.10.10.16:27002,
+			#  10.10.10.17:27000/?replicaSet=replicaSet1
+			rs_add $rs_conn $hostport || {
+				echo rs_add failed on $hostport
+			}
+			rs_conn=$( rs_connect_str add $rs_conn $hostport )
+			grs_conn="$rs_conn"	# update global
+			rs_list $rs_conn
+		fi
+		(( i+=$args_per_instance ))
 	done
 
-	# After exiting the above loop, $port is the port number of the final
-	# instance (all on localhost right now). Now initiate the replica set
-	# by connecting to that final instance and running rs.initiate().
-	#
-	local rsinit final=$port
-
-	#members+="
-	#	{'_id' : $j, 'host' : '$instance', 'stateStr' : 'PRIMARY'},"
-	#rsinit="rs.initiate({ '_id' : '$setname', 'members' : [ $members ] })"
-
-# yyy write re-usable routine to initiate rs?
-# yyy get it to inherit $verbose setting
-	rs_init $final ||
-		return 1
-
-	# determine current master and add a member
-	rs_add $rsetname $hostport || {
-		echo complain
-		xxxcleanup
-		return 1
-	}
-	# actually -- determine current master before adding each member
-
-
-# xxx write routine to add one at a time (re-usable in real life)
-# yyy get it to inherit $verbose setting
-# xxx write routine to remove one at a time (re-usable in real life)
-# yyy get it to inherit $verbose setting
-	echo "Doing rs.add(...) $n times"
-echo repSetAdd $repSetAdd
-	[[ "$verbose" ]] &&	echo "$repSetAdd"
-	out=$( echo mongo --port $final --eval "$repSetAdd" )
-	out_if $? error "$out"
-	[[ "$verbose" ]] && {
-		echo "$repSetAdd:"
-		echo "$out"
-	}
-
-exit
-# XXX need to save repsetURL too
 
 	[[ "$verbose" ]] && {
 		echo === Replica set status after adding replicas ===
-		mongo --port $final --eval "rs.status()"
+		mongo --eval "rs.status()" $rs_conn	# old way has virtues
+		#mongosh "rs.status()" $rs_conn m ; echo "json: $m_json"
 	}
+
+repltest_teardown $rs_conn
+exit
 
 	# yyy need to pause really?
 	local s=2	# number of seconds to pause while replicas wake up
@@ -308,7 +608,7 @@ exit
 	repSetURL+="/?replicaSet=$tmongo_replset"	# specify set name
 	repSetURL+="&socketTimeoutMS=30000"	# wait up to 30 secs for reply
 	# XXX commented out maxTimeMS setting for now because it triggers
-	#     and error message even though the connection seems to succeed
+	#     an error message even though the connection seems to succeed
 	#     The perl module docs say this is an important attribute to
 	#     set, so we want to uncomment this next line when we figure
 	#     out what's wrong (eg, a module bug gets fixed?)
@@ -466,10 +766,10 @@ mongo_other+=" --storageEngine wiredTiger"
 #
 tmongo_dbdir=$HOME/sv/cur/apache2/tmongod
 tmongod_started=$tmongo_dbdir/../tmongod_started	# yyy needed?
-tmongod_proc=$tmongo_dbdir/proc_port=		# mongod process file
+tmongod_proc=$tmongo_dbdir/proc_	# mongod process file base
 tmongo_dbpath=
 tmongo_dblog=$tmongo_dbdir/log
-tmongo_replset=rst			# test replica set name
+tmongo_replset=rstest			# test replica set name
 tmongo_port=47017			# 20K more than standard port
 tmongo_other="$mongo_other"
 
@@ -496,7 +796,7 @@ ap_top=$HOME/sv/$svumode/apache2
 
 verbose=
 yes=
-no_exec=
+noexec=
 while [[ "${1:-}" =~ ^- ]]	# $1 starts as the _second_ (post-command) arg
 do
 	case $1 in
@@ -510,7 +810,7 @@ do
 		shift
 		;;
 	-n)
-		no_exec=1
+		noexec=1
 		shift
 		;;
 	*)
