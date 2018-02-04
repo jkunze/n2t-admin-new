@@ -184,7 +184,7 @@ function instance_shutdown {
 
 # runs mongo shell operation and parses outputs
 # call with: operation, rs_conn, [ returnvar ]
-# returns output via MSH_out global variable
+# returns output via ${returnvar}_out global variable (default "MSH")
 # also returns broken-out values in {returnvar}_* if returnvar present
 
 function mongosh {
@@ -214,7 +214,6 @@ function mongosh {
 	}
 
 	local emsg=
-	MSH_out="$out"			# this global return always set yyy?
 	grep --quiet '^{.*"ok":1' <<< "$out" ||		# or error occurred
 		error=1
 	emsg=$( grep '"error:' <<< "$out" ) &&
@@ -222,11 +221,13 @@ function mongosh {
 
 	[[ "$error" && ! "$r" ]] &&	# if error and user delined messages
 		r=MSH			# they're going to get them anyway
-	[[ ! "$r" ]] &&			# set on error or if user requests
+	[[ ! "$r" ]] &&	{		# set on error or if user requests
+		MSH_out="$out"		# set this global return
 		return 0
-
+	}
 	# If we get here, we take time to break out values into shell vars.
 
+	eval "${r}_out"'="$out"'
 	eval "${r}_mongomsgs"'=$(egrep -v "^{|^\d\d\d\d-\d\d-\d\d" <<< "$out")'
 	eval "${r}_mongologs"'=$(grep "^\d\d\d\d-\d\d-\d\d" <<< "$out")'
 
@@ -370,9 +371,8 @@ function rs_add {
 	#out=$( mongo --eval "$op" $rs_conn | grep '^{' )
 	mongosh "rs.add('$hostport')" $rs_conn m
 	retstatus=$?
-	#out_if $retstatus error "$MSH_out"
 	[[ "$verbose" ]] &&
-		sed 's/^/  /' <<< "$MSH_out"
+		sed 's/^/  /' <<< "$m_out"
 	return $retstatus
 }
 
@@ -457,6 +457,12 @@ function repltest_teardown {
 
 repSetOpts=				# replica set connection string options
 repSetOpts+="socketTimeoutMS=30000&"	# wait up to 30 secs for reply
+# yyy does readpref work in the connection string?
+readpref=primaryPreferred	# set to permit reading from secondaries at all
+repSetOpts+="readPreference=$readpref&"	# replica to read from
+#     ???? best to leave readpref as primary?
+#readpref=nearest	# yyy often not updated soon enough for our test
+#repSetOpts+="readPreference=$readpref&"	# replica to read from
 #repSetOpts+="socketTimeoutMS=45000&"	# wait up to 45 secs for reply
 # XXX commented out maxTimeMS setting for now because it triggers
 #     an error message even though the connection seems to succeed
@@ -465,10 +471,10 @@ repSetOpts+="socketTimeoutMS=30000&"	# wait up to 30 secs for reply
 #     out what's wrong (eg, a module bug gets fixed?)
 #repSetOpts+="maxTimeMS=15000&"		# wait up to 15 secs to do DB command
 			# NB: maxTimeMS must be shorter than socketTimeoutMS
-#repSetOpts+="readPreference=$readpref&"	# replica to read from
 
-# args either: init setname hostport [ dbname ]
-# args or:     add|del connstr hostport
+# args either: init setname hostport_list [ dbname ]
+#      or:     add|del connstr hostport
+#      or:     hostports connstr
 
 function rs_connect_str {
 
@@ -490,13 +496,20 @@ function rs_connect_str {
 		;;
 	init)
 		setname=$2
-		hostport=$3
+		hostport=$3	# could be a comma-separated list of hostports,
+			# eg, extracted from existing rs_conn with "hostports"
+			# when you're re-init'ing in order to add a database
 		dbname=${4:-}
 		# NB: options MUST precede replicaSet=foo, which must terminate
 		# the string.
 		rs_conn="mongodb://$hostport/$dbname?$repSetOpts"
 		rs_conn+="replicaSet=$setname"
 		echo "$rs_conn"
+		return 0
+		;;
+	hostports)
+		cs=$2			# existing connection string
+		echo $( sed 's|mongodb://*\([^/]*\)/.*|\1|' <<< "$cs" )
 		return 0
 		;;
 	*)
@@ -564,8 +577,11 @@ function repltest {
 
 		if [[ $i == 0 ]]	# first time through, init replica set
 		then
-			rs_init $hostport ||
+			rs_init $hostport || {	# eg, still up from prior run
+				rs_conn=$( rs_connect_str init $snam $hostport )
+				repltest_teardown $rs_conn
 				return 1
+			}
 			rs_conn=$( rs_connect_str init $snam $hostport )
 			grs_conn="$rs_conn"	# update global
 			rs_list $rs_conn
@@ -584,45 +600,41 @@ function repltest {
 		(( i+=$args_per_instance ))
 	done
 
-
 	[[ "$verbose" ]] && {
 		echo === Replica set status after adding replicas ===
-		mongo --eval "rs.status()" $rs_conn	# old way has virtues
+		mongo --eval "rs.status()" $rs_conn  # old way has its virtues
 		#mongosh "rs.status()" $rs_conn m ; echo "json: $m_json"
 	}
 
-repltest_teardown $rs_conn
-exit
-
 	# yyy need to pause really?
-	local s=2	# number of seconds to pause while replicas wake up
+	local s=5	# number of seconds to pause while replicas wake up
 	echo Sleep $s seconds to let servers stand up...
 	sleep $s
 
-	# To add data, construct the connection string, repSetURL.
-	#
-	local readpref=nearest
-	#local readpref=primaryPreferred
-	local repSetURL='mongodb://'	# build replica set URL in pieces
-	repSetURL+=${repSetHosts/,/}	# strip initial comma from set list
-	repSetURL+="/?replicaSet=$tmongo_replset"	# specify set name
-	repSetURL+="&socketTimeoutMS=30000"	# wait up to 30 secs for reply
-	# XXX commented out maxTimeMS setting for now because it triggers
-	#     an error message even though the connection seems to succeed
-	#     The perl module docs say this is an important attribute to
-	#     set, so we want to uncomment this next line when we figure
-	#     out what's wrong (eg, a module bug gets fixed?)
-	#repSetURL+="&maxTimeMS=15000"	# wait up to 15 secs to do DB command
-			# NB: maxTimeMS must be shorter than socketTimeoutMS
-	repSetURL+="&readPreference=$readpref"	# replica to read from
+	# We could have added the database name to the connection string early
+	# on, but here we can test re-initializing that string after extracting
+	# the host list we've built up and re-inserting it in the new string.
 
+	local hostport_list testdb collection db_coll_name
+	# extraction step
+	hostport_list=$( rs_connect_str hostports $rs_conn )
+	testdb=testdb
+	collection=testcoll
+	db_coll_name="$testdb.$collection"
+
+	local old_rs_conn="$rs_conn"		# save it just in case
+	# re-insertion step
+	rs_conn=$( rs_connect_str init $snam $hostport_list $testdb )
+	#echo "new connection string adds database: $rs_conn"
+	grs_conn="$rs_conn"			# update global
+
+	local perl_add_data
 	# generate data ($fate) containing date to get different data each run
 	local fate="timely data $( date )"
-	local perl_add_data
 	read -r -d '' perl_add_data << 'EOT'
 
 	# start embedded Perl program
-	# takes two arguments: connection_string and test data_string
+	# call with: rs_conn, $dbtest.$collection, test_data_string
 	use 5.010;
 	use strict;
 	use MongoDB;
@@ -631,7 +643,8 @@ exit
 	# use Try::Tiny::Retry	# yyy (one day) for automatic retries
 
 	my $connection_string = $ARGV[0] || '';
-	my $data_string = $ARGV[1] || '';
+	my $db_coll_name = $ARGV[1] || '';	# db_name.collection_name
+	my $data_string = $ARGV[2] || '';
 	my $client;
 	try {
 		$client = MongoDB::MongoClient->new(
@@ -649,11 +662,11 @@ exit
 	$client or
 		print(STDERR "error: couldn't connect to $connection_string"),
 		exit 1;
-	my ($pfx, $docs);
+	my ($col, $docs);
 	try {
-		$pfx = $client->ns("test.prefixes");	# "prefixes" collection
-		$pfx->insert({ name => "JDoe", fate => "$data_string" });
-		$docs = $pfx->find();
+		$col = $client->ns($db_coll_name);
+		$col->insert({ name => "JDoe", fate => "$data_string" });
+		$docs = $col->find();
 	}
 	catch {
 		print STDERR "error: $_\n";
@@ -662,91 +675,75 @@ exit
 		print "$doc->{'fate'}\n";	# save for testing replicas
 	}
 	# end embedded Perl program
-
 EOT
 
 	# Now call the script, just saved in $perl_add_data, pass in values
 	# via command line arguments.
 	#
-	echo Connecting to $repSetURL
-	out=$( perl -we "$perl_add_data" "$repSetURL" "$fate" )
-	local doclen=${#fate}
+	local retstatus doclen
+	echo Connecting to $db_coll_name via $rs_conn
+
+	out=$( perl -we "$perl_add_data" "$rs_conn" "$db_coll_name" "$fate" )
+	retstatus=$?
+	doclen=${#fate}		# number of characters in the string $fat
 	[[ "$out" != "$fate" ]] && {
 		echo "Warning: doc stored (len $doclen) not read from" \
-			"$readpref replica (len ${#out})"
+			"replica (len ${#out})"
 	}
 
 	local stored_doc
-	if [[ $? -eq 0 ]]
+	if [[ $retstatus -eq 0 ]]
 	then
 		stored_doc=$fate
 		echo "Test document data of length $doclen added:"
 		sed 's/^/    /' <<< "$stored_doc"	# indent data
 	else
-		echo "problem adding test document via $repSetURL"
+		echo "problem adding test document via $rs_conn"
 		echo "$out"
 	fi
 
-	[[ "$verbose" ]] && {
-		echo === Replica set status after inserting document ===
-		mongo --port $final --eval "rs.status()"
-	}
-
 	echo Sleep 5 to let data propagate
 	sleep 5
-	# now stop each replica after proving data written to each one
-	i=1; while [[ $i -le $n ]]
-	do
-		(( port=$tmongo_port + $i ))
-# xxx prefixes?
-		out=$( mongo --port $final --quiet \
-			--eval "db.prefixes.find()" test )
+	# now prove that the data was written to each instance
 
-		if [[ $? -eq 0 ]]
-		then
+	local instances
+	instances=( $tmongod_proc* )
+
+	for i in ${instances[@]}		# for each instance i
+	do
+		hostport=${i##*_}		# delete to last '_'
+		# database name carried in $rs_conn
+		local tries=1 maxtries=3 pause=1
+		echo "fetching data from $hostport, up to $maxtries tries"
+
+		while [[ $tries -le $maxtries ]]
+		do
+			# rs.slaveOk() permits reading from secondaries
+			out=$( mongo --quiet --eval \
+					"rs.slaveOk(); db.$collection.find()" \
+					"$hostport/$testdb" ) || {
+				echo "problem fetching test docs ($hostport)"
+				echo "$out"
+				break
+			}
 			fgrep -sq "$stored_doc" <<< "$out"
 			if [[ $? -eq 0 ]]
 			then
-				echo -n "Replica $port has doc copy, "
+				echo + replica $hostport has doc copy \
+					after $tries tries
+				break
 			else
-				echo -n "Replica $port does not" \
-					"have doc copy, "
+				echo + replica $hostport does not have doc \
+					copy after $tries tries
+				[[ "$verbose" ]] &&
+					echo "from find: $out"
 			fi
-		else
-			echo "problem fetching test docs (port $final)"
-			echo "$out"
-		fi
-
-		dbpath=$tmongo_dbdir/d$i
-		#args="$port $dbpath $tmongo_dblog $tmongo_replset $n"
-		args="$port $dbpath $tmongo_dblog"
-		[[ "$verbose" ]] &&
-			echo "Instance $i: $me stop $args"
-		# We don't need most of those args for "stop" except $port,
-		# but we supply them to satisfy $me syntax checker.
-		#
-		out=$( $me stop $args )
-		if [[ $? -ne 0 ]]
-		then
-			echo error: problem stopping server with \
-				$me stop $args:
-			echo "$out"
-			echo Trying hard-stop
-			out=$( $me hard-stop $args )
-			if [[ $? -ne 0 ]]
-			then
-				echo error: problem stopping server
-				echo "$out"
-				echo Giving up
-			else
-				echo "$out"
-			fi
-		else
-			echo "$out"
-		fi
-		(( i++ ))
+			(( tries++ ))
+			sleep $pause
+		done
 	done
-	# yyy now purge replica set config completely?
+
+	repltest_teardown $rs_conn
 }
 
 # Mongo database settings
