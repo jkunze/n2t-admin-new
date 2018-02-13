@@ -173,7 +173,7 @@ example: update MDS, adding prefix to datacenter XYZ, and insert line
 		$make_datacenter = 0;
 	}
 	else {
-		$datacenter = "$realm.$acronym";
+		$datacenter = "$realm." . substr($acronym, 0, 8);
 	}
 	$datacenter = uc $datacenter;
 	my $realmless = $datacenter;		# initialize
