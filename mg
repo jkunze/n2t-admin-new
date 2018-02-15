@@ -7,12 +7,12 @@ me=$( basename $0 )
 function usage {
 
 summary="
-       $me [-v] [re]start [ Port Dbpath Dblog ]
-       $me [-v] [hard-]stop [ Port Dbpath Dblog ]
-       $me [-v] status [ Port Dbpath Dblog ]
-       $me [-v] start1 [ Port Dbpath Dblog ]
-       $me [-v] repltest [ Setsize ]
-       $me build Dir
+       $me [flags] [re]start [ Port Dbpath Dblog ]
+       $me [flags] [hard-]stop [ Port Dbpath Dblog ]
+       $me [flags] status [ Port Dbpath Dblog ]
+       $me [flags] start1 [ Port Dbpath Dblog ]
+       $me [flags] repltest [ Setsize ]
+  port=\${2:--} dbpath=\${3:--} dblog=\${4:--} setname=\${5:-} setsize=\${6:-}
 "
 	cat << EOT
 
@@ -22,21 +22,23 @@ SYNOPSIS                          ($0)
 USAGE $summary
 
 DESCRIPTION
-       The $me tool performs various setup tasks for MongoDB clents and servers
-       running under the "svu" service version that is currently in effect (or
-       "cur" if none -- type "svu" for details). The -v option makes it more
-       verbose for some forms.  A non-zero exit status indicates an error.
+       The $me tool manages various administrative tasks for MongoDB clents and
+       servers. It currently assumes you are running under an "svu" service
+       version (type "svu" for details). A non-zero exit status indicates an
+       error. By default, $me commands affect onl test servers and replicas;
+       use "--mode real" to affect real servers.
 
-       The start, restart, stop, hard-stop, and status commands sort of do what
-       the command name suggests. The start1 command starts a single instance
-       mongo (no replicas).
+       The start, restart, stop, hard-stop, and status commands do what the
+       command name suggests. The start1 command starts a single instance mongo
+       (no replicas).
 
        The repltest form starts up Setsize servers, adds them to a replica set,
        writes data to the set, attempts to read that data back from each
        replica in the set, and then shuts everything down.
 
-       xxx nope The "build" form creates a mongo database in directory, Dir,
-       establishing configuration and log files there.
+OPTION FLAGS
+       -v, --verbose      be much more wordy
+       -m, --mode MODE    set mode to "test" (default) or "real"
 
 EXAMPLES
        $me start
@@ -47,6 +49,106 @@ SUMMARY $summary
 
 EOT
 }
+
+# Global Mongo constants
+
+mongo_real_root=$HOME/sv/cur/apache2/mongo
+mongo_test_root=$HOME/sv/cur/apache2/mongo_test
+mongo_real_first_port=27017		# standard port
+mongo_test_first_port=47017		# 20K more
+mongo_real_setname=rs0			# real replica set name
+mongo_test_setname=rstest		# test replica set name
+mongo_mode=test				# 'test' (default) or 'real'
+
+mongo_other="--fork --logappend"			# other flags
+mongo_other+=" --storageEngine wiredTiger"
+#--bind_ip 'localhost,172.31.23.24'	# no space after comma
+#--rest		# deprecated since 3.2: admin UI: http://localhost:28017
+
+# Global variables we need but whose values depend on $mongo_mode.
+# Unsetting them here helps flush out "unbound" errors (via "set -u").
+
+unset mongo_root mongo_dbdir_base mongo_proc_base mongo_rset_base \
+	mongo_dbdir mongo_dblog mongo_dbpath mongo_setname mongo_first_port
+
+# Sets globals that govern whether test or real mongo data will be used.
+# Arg 2 can be hostport or port or 'all', where 'all' means init all
+# port-base directories not just one directory. 'all' plus clean clears
+# all replica dirs.
+# call with: mode=test|real hostport|port|'all' [ 'clean' ]
+
+function use_mongo {
+
+	local mode=${1:-test}			# cautious default
+	local hostport=${2:-$mongo_test_port}	# cautious default
+	local port=${hostport##*:}		# delete up to last ':'
+	local clean=${3:-}
+	[[ ! "$clean" || "$clean" == clean ]] || {
+		echo "error: arg 3 must be empty or \"clean\"" 1>&2
+		return 1
+	}
+	[[ "$port" == 'all' || "$port" =~ ^[0-9][0-9]*$ ]] || {
+		echo "error: port ($port) must be numeric" 1>&2
+		return 1
+	}
+	if [[ "$mode" == 'test' ]]
+	then
+		mongo_mode=$mode		# set global mode
+		mongo_root=$mongo_test_root
+		mongo_setname=$mongo_test_setname
+		mongo_first_port=$mongo_test_first_port
+	elif [[ "$mode" == 'real' ]]
+	then
+		mongo_mode=$mode
+		mongo_root=$mongo_real_root
+		mongo_setname=$mongo_real_setname
+		mongo_first_port=$mongo_real_first_port
+	else
+		echo "error: mode ($mode) unknown" 1>&2
+		return 1
+	fi
+	mongo_port=$mongo_first_port
+	mongo_dbdir_base=$mongo_root/data_
+	mongo_proc_base=$mongo_root/proc_
+	mongo_rset_base=$mongo_root/rset_
+	[[ "$port" == 'all' ]] && {
+		[[ "$clean" ]] && {			# if "real all clean"
+			[[ "$mode" == 'real' && ! "$force" ]] && {
+				echo "error: this would remove \"real\" data;" \
+					"override with --force" 1>&2
+				return 1
+			}
+			rm -fr $mongo_dbdir_base*	# "all" -- serious step
+		}
+		return 0		# leave early since no port specified
+	}
+	mongo_dbdir=$mongo_dbdir_base$port	# of central interest
+	mongo_dblog=$mongo_dbdir/mongo_log
+	mongo_dbpath=$mongo_dbdir
+	[[ "$clean" ]] && {
+		[[ "$verbose" ]] && {
+			echo "+ purging directory $mongo_dbdir"
+		}
+		rm -fr $mongo_dbdir
+	}
+	mkdir -p $mongo_dbdir
+	return 0
+}
+
+## Test Mongo database settings
+#
+#tmongo_dbdir=$HOME/sv/cur/apache2/tmongod
+#tmongod_proc=$tmongo_dbdir/proc_	# mongod process file base
+#tmongo_dbpath=
+##"$tmongo_dbdir/data_$port"		# data dbpath for $port
+#tmongo_dblog=$tmongo_dbdir/log
+#tmongo_replset=rstest			# test replica set name
+#tmongo_port=47017			# 20K more than standard port
+#tmongo_other="$mongo_other"
+
+def_setsize=5			# default set size yyy repeated
+max_setsize=50
+max_voting_members=7
 
 # Usage: out_if exitcode [ error | stderr | any ] [ message ]
 #
@@ -130,93 +232,96 @@ function replset_check {	# call with: N   (proposed set size)
 	return 0
 }
 
-function replset_gen_params {	# call with: test|real setsize
-
-# xxx drop these lines next
-	local setname n max even i host starter_port
-	local mode=${1:-test}
-	n=${2:-$def_setsize}		# number of names to generate
-	[[ "$n" == '-' ]] &&		# default number of replicas
-		n=5
-	max=20				# max number of replicas
-#	# $n is even if $even == $n; $even == 0 if $n isn't a number
-#	(( even=( "$n" / 2 * 2 ) ))		# or $n == 1
-#	if [[ $even -eq 0 || $n -eq $even || $n -lt 0 || $n -ge $max ]]
-#	then
-#		[[ $n -ne 1 ]] && {
-#			echo "error: replica count ($n) should be an odd" \
-#				"integer < $max and > 1" 1>&2
-#			return 1
-#		}
-#		# if we get here, $n -eq 1, which we allow under caution
-#		echo "replica count 1 (no replicas) -- baseline testing" 1>&2
-#	fi
-#	host=${3:-$( hostname -f )}		# host where daemon runs
-#	[[ ! "$host" =~ \. ]] &&		# some wifi networks won't
-#		host+=.local			# qualify and we need that
-#	# yyy would using localhost avoid problems like ambiguity and
-#	#     hostname -f malfunctions?
-#	#host=${3:-localhost}			# host where daemon runs
-#	# Answer: maybe, but from docs: "Either all host names in a replica
-#	# set configuration must be localhost references, or none must be"
-# xxx code below to move to repltest, eliminating need for instance array?
-	host=$( replset_check $n ) || {
-		echo "error: failed replset_check" 1>&2
-		return 1
-	}
-
-	use_mongo "$mode" all
-	starter_port=${4:-$mongo_first_port}	# base port where daemon runs
-	#starter_port=${4:-$tmongo_port}	# base port where daemon runs
-
-	local instance port hostport
-	i=1
-	while [[ $i -le $n ]]			# generate instances
-	do
-		port=$(( $starter_port + $i ))
-		hostport="$host:$port"
-
-		use_mongo "$mode" "$hostport"
-		instance=(
-			"$hostport"		# first elem MUST be host:port
-			"$mongo_dbdir"		# data dbpath for $port
-			"$mongo_dblog"		# log file
-			"$mongo_setname"	# replica set name
-			"$n"			# replica set size
-		)		# save instance so we can return its size
-		# eg, 5 lines => every 5 array elements describes an instance
-		# all elements but first are passed to $me after stop||start
-		# First element must always be host:port combination.
-
-		instance_args+=( "${instance[@]}" )
-		(( i++ ))
-	done
-	args_per_instance=${#instance[@]}
-	return
-}
+#function replset_gen_params {	# call with: test|real setsize
+#
+## xxx drop these lines next
+#	local setname n max even i host starter_port
+#	local mode=${1:-test}
+#	n=${2:-$def_setsize}		# number of names to generate
+#	[[ "$n" == '-' ]] &&		# default number of replicas
+#		n=5
+#	max=20				# max number of replicas
+##	# $n is even if $even == $n; $even == 0 if $n isn't a number
+##	(( even=( "$n" / 2 * 2 ) ))		# or $n == 1
+##	if [[ $even -eq 0 || $n -eq $even || $n -lt 0 || $n -ge $max ]]
+##	then
+##		[[ $n -ne 1 ]] && {
+##			echo "error: replica count ($n) should be an odd" \
+##				"integer < $max and > 1" 1>&2
+##			return 1
+##		}
+##		# if we get here, $n -eq 1, which we allow under caution
+##		echo "replica count 1 (no replicas) -- baseline testing" 1>&2
+##	fi
+##	host=${3:-$( hostname -f )}		# host where daemon runs
+##	[[ ! "$host" =~ \. ]] &&		# some wifi networks won't
+##		host+=.local			# qualify and we need that
+##	# yyy would using localhost avoid problems like ambiguity and
+##	#     hostname -f malfunctions?
+##	#host=${3:-localhost}			# host where daemon runs
+##	# Answer: maybe, but from docs: "Either all host names in a replica
+##	# set configuration must be localhost references, or none must be"
+## xxx code below to move to repltest, eliminating need for instance array?
+#	host=$( replset_check $n ) || {
+#		echo "error: failed replset_check" 1>&2
+#		return 1
+#	}
+#
+#	use_mongo "$mode" all
+#	starter_port=${4:-$mongo_first_port}	# base port where daemon runs
+#	#starter_port=${4:-$tmongo_port}	# base port where daemon runs
+#
+#	local instance port hostport
+#	i=1
+#	while [[ $i -le $n ]]			# generate instances
+#	do
+#		port=$(( $starter_port + $i ))
+#		hostport="$host:$port"
+#
+#		use_mongo "$mode" "$hostport"
+#		instance=(
+#			"$hostport"		# first elem MUST be host:port
+#			"$mongo_dbdir"		# data dbpath for $port
+#			"$mongo_dblog"		# log file
+#			"$mongo_setname"	# replica set name
+#			"$n"			# replica set size
+#		)		# save instance so we can return its size
+#		# eg, 5 lines => every 5 array elements describes an instance
+#		# all elements but first are passed to $me after stop||start
+#		# First element must always be host:port combination.
+#
+#		instance_args+=( "${instance[@]}" )
+#		(( i++ ))
+#	done
+#	args_per_instance=${#instance[@]}
+#	return
+#}
 
 # call with: hostport args...
 # args...?
+# creates a file as side-effect used for tracking and tearing down instances
 
 function instance_startup {
 
 	local hostport=$1			# set -u aborts if not set
-	# yyy why isolate $port at all?
+	# yyy why isolate $port at all? because mongo start...
 	local port=${hostport##*:}
 	shift
 	local retstatus=0		# optimist
 	local cmd="$me $verbose start $port $*"
 	[[ "$verbose" ]] &&
-		echo "+ doing \"$cmd\" via port $port"
+		echo "+ doing \"$cmd\" via port $port" 1>&2
 	# start daemon
 	# yyy why have another process? because it's not
 	# encapsulated in a function, but inlined in case statement
 	[[ "$noexec" ]] &&
-		cmd="echo + '"$cmd"'"
+		cmd="echo + '"$cmd"'" 1>&2
 	$cmd || {
 		echo "error in \"$cmd\"" 1>&2
 		return 1
 	}
+	# create file we can use later for tracking and teardown
+	echo "instance_startup $port $*" > $mongo_proc_base$hostport
 }
 
 # call with: hostport [ 'hard-stop' ]
@@ -248,8 +353,12 @@ function mongosh {
 
 	local op=$1
 	local rs_conn=$2
-	local r=${3:-}
+	local r=${3:-}			# return variable name
 	local out json retstatus error=
+
+	[[ "$verbose" ]] && {
+		echo "mongosh: doing JSON.stringify($op) on $rs_conn" 1>&2
+	}
 
 	# JSON.stringify has two virtues: (a) it makes the JSON parsable to
 	# the jq tool and (b) puts it all on one line, making it possible to
@@ -257,7 +366,8 @@ function mongosh {
 
 	out=$( mongo --eval "JSON.stringify($op)" $rs_conn ) || {
 		retstatus=$?
-		echo "mongosh: error invoking JSON.stringify($op) on $rs_conn"
+		echo "mongosh: error invoking JSON.stringify($op) on $rs_conn" \
+			1>&2
 		if [[ "$verbose" ]]
 		then
 			sed 's/^/  /' <<< "$out" 1>&2
@@ -330,8 +440,13 @@ function rs_init {
 	local retstatus=0		# optimist
 	[[ "$verbose" ]] &&
 		echo "+ doing rs.initiate() via $hostport" 1>&2
+
 	#out=$( mongo --port $port --eval "rs.initiate()" )
-	mongosh "rs.initiate()" $hostport m ||
+	# NB: need to convert hostport into connection string because for some
+	# reason mongo shell won't connect to host:port UNLESS host is a dotted
+	# quad, eg, host as DNS name WON'T work.
+
+	mongosh "rs.initiate()" "mongodb://$hostport" m ||
 		return 1		# since m_* vars will be undefined
 	[[ "$verbose" ]] && {
 		echo "+ $m_out" 1>&2
@@ -409,11 +524,7 @@ function rs_list { # call with: rs_conn
 		echo "rs_list: connection string not initialized" 1>&2
 		return 1
 	}
-	[[ ! "$mongo_mode" ]] && {	# determines set name, etc.
-		echo "rs_list: must call use_mongo first" 1>&2
-		return 1
-	}
-	[[ ! "$rs_conn" || ! "$mongo_mode" ]] 
+# xxx [[ ! "$rs_conn" ]] && ...
 	mongosh "db.isMaster()" $rs_conn m
 	if [[ $? == 0 ]]
 	then
@@ -459,19 +570,19 @@ function rs_add_instance { # call with: rs_conn hostport
 	# do rs_list first to see how many members there are
 	local out setsize
 	out=$( rs_list $rs_conn ) || {
-		echo "failed: rs_list $rs_conn"
+		echo "failed: rs_list $rs_conn" 1>&2
 		return 1
 	}
 	setsize=$( sed 's/^\([0-9][0-9]*\).*/\1/' <<< "$out" )
 	[[ "$setsize" -ge $max_setsize ]] && {
 		echo "error: replica set already has $setsize members" \
-			"maximum size is $max_setsize"
+			"maximum size is $max_setsize" 1>&2
 		return 1
 	}
 	local non_voting=
 	[[ "$setsize" -ge $max_voting_members ]] && {
 		echo "warning: replica set already has $setsize members;" \
-			"new members will be added as non-voting"
+			"new members will be non-voting" 1>&2
 		non_voting=", priority: 0, votes: 0"
 	}
 	#out=$( mongo --port $port --eval "rs.add('$hostport')" )
@@ -481,12 +592,13 @@ function rs_add_instance { # call with: rs_conn hostport
 	mongosh "rs.add( { host: \"$hostport\" $non_voting } )" $rs_conn m
 	retstatus=$?
 	[[ "$verbose" ]] &&
-		sed 's/^/  /' <<< "$m_out"
+		sed 's/^/  /' <<< "$m_out" 1>&2
 	return $retstatus
 }
 
 # start instance, add to replica set, and output new connection string
 # setname implied by $mongo_mode, which rs_list requires to be initialized
+# creates and adds to a file as side-effect to track replica set states
 
 function rs_add {	# call with: rs_conn hostport start_args
 
@@ -496,7 +608,7 @@ function rs_add {	# call with: rs_conn hostport start_args
 	local out setsize
 	local retstatus=0		# optimistic
 
-	echo "starting up and adding $hostport"
+	echo "starting up and adding $hostport" 1>&2
 	instance_startup $hostport $start_args ||  {
 		echo "rs_add: error in \"instance_startup $port\"" 1>&2
 		return 1
@@ -504,16 +616,17 @@ function rs_add {	# call with: rs_conn hostport start_args
 	#mongosh "db._adminCommand( {getCmdLineOpts: 1})" $hostport m
 	#if [[ $? -eq 0 ]]
 	#then
-	#	echo "XXXEEE m_out: $m_out"
+	#	echo "m_out: $m_out"
 	#fi
 	local snam=$mongo_setname
 	# if no error in starting, save to a file
-	echo "instance_startup $port $start_args" > $mongo_proc_base$hostport
-# xxx record current (after add and del) connection string in filesystem!
-# xxx what becomes of this between processes? for rs_del too
+
 
 	if [[ ! "$rs_conn" ]]	# first time through, init replica set
 	then
+		[[ "$verbose" ]] && {
+			echo "doing: rs_init $hostport" 1>&2
+		}
 		rs_init $hostport || {	# eg, still up from prior run
 			rs_conn=$( rs_connect_str init $snam $hostport )
 			repltest_teardown $rs_conn
@@ -523,20 +636,28 @@ function rs_add {	# call with: rs_conn hostport start_args
 		}
 		rs_conn=$( rs_connect_str init $snam $hostport )
 		grs_conn="$rs_conn"	# update global
-		rs_list $rs_conn
+		# initialize file to track replica set states
+		echo "$(date) created with $hostport - $rs_conn" \
+			> $mongo_rset_base$snam
 	else
 		# Connect mongo shell to replica set (NB: no dbname
 		# in this particular string):
 		# mongo mongodb://10.10.10.15:27001,10.10.10.16:27002,
 		#  10.10.10.17:27000/?replicaSet=replicaSet1
 		rs_add_instance $rs_conn $hostport || {
-			echo rs_add_instance failed on $hostport
+			echo rs_add_instance failed on $hostport 1>&2
 			return 1
 		}
 		rs_conn=$( rs_connect_str add $rs_conn $hostport )
 		grs_conn="$rs_conn"	# update global
-		rs_list $rs_conn
+		# add to file to track replica set states
+		echo "$(date) added $hostport - $rs_conn" \
+			>> $mongo_rset_base$snam
 	fi
+	#[[ "$verbose" ]] && {
+	#	echo "doing: rs_list $rs_conn" 1>&2
+	#}
+	#rs_list $rs_conn
 	echo "rs_conn: $rs_conn"
 	return 0
 }
@@ -551,12 +672,13 @@ function rs_del_instance {	# call with: rs_conn hostport
 	mongosh "rs.remove('$hostport')" $rs_conn m
 	retstatus=$?
 	[[ "$verbose" ]] &&
-		sed 's/^/  /' <<< "$m_out"
+		sed 's/^/  /' <<< "$m_out" 1>&2
 	return $retstatus
 }
 
 # shutdown instance, remove from replica set, and output new connection string
 # setname implied by $mongo_mode, which rs_list requires to be initialized
+# adds to a file as side-effect to track replica set states
 
 function rs_del {	# call with: rs_conn hostport [ setsize ]
 
@@ -571,7 +693,8 @@ function rs_del {	# call with: rs_conn hostport [ setsize ]
 		#return 1
 	}
 	[[ "$setsize" -lt 3 ]] && {
-		echo "fewer than 3 instances requires hard-stop" 1>&2
+		echo "fewer than 3 instances (no primary) requires hard-stop" \
+			1>&2
 		stop_op=hard-stop
 	}
 	# NB: must shutdown instance before removing from replica set
@@ -602,6 +725,8 @@ function rs_del {	# call with: rs_conn hostport [ setsize ]
 	else				# else there's no primary for that
 		rs_conn=$( rs_connect_str del $rs_conn $hostport )
 	fi
+	# add record to file to track replica set states
+	echo "$(date) deleted $hostport - $rs_conn" >> $mongo_rset_base$snam
 	echo "rs_conn: $rs_conn"
 	return $retstatus
 }
@@ -629,7 +754,7 @@ function repltest_teardown {
 	instances=( $( command ls $mongo_proc_base* | sort -r ) )
 	local total=${#instances[@]}		# total instances remaining
 
-	echo "starting teardown of $total-server replica set"
+	echo "tearing down $total-server replica set"
 	for i in ${instances[@]}		# for each instance i
 	do
 		hostport=${i##*_}		# delete to last '_'
@@ -721,7 +846,7 @@ function repltest {
 		return 1
 	}
 
-	echo starting $n-server replica set test
+	echo beginning $n-server replica set test
 	local rs_conn=			# replica set connection string
 	grs_conn=			# global version of the same
 	trap repltest_wrapup SIGINT	# trigger cleanup using global
@@ -744,7 +869,6 @@ function repltest {
 
 		args="$mongo_dbpath $mongo_dblog $mongo_setname $n"
 
-# xxx record current (after add and del) connection string in filesystem!
 		out=$( rs_add "$rs_conn" "$hostport" "$args" ) || {
 			echo "error in adding \"$hostport\"" 1>&2
 			[[ ! "$rs_conn" ]] && {
@@ -785,7 +909,6 @@ function repltest {
 	local old_rs_conn="$rs_conn"		# save it just in case
 	# re-insertion step
 	rs_conn=$( rs_connect_str init $snam $hostport_list $testdb )
-	#echo "new connection string adds database: $rs_conn"
 	grs_conn="$rs_conn"			# update global
 
 	local perl_add_data
@@ -854,8 +977,8 @@ EOT
 	if [[ $retstatus -eq 0 ]]
 	then
 		stored_doc=$fate
-		echo "Test document data of length $doclen added:"
-		sed 's/^/    /' <<< "$stored_doc"	# indent data
+		echo "test data (length $doclen) = |$stored_doc|"
+		#sed 's/^/    /' <<< "$stored_doc"	# indent data
 	else
 		echo "problem adding test document via $rs_conn"
 		echo "$out"
@@ -905,123 +1028,39 @@ EOT
 	repltest_teardown $rs_conn
 }
 
-# Mongo database settings
-
-mongo_dbdir=$HOME/sv/cur/apache2/mongo_dbdir
-mongo_dbpath=$mongo_dbdir				# data goes here
-mongo_dblog=$HOME/sv/cur/apache2/logs/mongod_log	# logs go here
-mongo_port=27017					# daemon port
-mongo_replset=rs0					# replica set name
-mongo_other="--fork --logappend"			# other flags
-mongo_other+=" --storageEngine wiredTiger"
-#--bind_ip 'localhost,172.31.23.24'	# no space after comma
-#--rest		# deprecated since 3.2: admin UI: http://localhost:28017
-
-# NEW Global constants
-
-mongo_real_dir=$HOME/sv/cur/apache2/mongo
-mongo_test_dir=$HOME/sv/cur/apache2/mongo_test
-mongo_real_first_port=27017		# standard port
-mongo_test_first_port=47017		# 20K more
-mongo_real_setname=rs0			# real replica set name
-mongo_test_setname=rstest		# test replica set name
-mongo_mode=				# 'test' or 'real'
-
-# NEW Global variables whose values depend on $mongo_mode
-
-# yyy uncomment?
-#mongo_dir=			
-#mongo_dbdir_base=
-#mongo_proc_base=
-#mongo_dbdir=
-#mongo_dblog=
-#mongo_dbpath=
-mongo_setname=
-mongo_first_port=
-
-# Set globals that govern whether test or real mongo data will be used.
-# Arg 2 can be hostport or port or 'all', where 'all' means init all
-# port-base directories not just one directory. 'all' plus clean clears
-# all replica dirs.
-# call with: mode=test|real hostport|port|'all' [ 'clean' ]
-
-function use_mongo {
-
-	local mode=${1:-test}			# cautious default
-	local hostport=${2:-$mongo_test_port}	# cautious default
-	local port=${hostport##*:}		# delete up to last ':'
-	local clean=${3:-}
-	[[ ! "$clean" || "$clean" == clean ]] || {
-		echo "error: use_mongo arg 3 must be empty or \"clean\"" 1>&2
-		return 1
-	}
-	[[ "$port" == 'all' || "$port" =~ ^[0-9][0-9]*$ ]] || {
-		echo "error: use_mongo port ($port) must be numeric" 1>&2
-		return 1
-	}
-	if [[ "$mode" == 'test' ]]
-	then
-		mongo_mode=$mode		# set global mode
-		mongo_dir=$mongo_test_dir
-		mongo_setname=$mongo_test_setname
-		mongo_first_port=$mongo_test_first_port
-	elif [[ "$mode" == 'real' ]]
-	then
-		mongo_mode=$mode
-		mongo_dir=$mongo_real_dir
-		mongo_setname=$mongo_real_setname
-		mongo_first_port=$mongo_real_first_port
-	else
-		echo "error: use_mongo mode ($mode) unknown" 1>&2
-		return 1
-	fi
-	mongo_dbdir_base=$mongo_dir/data_
-	mongo_proc_base=$mongo_dir/proc_
-	[[ "$port" == 'all' ]] && {
-		[[ "$clean" ]] && {			# if "real all clean"
-			[[ "$mode" == 'real' && ! "$force" ]] && {
-				echo "error: this would remove \"real\" data;" \
-					"override with --force" 1>&2
-				return 1
-			}
-			rm -fr $mongo_dbdir_base*	# "all" -- serious step
-		}
-		return 0		# leave early since no port specified
-	}
-	mongo_dbdir=$mongo_dbdir_base$port	# of central interest
-	mongo_dblog=$mongo_dbdir/mongo_log
-	mongo_dbpath=$mongo_dbdir
-	[[ "$clean" ]] && {
-		[[ "$verbose" ]] && {
-			echo "+ purging directory $mongo_dbdir"
-		}
-		rm -fr $mongo_dbdir
-	}
-	mkdir -p $mongo_dbdir
-	return 0
-}
-
-# Test Mongo database settings
-
-tmongo_dbdir=$HOME/sv/cur/apache2/tmongod
-tmongod_proc=$tmongo_dbdir/proc_	# mongod process file base
-tmongo_dbpath=
-#"$tmongo_dbdir/data_$port"		# data dbpath for $port
-tmongo_dblog=$tmongo_dbdir/log
-tmongo_replset=rstest			# test replica set name
-tmongo_port=47017			# 20K more than standard port
-tmongo_other="$mongo_other"
-
-def_setsize=5			# default set size yyy repeated
-max_setsize=50
-max_voting_members=7
-
 # Single port argument required.
 # quietly tests if mongod is running, returns via process status
 function is_mongo_up () {
 	local port=$1
-	#nohup mongo --port $port < /dev/null > /dev/null 2>&1
-	nohup mongo --port $port < /dev/null
+	nohup mongo --port $port < /dev/null > /dev/null 2>&1
+}
+
+function rs_status {
+
+	local status pidcount
+	pidcount=`netstat -an | grep -c "mongodb.*$port"`
+	is_mongo_up $port
+	status=$?
+	if [[ $status -eq 0 ]]
+	then
+		echo "OK -- running (mongod, port $port)"
+		[[ "$pidcount" -eq 0 ]] &&
+			echo "WARNING: but the pidcount is $pidcount?"
+		[[ "$verbose" ]] && {
+			echo "=== Mongo Configuration ==="
+			mongo --port $port --eval "db.serverStatus()"
+			echo "=== Mongo Replica Set Configuration  ==="
+			mongo --port $port --eval "rs.conf()"
+			echo "=== Mongo Replica Set Status  ==="
+			mongo --port $port --eval "rs.status()"
+		}
+			
+	else
+		echo "NOT running (mongod, port $port)"
+		[[ "$pidcount" -ne 0 ]] &&
+			echo "WARNING: but the pidcount is $pidcount?"
+	fi
+	return $status
 }
 
 # MAIN
@@ -1042,31 +1081,43 @@ noexec=
 force=
 while [[ "${1:-}" =~ ^- ]]	# $1 starts as the _second_ (post-command) arg
 do
-	case $1 in
+	flag="${1:-}"
+	case $flag in
+	-m*|--m*)
+		shift
+		mode_arg=${1:-}			# gobble up next arg
+		shift
+		[[ "$mode_arg" && \
+			  ("$mode_arg" == real || "$mode_arg" == test) ]] || {
+			echo "error: --mode must be followed by \"test\"" \
+					"or \"real\"" 1>&2
+			usage
+			exit 1
+		}
+		mongo_mode=$mode_arg		# set global
+		;;
 	-v*|--v*)
 		verbose='--v'
 		# doubles as "True" and value inherited by sub-processes
 		shift
 		;;
-	-f|--f*)
+	-f|--f*)			# yyy drop?
 		force='--force'
 		# doubles as "True" and value inherited by sub-processes
 		shift
 		;;
-	-y)
-		yes=1
-		shift
-		;;
-	-n)
+	-n)				# yyy drop?
 		noexec=1
 		shift
 		;;
 	*)
-		echo "Error: unknown option: $1"
+		echo "error: unknown option: $flag"
 		usage
 		exit 1
 	esac
 done
+
+use_mongo $mongo_mode all			# define essential globals
 
 cmd=${1:-help}
 
@@ -1098,6 +1149,9 @@ help|"")
 	;;
 esac
 
+# If we get here, we're considering commands that require a bunch of standard
+# arguments, which we check for next.
+
 # set '-' as default value for first three args
 port=${2:--} dbpath=${3:--} dblog=${4:--}
 # no default for remaining args
@@ -1106,6 +1160,14 @@ setname=${5:-} setsize=${6:-}
 [[ "$cmd" && "$port" && "$dbpath" && "$dblog" ]] || {
 	usage
 	exit 1
+}
+
+use_mongo $mongo_mode $port			# define more global variables
+
+[[ "$port" == '-' ]]	&& port=$mongo_port	# default port
+[[ "$cmd" == status ]] && {
+	rs_status
+	exit
 }
 
 # Arguments described in comments
@@ -1235,36 +1297,39 @@ restart|graceful|hard-restart)
 	;;
 
 status)
-	pidcount=`netstat -an | grep -c "mongodb.*$port"`
-	is_mongo_up $port
-	status=$?
-	if [[ $status -eq 0 ]]
-	then
-		echo "OK -- running (mongod, port $port)"
-		[[ "$pidcount" -eq 0 ]] &&
-			echo "WARNING: but the pidcount is $pidcount?"
-		[[ "$verbose" ]] && {
-			echo "=== Mongo Configuration ==="
-			mongo --port $port --eval "db.serverStatus()"
-			echo "=== Mongo Replica Set Configuration  ==="
-			mongo --port $port --eval "rs.conf()"
-			echo "=== Mongo Replica Set Status  ==="
-			mongo --port $port --eval "rs.status()"
-		}
-			
-	else
-		echo "NOT running (mongod, port $port)"
-		[[ "$pidcount" -ne 0 ]] &&
-			echo "WARNING: but the pidcount is $pidcount?"
-	fi
-	exit $status
+	rs_status "$@"
+	exit
 	;;
+#	pidcount=`netstat -an | grep -c "mongodb.*$port"`
+#	is_mongo_up $port
+#	status=$?
+#	if [[ $status -eq 0 ]]
+#	then
+#		echo "OK -- running (mongod, port $port)"
+#		[[ "$pidcount" -eq 0 ]] &&
+#			echo "WARNING: but the pidcount is $pidcount?"
+#		[[ "$verbose" ]] && {
+#			echo "=== Mongo Configuration ==="
+#			mongo --port $port --eval "db.serverStatus()"
+#			echo "=== Mongo Replica Set Configuration  ==="
+#			mongo --port $port --eval "rs.conf()"
+#			echo "=== Mongo Replica Set Status  ==="
+#			mongo --port $port --eval "rs.status()"
+#		}
+#			
+#	else
+#		echo "NOT running (mongod, port $port)"
+#		[[ "$pidcount" -ne 0 ]] &&
+#			echo "WARNING: but the pidcount is $pidcount?"
+#	fi
+#	exit $status
 
 *)
 	[[ "$cmd" ]] &&
 		echo "$me: $cmd: unknown argument"
-	echo "Use one of these as an argument:" \
-		"status, start[1], stop, restart, or repltest."
+	usage
+	#echo "Use one of these as an argument:" \
+	#	"status, start[1], stop, restart, or repltest."
 	exit 1
 	;;
 esac
