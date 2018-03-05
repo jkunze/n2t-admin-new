@@ -38,6 +38,7 @@ sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 sudo yum -y install 'perl(Time::HiRes)'
 sudo yum -y install 'perl(Log::Log4perl)'
 sudo yum -y install mongodb-org
+sudo yum -y install jq
 # on mac, need: brew install mongodb --with-openssl
 sudo yum -y install telnet	# for network testing, eg, mongo replication
 rpm -V mongodb-org || {			# because it has gpgcheck disabled

@@ -12,6 +12,7 @@ me=$( basename $0 )
 	echo "    Binder: ezid | oca | yamz (default ezid)"
 	echo "    Batchsize: number of commands per batch (default 5000)"
 	echo "    Sleep: seconds to pause between batches (default 2)"
+	echo "Splits batch in a temporary directory and leaves output there."
 	exit
 }
 
@@ -58,6 +59,7 @@ do
 		sleep=0		# no need to pause after the last batch
 	}
 	echo processed batch $b, progress $percent%
+	echo +=== processed batch $b, progress $percent% >> $out
 	sleep $sleep	# pause, releasing DB lock so others can use it too
 done
 echo "Batch ended: $(date)" | tee -a $out
