@@ -134,6 +134,7 @@ sub naan2doip { my $naan = shift or return '';
 	$naan =~ s
 		{ \b (ark:/*)? ([bcdfghjkmnpqrstvwxz]) (\w{4}) \b (\S*) }
 		{ "doi:10." . n2d($2, $3) . "\U$4\E" }xeg;
+	$naan =~ s/%([0-9A-Fa-f]{2})/uc chr hex $1/xeg;	# extra credit
 	return $naan;
 }
 

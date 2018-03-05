@@ -71,6 +71,12 @@ DESCRIPTION
        replica set, writes data to the set, attempts to read that data back
        from each replica instance in the set, and then shuts everything down.
 
+       To manage a replica set, each replica should boot and start it's own
+       local daemon(s) (27017, 27018) with the default replica set name.
+       One distinguished hostname, ending it "-2a" should attempt to run
+       rs_init and add itself. The others should only attempt that if they
+       haven't been contacted by the
+
 OPTION FLAGS
        -v, --verbose   be much more wordy
        -t, --test      run in test mode (away from "live" data directory)
