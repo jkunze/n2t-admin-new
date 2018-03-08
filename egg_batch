@@ -1,5 +1,10 @@
 #!/bin/env bash
 
+noexec=
+[[ "$1" == '-n' ]] && {
+	noexec=1
+	shift
+}
 script=$1
 binder=${2:-ezid}
 batchsize=${3:-5000}
@@ -8,15 +13,16 @@ sleep=${4:-2}
 # read from stdin
 me=$( basename $0 )
 [[ "$1" ]] || {
-	echo "Usage: $me ScriptOfEggCommands[.gz] [Binder [Batchsize [Sleep]]]"
+	echo "Usage: $me [-n] ScriptOfEggCommands[.gz] [Binder [Batchsize [Sleep]]]"
 	echo "    Binder: ezid | oca | yamz (default ezid)"
 	echo "    Batchsize: number of commands per batch (default 5000)"
 	echo "    Sleep: seconds to pause between batches (default 2)"
 	echo "Splits batch in a temporary directory and leaves output there."
+	echo "The -n flag stops execution after splitting up the batch."
 	exit
 }
 
-wdir=$( mktemp -d -t egg_batch.XXXX )		# working directory
+wdir=$( TMPDIR=$HOME/batches mktemp -d -t egg_batch.XXXX )		# working directory
 if [[ "$script" =~ \.gz$ ]]
 then
 	tosplit=$( basename -s .gz $script )
@@ -42,6 +48,11 @@ now in working directory $wdir
 splitting $linestotal lines into $batchsize-line batches
 output will be in $wdir/$out
 EOT
+
+[[ "$noexec" ]] && {
+	echo "Stopping without further execution, as per -n flag."
+	exit
+}
 
 # "split -a 4" says split file suffixes have length 4, so they sort correctly
 # for a large number of batches, ie, file glob order preserves pre-split order

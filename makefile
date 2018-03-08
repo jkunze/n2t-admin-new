@@ -17,7 +17,8 @@ UTILITIES=$(LBIN)/n2t $(LBIN)/wegn $(LBIN)/wegnpw $(LBIN)/admegn \
 		$(LBIN)/pfx $(LBIN)/mg $(LBIN)/showargs \
 		$(LBIN)/make_shdr $(LBIN)/shdr_exists $(LBIN)/make_ezacct \
 		$(LBIN)/doip2naan $(LBIN)/naan $(LBIN)/valsh \
-	$(LBIN)/granvl $(LBIN)/set_crontab $(LBIN)/replicate
+	$(LBIN)/granvl $(LBIN)/set_crontab $(LBIN)/replicate \
+	$(LBIN)/egg_batch
 FILES=boot_install_n2t db-5.3.28.tar.gz zlib-1.2.8.tar.gz \
 	make_instance set_crontab replicate n2t apache svu_run
 # NB: that the two ezid rlogs get pride of place over all other binders
@@ -147,7 +148,7 @@ basicfiles: egnapa
 
 BASICDIRS=$(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/ssl \
 	$(HOME)/.ssh $(HOME)/logs $(HOME)/init.d $(HOME)/backups \
-	$(HOME)/shoulders $(HOME)/minters $(HOME)/binders
+	$(HOME)/shoulders $(HOME)/minters $(HOME)/binders $(HOME)/batches
 
 basicdirs: $(BASICDIRS)
 
@@ -160,7 +161,7 @@ $(HOME)/backups:
 		mkdir -p $@
 	fi
 
-$(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/init.d:
+$(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/init.d $(HOME)/batches:
 	mkdir -p $@
 
 # xxx add $(HOME) to last arg of ln -s ...  ?? (else problem if run in
