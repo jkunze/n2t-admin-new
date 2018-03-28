@@ -88,15 +88,21 @@ Some assistive sub-commands.
 
 These sub-commands are purely about querying the prefix data itself.
 
-  [-s records|lines|count] find [ Term ]
+  [-s records|lines|count|targets] find [ Term ]
             Print summary lines (default), records, or a count of records
             matching the given Term argument, or a total count of existing
-            records if no Term is given. If the Term begins with a ":"
-            character, that character is removed and the rest of the Term
-            is matched against the body of the record, otherwise the Term is
-            matched against the record header. Matching is case-insensitive.
-            Does NOT require a server to be running.
-
+            records if no Term is given. Normally only looks for matches
+	    against prefixes (record headers) themselves. But if the Term
+	    begins with a ":" character, that character is removed and a
+	    match is looked for by testing the remaining Term against both
+	    the header and body of the record. Matching is case-insensitive.
+	    In the special case of "-s targets", the Term will truncated at
+	    the first internal ":" and any suffix after it will be retained;
+	    then, for any matching records, only the target rules will be
+	    printed, and only after substituting the suffix for \${id}.
+	    Note that "-s lines" matches against lines but instead of printing
+	    those lines it prints only header information for records in which
+	    matches occur. Does NOT require a server to be running.
   grok ID ...
             Print a lexical analysis of each given ID (not ID lookup)
             DOES require a server to be running.
@@ -1764,7 +1770,8 @@ function pfx_install {
 function pfx_find {
 
 	local term="$@"
-	echo "show:$show FIND term:$term"
+	[[ "$verbose" ]] &&
+		echo "show:$show FIND term:$term"
 
 	# Perl script to manipulate installed $master_prefixes.
 	#
@@ -1803,6 +1810,7 @@ function pfx_find {
 	my $show_lines = $show =~ /^l/;
 	my $show_records = $show =~ /^r/;
 	my $show_count = $show =~ /^c/;
+	my $show_targets = $show =~ /^t/;
 
 	# remaining args are query terms
 	unless (scalar(@ARGV) and $ARGV[0]) {
@@ -1817,6 +1825,7 @@ function pfx_find {
 	my ($hitkey, $hitvalue) = (0, 0);
 	my ($k, $v);			# keys and values
 	my $text_rec;			# formatted record, for search/print
+	my $r;				# redirect for display
 
 	# linear search
 	my $count = 0;			# number of matching records
@@ -1840,10 +1849,13 @@ function pfx_find {
 			$count++,
 			$show_lines and
 				say("$k: ", $v->{name} // '', " [$v->{type}]"),
-			1, or
+			1 or
 			$show_records and
 				$text_rec //= rec_details($k, $v),
 				say($text_rec),
+			1 or
+			$show_targets and $v->{redirect} and
+				say($v->{redirect}),		# yyy forward
 			#	say("$k:\n",
 			#		map "$dt$_: " . ($v->{$_} // '') . "\n",
 			#			sort keys %$v),
@@ -2164,11 +2176,12 @@ tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 #     nonsense commands or bad options
 
 [[ "$verbose" ]] && {
+	echo === Start default values ===
 	echo buildout_root: $buildout_root
 	echo pfx_import: $pfx_import
 	echo pfx_build: $pfx_build
 	echo master_prefixes: $master_prefixes
-	exit	# yyy find better way to display default values
+	echo === End default values ===
 }
 
 [[ ! -d $pfx_import ]] && {	# make sure we're initialized yyy needed here?
