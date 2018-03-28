@@ -2,7 +2,9 @@
 
 MAILTO=jak@ucop.edu
 
-#20,50 9-21 * * * if [ -e /Users/jak/shoulders/ok ]; then open /Users/jak/shoulders; fi
+# Fetch/import prefixes from EBI when I'm likely to be online.
+#
+30 11 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO"
 
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.
