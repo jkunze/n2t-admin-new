@@ -934,7 +934,11 @@ function pfx_validate_prefixes {
 				#$ns->{scheme} eq 'cabri' and	# xxx exception
 				#	next;			#     broken
 				# xxx .... other exceptions go here
-				if ($ns->{test} =~ s/(\S+)[:=](\S+)/$2/) {
+				# For so-called prefixed ids, extract what we
+				# think of as the prefix from the test string,
+				# moving it out of the test string and into the
+				# redirect string.
+				if ($ns->{test} =~ s/([^:=]+)[:=](\S+)/$2/) {
 					$ns->{test} = $2;	# move scheme
 					my $p = $1;		# to redirect
 					$pii++;

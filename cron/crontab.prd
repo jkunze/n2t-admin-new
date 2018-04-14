@@ -30,7 +30,7 @@ MAILTO=jak@ucop.edu
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.
 #
-15 00 * * 1-7 bash -lc "admegn logrename | grep -v ^nothing"
+15 00 * * 1-7 bash -lc "admegn logrename"
 
 #### Sundays at 4:03 am, delete log files older than 6 months.
 03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
