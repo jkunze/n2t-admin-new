@@ -3,6 +3,23 @@
 set -u
 notify=jak@ucop.edu	# xxx backup, sysupdate, or other failure
 
+# xxx
+# new protocol: on ec2 instance start, boot mongo then apache;
+#  boot mongo means 1. start mongo daemon 2. attempt to add to existing
+#    rset (but how do you know where to connect to it?),
+#    well-known connection point is default primary with default config
+#      primary: n2t.net:27016:ids-n2t-2b.n2t.net:27017
+#        and failing that attempt init rset and add it
+# 
+# On system boot, "apache start" calls something, eg, "mg rs_start"
+# "mg rs_start" consults env vars set in ~/warts/env.sh
+# 
+# EGNAPA_MG_CONNECT_STRING_DEFAULT=
+# EGNAPA_MG_LOCAL_DAEMONS=rsetname/port,...
+#     
+#     Port Setname
+#     Port Setname
+
 ## Global Mongo constants
 #
 #rs_live_root=$HOME/sv/cur/apache2/mongo
@@ -1534,6 +1551,28 @@ function status {				# call with: [ port ]
 	return $status
 }
 
+configfile=$HOME/warts/env.sh
+
+function rs_start {		# no args
+	source $configfile
+	local cstring="${EGNAPA_MG_CONNECT_STRING_DEFAULT:-}"
+	local daemons="${EGNAPA_MG_LOCAL_DAEMONS:-}"
+	[[ "$EGNAPA_MG_CONNECT_STRING_DEFAULT" ]] || {
+		echo "error: EGNAPA_MG_CONNECT_STRING_DEFAULT not set in" \
+			"$configfile" 1>&2
+		return 1
+	}
+	[[ "$EGNAPA_MG_LOCAL_DAEMONS" ]] || {
+		echo "error: EGNAPA_MG_LOCAL_DAEMONS not set in" \
+			"$configfile" 1>&2
+		return 1
+	}
+	EGNAPA_MG_LOCAL_DAEMONS=rsetname/port,...
+}
+
+#function rs_stop {		# no args
+#}
+
 # MAIN
 
 # Pick up whatever SVU mode may be in effect for the caller.
@@ -1678,6 +1717,14 @@ rs_list)
 	exit
 	;;
 
+rs_start)
+	rs_start "$@"
+	exit
+	;;
+rs_stop)
+	rs_stop "$@"
+	exit
+	;;
 help)
 	usage
 	exit
