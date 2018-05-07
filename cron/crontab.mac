@@ -1,16 +1,17 @@
 # n2t crontab file -- macbook version
 
 MAILTO=jak@ucop.edu
+SHELL=/usr/local/bin/bash
+sv=/Users/jak/sv/cur
 
 # Fetch/import prefixes from EBI when I'm likely to be online.
 #
-30 11 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO"
+30 11 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "pfx cron_hitrnt $MAILTO"
 
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.
 #
-15 00 * * 1-7 bash -lc "admegn logrename > /dev/null 2>&1"
+15 00 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn logrename > /dev/null 2>&1"
 
 #### Sundays at 4:03 am, delete log files older than 6 months.
-03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
-
+03 04 * * 0 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1

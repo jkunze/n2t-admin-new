@@ -52,10 +52,12 @@ egnsrc=$HOME/sv/$svumode/build/eggnog
 bst=$egnsrc/build_server_tree
 bstcfg=$HOME/sv/$svumode/build/eggnog/t
 
-pswdfile=$( cd $egnsrc; $bst which_pswdfile $cfg )
+pswdfile=$( cd $egnsrc; $SHELL $bst which_pswdfile $cfg )
 
 [[ "$pswdfile" ]] || {
 	echo "error: no password information found for $cfg" 1>&2
+	echo "HOME: $HOME, SHELL: $SHELL, svumode: $svumode, PATH: $PATH" 1>&2
+	echo "pwd:" `pwd` 1>&2
 	exit 1
 }
 
