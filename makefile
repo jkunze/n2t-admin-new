@@ -4,7 +4,8 @@
 # - add code to autogenerate (openssl x509 -in file.crt -text -noout) a
 #   text version (README) of cert in the warts/ssl dir
 
-
+#PATH=$(HOME)/local/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin
+SHELL=bash
 HOST=`hostname -f`
 EGNAPA_HCLASS=`admegn class | sed 's/ .*//'`
 LBIN=$(HOME)/local/bin
@@ -69,6 +70,7 @@ hostname: $(HOME)/warts/env.sh
 $(HOME)/warts/env.sh:
 	@echo -e > $@ \
 "#!/bin/sh\n\
+\n\
 # This shell script sets some instance-specific environment variables.\n\
 # The build_server_tree script (eggnog source) reads these for host and\n\
 # certificate configuration.\n\
@@ -79,10 +81,30 @@ $(HOME)/warts/env.sh:
 #"
 	@read -t 60 -p "HOSTNAME (default $(HOST)): " && echo -e >> $@ \
 "export EGNAPA_HOST=$${REPLY:-$(HOST)}\n\
-export EGNAPA_HOST_CLASS=dev              # often one of dev, stg, prd\n\
+export EGNAPA_HOST_CLASS=mac              # eg, one of dev, stg, prd, mac\n\
 export EGNAPA_SSL_CERTFILE=\n\
 export EGNAPA_SSL_KEYFILE=\n\
-export EGNAPA_SSL_CHAINFILE="
+export EGNAPA_SSL_CHAINFILE=\n\
+\n\
+# Define fully qualified hostname (don't trust hostname -f on some networks).\n\
+export MG_HOST=\$$EGNAPA_HOST\n\
+\n\
+# Define the hostports of the mongod daemons that should start up.\n\
+export MG_LOCAL_DAEMONS=\"\$$MG_HOST:27017,\$$MG_HOST:27018,\$$MG_HOST:27019\"\n\
+\n\
+# Define connection string hosts, which may include non-local servers.\n\
+# If undefined, this var defaults to MG_LOCAL_DAEMONS.\n\
+export MG_CSTRING_HOSTS=\"\$$MG_LOCAL_DAEMONS\"\n\
+\n\
+# Define default mongo replica set options for the connection string.\n\
+export MG_REPSETOPTS=\"socketTimeoutMS=30000&readPreference=primaryPreferred\"\n\
+\n\
+# Define default mongo replica set name for the connection string.\n\
+export MG_REPSETNAME=\"live\"\n\
+\n\
+# Define default starter port (in a series) for replica set testing.\n\
+export MG_TEST_PORT=\"47017\"\
+"
 
 # yyy after waiting period, drop EGNAPA_HOST_CLASS defs from warts
 # yyy bug? some things require a defined EGNAPA_HOST_CLASS (chicken and egg)
