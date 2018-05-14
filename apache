@@ -65,19 +65,19 @@ listening=$( sed 's/ Listen/,/' <<< $listening )	# and modify
 
 # first arg is action, eg, start, stop
 function httpd () {
-	local did_mg=
-	[[ "${1:-}" =~ start ]] && {	# start mongo before web server
-		did_mg=1
-		mg $1	# with no Port args, starts ALL local daemons
-	}
+#	local did_mg=
+#	[[ "${1:-}" =~ start ]] && {	# start mongo before web server
+#		did_mg=1
+#		mg $1	# with no Port args, starts ALL local daemons
+#	}
 	$apache_top/bin/httpd -k $1 -d $apache_top -f $apache_conf
-	local apstatus=$?
-	[[ ! "$did_mg" ]] && {		# stop (et al) mongo after web server
-		mg $1	# with no Port args, affects ALL local daemons
-	}
-	#mg $1
-	#admegn mong $1
-        return $apstatus
+#	local apstatus=$?
+#	[[ ! "$did_mg" ]] && {		# stop (et al) mongo after web server
+#		mg $1	# with no Port args, affects ALL local daemons
+#	}
+#	#mg $1
+#	#admegn mong $1
+#	return $apstatus
 }
 
 if [ $# -ne 1 ]; then
@@ -100,6 +100,7 @@ start)
 		# xxx we have no "downserver" yet/ever?
 		echo
 	fi
+	mg $1		# with no Port args, affects ALL local daemons
 	httpd start || {
 		echo "NOT OK -- showing \"tail -5 $apache_top/logs/error_log\""
 		tail -5 $apache_top/logs/error_log
@@ -110,25 +111,28 @@ start)
 	;;
 
 stop|graceful-stop)
-	#httpd $1
 	httpd graceful-stop || exit 1	# note: this does graceful stop
 	echo "OK ($cfg_info) -- stopped (graceful)"
+	mg $1
 	;;
 
 hard-stop)
 	httpd stop || exit 1		# this does a hard stop
 	echo "OK ($cfg_info) -- stopped (hard)"
+	mg $1
 	;;
 
 restart|graceful)
 	#httpd $1
 	httpd graceful || exit 1	# note: this does graceful (restart)
 	echo "OK ($cfg_info) -- (graceful restart) $listening"
+	mg $1
 	;;
 
 hard-restart)
 	httpd restart || exit 1		# this does a hard restart
 	echo "OK ($cfg_info) -- (hard restart) $listening"
+	mg $1
 	;;
 
 status)

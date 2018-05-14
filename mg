@@ -84,6 +84,10 @@ DESCRIPTION
        instance. Sometimes things get wedged, and specifying a Setsize of 0
        may be useful in reinitializing the testing framework.
 
+       There is a command, rs_start (no arguments), that may be useful starting
+       up a "live" replica for the first time. It starts up all local daemons
+       and adds them to the set. It is meant to be used once or rarely.
+
 OPTION FLAGS
        -v, --verbose   be much more wordy
        -t, --test      run in test mode (protects the "live" data directories)
