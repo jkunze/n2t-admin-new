@@ -6,16 +6,11 @@ repsetlog=$HOME/logs/mg_repsetlog
 configfile=$HOME/warts/env.sh
 config_unread=1
 
-# xxx
-# new protocol: on ec2 instance start, boot mongo then apache;
-#  boot mongo means 1. start mongo daemon 2. attempt to add to existing
-#    rset (but how do you know where to connect to it?),
-#    well-known connection point is default primary with default config
-#      primary: n2t.net:27016:ids-n2t-2b.n2t.net:27017
-#        and failing that attempt init rset and add it
-# 
-# On system boot, "apache start" calls something, eg, "mg rs_start"
-# "mg rs_start" consults env vars set in ~/warts/env.sh
+# xxx review what's going on with mongo/proc_local:2701? and history
+# xxx NB: no automated (re)config of replica set, a rare step;
+#     for now we just use the rs_config cmd to explain what to do
+# xxx don't use rs_start or rs_stop
+#     maybe use rs_add and rs_del
 
 me=$( basename $0 )
 function usage {
@@ -24,19 +19,21 @@ function usage {
 	local snam=$mg_live_repsetname_default
 
 summary="
-       $me [flags] start [ Port [ Setname ] ]
-       $me [flags] restart [ Port ]
-       $me [flags] stop [ Port ]
-       $me [flags] hard-stop [ Port ]
-       $me [flags] status [ Port ]
+       $me [flags] start [ Port ... ]
+       $me [flags] restart [ Port ... ]
+       $me [flags] stop [ Port ... ]
+       $me [flags] hard-stop [ Port ... ]
+       $me [flags] status [ Port ... ]
 
-       $me [flags] rs_start
-       $me [flags] rs_stop
+       $me [flags] rs_list
        $me [flags] rs_status
-       $me [flags] rs_add Port
-       $me [flags] rs_del Port
        $me [flags] repltest [ Setcount ]
 "
+       #$me [flags] rs_add Port	# not ready for prime time
+       #$me [flags] rs_del Port	# not ready for prime time
+       #$me [flags] rs_start	# don't use
+       #$me [flags] rs_stop	# don't use
+
 	cat << EOT
 
 SYNOPSIS                          ($0)
@@ -48,44 +45,51 @@ DESCRIPTION
        The $me tool manages various administrative tasks for MongoDB clents and
        servers. It currently assumes you are running under an "svu" service
        version (type "svu" for details). A non-zero exit status indicates an
-       error. Port (default $port) and Setname (default $snam) are optional.
-
-xxx how can Port be optional?
-       Operating on one MongoDB server instance given by Port, the commands
+       error. The commands
 
            start, restart, stop, hard-stop, status
 
-       do what the name suggests. Each instance starts up ready to be part of
-       the replica set, Setname, regardless of whether it ever actually joins
-       the set.
+       do what the name suggests, operating on one or more instances given
+       by Port number. Given no arguments, these commands operate on the set
+       of daemons given by the MG_LOCAL_DAEMONS environment variable usually
+       set in ~/warts/env.sh.
+       
+       Each instance starts up ready to be part of the replica set "live"
+       (default) or "test" (if -t given). Preconfigured replica set state (for
+       "live" mode) should cause started or stopped instances to be smoothly
+       assimilated into or de-assimilated from the replica set, respectively.
+       Currently configuration is not automated except under the "repltest"
+       command. Should reconfiguration under "live" mode be necessary, try
 
-       Operating on one of two MongoDB replica sets, the commands
+           rs_config
 
-           rs_start, rs_stop, rs_status, rs_add, rs_del
+       and follow the printed instructions. Use the commands
 
-       The effected replica set is the "live" public-facing set (ports starting
-       from 27017) unless the -t flag is present, in which case it is a test
-       replica set (ports starting 47017).
+           rs_list, rs_status, rs_test
 
-       The "repltest" command operates on the test replica set. It starts up
+       to list current set instances, dump a wordy set status report (JSON),
+       or read freshly written data from each set instance, respectively.
+
+       The replica set operated on is the "live" public-facing set (usually
+       ports starting from 27017) unless the -t flag is present, in which case
+       a test replica set is used (ports usually starting from 47017).
+
+       The "repltest" command operates on the test replica set, in a slightly
+       different way from the live mode in that it changes the configuration
+       each time an instance is added or removed from the set. It starts up
        Setsize servers, adds them to the "test" replica set, and writes data
        to the set. It then attempts to read that data back from each replica
-       instance in the set, and then shuts everything down. A Setsize of 1 is
-       possible, but the test ... sometimes fails... to write since (?) a
-       replica set with fewer than 3 members cannot elect a primary and becomes
-       read-only. Specify a Setsize of 0 to reinitialize the testing framework
-       (when it gets wedged).
-
-       xxx
-       To manage a replica set, each replica should boot and start it's own
-       local daemon(s) (27017, 27018?) with the default replica set name.
+       instance in the set, and finally shuts everything down. The test is
+       destructive in that it removes all test data before starting each "test"
+       instance. Sometimes things get wedged, and specifying a Setsize of 0
+       may be useful in reinitializing the testing framework.
 
 OPTION FLAGS
        -v, --verbose   be much more wordy
-       -t, --test      run in test mode (away from "live" data directory)
+       -t, --test      run in test mode (protects the "live" data directories)
 
 FILES
-       xxx process files, log files
+       ~/warts/env.sh  see internal comments affecting $me behavior
 
 EXAMPLES
        $me start
@@ -93,7 +97,6 @@ EXAMPLES
        $me repltest 11
 
 SUMMARY $summary
-
 EOT
 }
 
@@ -119,14 +122,13 @@ mg_live_port_default=27017		# standard port
 mg_test_port_default=47017		# 20K more
 mg_live_repsetname_default=live		# default live replica set name
 mg_test_repsetname_default=test		# default test replica set name
-
+mg_repsetname_default=
 mg_repsetopts_default="socketTimeoutMS=30000&readPreference=primaryPreferred"
 					# connection string options (see below)
 
 # Global variables (changing)
 unset mg_dlist				# actual local daemon list
 unset mg_cstring			# actual connection string
-mg_initialized=				# trick to speed up rs_start
 
 # --- notes on repsetopts ---
 # does readpref work in the connection string?
@@ -516,18 +518,22 @@ function rs_list {	# call with: cmd, cstring
 	local cmd=${1:-list}
 	local out cstring=${2:-$mg_cstring}
 	local setsize=1		# something non-zero, used to proceed on error
-	out=$( rs_ismaster $cstring ) || {
-		echo "failed: rs_ismaster $cstring" 1>&2
-		return 1
-	}
 	if [[ "$cmd" != list ]]		# 'count' means return total number
 	then
+		out=$( rs_ismaster $cstring ) || {
+			echo "failed: rs_ismaster $cstring" 1>&2
+			return 1
+		}
 		setsize=$( sed -n 's/^\([0-9][0-9]*\) .*/\1/p' <<< "$out" )
 		echo "$setsize"
 		[[ "$setsize" ]] ||
 			return 1
 	else				# 'list' command
-		echo "$out"
+		mongo --eval "rs.status()" $mg_cstring | perl -nE '
+			/"name" : "([^"]+)"/ and $host = $1;
+			/"stateStr" : "([^"]+)"/ and say "$host\t\t$1";
+		'
+		#echo "$out"
 	fi
 	return 0
 }
@@ -580,55 +586,39 @@ function del_proc_base {
 	return 0
 }
 
-## sets mg_rs_conn and mg_rs_high_port, given a port, and optionally a setname
-## call with port and optional setname; if no setname assume we are to figure it
-## out from given port (as if called by rs_del)
-## yyy allow 'any' or '-' (default)? to list any rset_* files
-##     allow '-' and rsetname? to report on that set?
-##     this would support "./mg rs_status" what about "./mg status"?
-#
-#function use_rs_conn {		# call with: hostport [ setname ]
-#
-#	use_mg any
-#	local hostport=$1
-#	local port=${hostport##*:}
-#	local setname=${2:-}
-#	local pfile rfile last x
-#	if [[ ! "$setname" ]]	# must figure out $setname based on port
-#	then
-#		pfile="$mg_proc_base""local:$port"
-#		[[ -f $pfile ]] || {			# first try
-#			pfile="$mg_proc_base_alt""local:$port"
-#			[[ -f $pfile ]] ||		# second try
-#				pfile=/dev/null
-#		}
-#		setname=$( perl -ne 'm/--replSet\s*(\S*)/ and print "$1"' \
-#			< $pfile )
-#	fi
-#	mg_rs_conn=				# initialize for return
-#	mg_rs_high_port=			# initialize for return
-#
-#	rfile=$mg_rset_base$setname		# NB: setname fails quietly
-#	last=$( tail -1 $rfile 2> /dev/null )
-#	[[ ! "$last" ]] && {
-#		echo ""		# no replica set yet, so no connection string
-#		return 0
-#	}
-#	# Example last line:
-#	# Tue Feb 20 07:40:10 PST 2018 added jak-macbook.local:47023 - mongodb://jak-macbook.local:47023,jak-macbook.local:47022,jak-macbook.local:47021,jak-macbook.local:47020,jak-macbook.local:47019,jak-macbook.local:47018,jak-macbook.local:47017/?socketTimeoutMS=30000&readPreference=primaryPreferred&replicaSet=test
-#
-#	x=$( perl -ne '
-#		chomp;
-#		s,.*mongodb://,mongodb://, and print;	# print conn string
-#		s,/\?.*,,;				# drop query string
-#		print ":";				# separator
-#		@x = sort {$b <=> $a} m/:(\d+)/g;	# descending order
-#		scalar(@x) and print "$x[0]";		# print highest
-#		' <<< "$last" )
-#	mg_rs_conn=${x%:*}				# delete after last ':'
-#	mg_rs_high_port=${x##*:}			# delete up to last ':'
-#	return 0
-#}
+function rs_config {
+
+	local instances
+	instances=$( sed 's/,/ /g' <<< $MG_CSTRING_HOSTS )
+	cat << EOT1
+From xxx stackoverlow
+( instructions for forcing new primary?)
+Stop daemons ?
+Backup ?
+Start mongo client against one of local daemons?
+Run something like...
+
+rs.initiate( {
+    _id : "$MG_REPSETNAME",
+    members: [
+EOT1
+
+	local n=0
+	for i in ${instances[@]}
+	do
+		[[ "$n" -gt 0 ]] &&
+			echo ","	# terminate previous list item
+		echo -n "        { _id: $n, host: "$i" }"
+		(( n++ ))
+	done
+	echo ""
+
+	cat << EOT2
+    ]
+} )
+EOT2
+
+}
 
 # start instance, add to replica set, and output new connection string
 # creates and adds to a file as side-effect to track replica set states
@@ -684,24 +674,28 @@ function rs_add {	# call with: hostport [ start_msg ]
 			fi
 		}
 		echo "- set $when initialized" 1>&2
-		mg_initialized=1
-		[[ "$verbose" ]] && {
-			local out
-			echo "Status after init: $out" 1>&2
-			out=$( mongo --eval "rs.status()" $mg_cstring ) || {
-				echo "rs_status failed on $mg_cstring" 1>&2
-			}
-			echo "$out" 1>&2
-		}
+
+		#[[ "$verbose" ]] && {
+		#	local out
+		#	echo "Status after init: $out" 1>&2
+		#	out=$( mongo --eval "rs.status()" $mg_cstring ) || {
+		#		echo "rs_status failed on $mg_cstring" 1>&2
+		#	}
+		#	echo "$out" 1>&2
+		#}
 	else
 		# NB: rs.initiate on server S adds S as first replica,
 		# which is why we need if ... then ... else.
 		# The mongodb folks should document this dammit.
-		[[ "$verbose" ]] && echo "rs.status() OK" 1>&2
+		[[ "$verbose" ]] &&
+			echo "rs.status() OK" 1>&2
 		out=$( rs_add_instance $mg_cstring $hostport ) || {
-			#same host field
-			echo "rs_add_instance failed on $hostport: $out" 1>&2
-			return 1
+			[[ ! "$out" =~ same\*host ]] && {
+				echo "rs_add_instance error: $out" 1>&2
+				return 1
+			}
+			# else attempt to add existing set member
+			echo "$hostport is already a member" 1>&2
 		}
 	fi
 
@@ -926,15 +920,11 @@ function rs_test {
 	local which=${2:-new}
 	local factor=${3:-1}			# default factor=1
 
-echo "xxx scope: $scope, which: $which, factor: $factor"
+	#echo "scope: $scope, which: $which, factor: $factor"
 	## yyy need to pause really?
 	#local s=2	# number of seconds to pause while replicas wake up
 	#echo Sleep $s seconds to let servers stand up...
 	#sleep $s
-
-#	# We could have added the database name to the connection string early
-#	# on, but here we can test re-initializing that string after extracting
-#	# the host list we've built up and re-inserting it in the new string.
 
 	local hostport_list collection db_coll_name
 	# extraction step
@@ -1040,14 +1030,14 @@ EOT
 	# now prove that the data was written to each instance
 
 	local instances
-	instances=( $mg_proc_base* )
+	instances=$( perl -pE 's|mongodb://([^/]+)/.*|$1|; s|,| |g' \
+		<<< "$mg_cstring" )
 
 	for i in ${instances[@]}		# for each instance i
 	do
 		hostport=${i##*_}		# delete to last '_'
 		port=${hostport##*:}		# delete to last ':'
 		# yuck: rewrite hostname to particular form that comes out of
-# xxx fails on ucop desktop network?
 		# hostname -f, depending on what network we're connected to
 		[[ "$hostport" =~ ^local: ]] &&
 			hostport="$mg_host:$port"
@@ -1097,11 +1087,7 @@ function start {	# call with: port setname
 	use_mg "${1:-}" "${2:-}" ||	# define mg_flags, mg_procfile, etc
 		return 1
 	# yyy ignoring host part for now
-	#local hostport=${1:-$rs_live_first_port}
-	#local port=${hostport##*:}
-	#local setname=${2:-$rs_live_setname}
-	#local flags=( $( echo \$rs_config_$setname ) )
-	#local out procfile
+
 	[[ "$verbose" ]] &&
 		echo "is_mongo_up $mg_port" 1>&2
 	is_mongo_up $mg_port
@@ -1185,42 +1171,46 @@ function stop {				# call with: cmd [ port ]
 	shift
 	use_mg "${1:-}" ||		# define mg_flags, mg_procfile, etc
 		return 1
-	#local hostport=${1:-$rs_live_first_port}
-	#local port=${hostport##*:}
 
-	local out   force=    stopped=stopped
-	[[ "$cmd" == hard-stop ]] && {
-		force="{ 'force' : 'true' }"
-		stopped=hard-stopped
-	}
-	#use_rs $port all ||		# define mongo_proc_base
-	#	return 1
-	#local procfile=$mongo_proc_base$port
+	local out
 	is_mongo_up $mg_port
 	if [[ $? -ne 0 ]]
 	then
 		echo "mongod (port $mg_port) appears to be down already" 1>&2
-		rm $mg_procfile		# yyy leave around just in case?
+		rm -f $mg_procfile
 		return 0
 	fi
 	[[ "$verbose" ]] &&
 		echo "shutting down server on port $mg_port" 1>&2
-	out=$( mongo --port $mg_port \
-		--eval "db.shutdownServer($force)" admin )
-	if [[ $? -ne 0 ]]
-	then
-		echo "problem shutting down mongod (port $mg_port)"
-		echo "$out"
+	out=$( mongo --port $mg_port --eval \
+			"db.shutdownServer()" admin ) && {
+		echo "mongod OK (port $mg_port) -- stopped" 1>&2
+		[[ "$verbose" ]] && echo "$out" 1>&2
+		rm -f $mg_procfile $mg_procfile_alt
+		return 0			# success
+	}
+	# if we get here, there was a problem
+	[[ "$cmd" != hard-stop ]] && {	# if we're not going to try again, bail
+		echo "problem shutting down mongod (port $mg_port)" 1>&2
+		echo "$out" 1>&2
 		return 1
-	fi
-	echo "mongod OK (port $mg_port) -- $stopped" 1>&2
-	[[ "$verbose" ]] && echo "$out" 1>&2
-	rm -f $mg_procfile $mg_procfile_alt
-	return 0
+	}
+	# if we get here, we're going to try again, but with hard-stop
+
+	out=$( mongo --port $mg_port --eval \
+			"db.shutdownServer({ 'force' : 'true' })" admin ) && {
+		echo "mongod OK (port $mg_port) -- hard-stopped" 1>&2
+		[[ "$verbose" ]] && echo "$out" 1>&2
+		rm -f $mg_procfile $mg_procfile_alt
+		return 0			# success, finally
+	}
+	echo "problem shutting down mongod (port $mg_port)" 1>&2
+	echo "$out" 1>&2
+	return 1
 }
 
 
-function start1 {	# call with: port dbpath dblog
+function startx1 {	# call with: port dbpath dblog
 # xxx no one calls this
 
 	local out port=$1
@@ -1513,8 +1503,8 @@ do
 	esac
 done
 
-cmd=${1:-help}
-shift					# $1 is now first command arg
+cmd=${1:-help}			# $1 should specify the command
+shift				# new $1 should now specify first command arg
 
 ## set '-' as default value for first three args
 #port=${2:--} dbpath=${3:--} dblog=${4:--}
@@ -1569,26 +1559,29 @@ shift					# $1 is now first command arg
 out=
 ulimit -n 4096		# set a higher limit than mongod assumes yyy needed?
 
-# First take care of commands that don't require $configfile.
+[[ -f "$configfile" ]] &&
+	source "$configfile"
+
+use_mg
+multi_func=		# empty by default
+precise_cmd=		# empty by default
+# preparing to invoke: $multi_func $precise_cmd $instance
 
 case $cmd in
 
 start)
-	start "$@"
-	exit
+	multi_func=start
 	;;
 stop|graceful-stop|hard-stop)
-	stop $cmd "$@"
-	exit
+	multi_func=stop
+	precise_cmd=$cmd
 	;;
 restart|graceful|hard-restart)
-	cmd=restart			# ie, ignore differences in invocation
-	restart $cmd "$@"
-	exit
+	multi_func=restart	# for now, ignore differences in invocation
+	precise_cmd=$cmd
 	;;
 stat|status)
-	status "$@"
-	exit
+	multi_func=status
 	;;
 help)
 	usage
@@ -1596,25 +1589,28 @@ help)
 	;;
 esac
 
-# Now commands that want any MG_REPSETOPTS defined in $configfile.
-
-[[ -f "$configfile" ]] &&
-	source "$configfile"
+if [[ "$multi_func" ]]
+then
+	if [[ "${#@}" -eq 0 ]]
+	then
+		instances=( $( sed 's/,/ /g' <<< $mg_local_daemons ) )
+	else
+		instances=( "$@" )
+	fi
+	for instance in "${instances[@]}"
+	do
+		port="${instance##*:}"	# delete to last ':' so hostport->port
+		$multi_func $precise_cmd "$port"
+	done
+	exit
+fi
 
 case $cmd in
 
 repltest)
-	## yyy $setname is an undocumented arg in $3
-	#setsize=${2:-} setname=${3:-}
-	# The repltest function calls back to this function.
-	#repltest "$setsize" "$setname"
 	repltest "$@"
 	exit
 	;;
-esac
-
-case $cmd in
-
 rs_add)
 	rs_add "$@"
 	exit
@@ -1641,6 +1637,10 @@ rs_status|rs_stat)
 	;;
 rs_test)
 	rs_test "$@"
+	exit
+	;;
+rs_config)
+	rs_config "$@"
 	exit
 	;;
 *)

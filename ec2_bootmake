@@ -37,6 +37,8 @@ sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
 sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 sudo yum -y install 'perl(Time::HiRes)'
 sudo yum -y install 'perl(Log::Log4perl)'
+sudo yum -y install 'perl(XML::LibXML)'
+sudo yum -y install 'perl(XML::LibXSLT)'
 sudo yum -y install mongodb-org
 sudo yum -y install jq
 # on mac, need: brew install mongodb --with-openssl
