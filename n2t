@@ -374,7 +374,7 @@ test)
 	# Test that the public-facing server is running and can do basic stuff.
 	# NB: do NOT use perl's -Mblib option, which tests UNINSTALLED code.
 	#
-	perl t/post_install_n2t.t
+	perl t/egn_post_install_n2t.t
 	exit
 	;;
 
