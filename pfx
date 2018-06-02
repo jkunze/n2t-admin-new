@@ -55,8 +55,8 @@ the prefixes running on the system.
             -> there is one \$pfx_import/ per SERVICE VERSION (see "svu help")
             NB: does not disturb running system or previously built components
   test      Test prefix lookup and redirect rules (only tests BUILD area)
-            Calls (via eggnog's t/zprefixes_n2t.t) "tested_ok" if all tests
-            succeeded. Starts with a completely empty build area.
+            Calls (via eggnog's t/z_egg_prefixes_n2t.t) "tested_ok" if all
+            tests succeeded. Starts with a completely empty build area.
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" now (but see "hitrnt" below).
 
@@ -2276,7 +2276,7 @@ test)
 	echo "$me process running now in $pfx_test directory"
 	# remove temp dir to force re-build and clear $tested_ok_file
 	rm -fr td_egnapa
-	perl -Mblib t/zprefixes_n2t.t
+	perl -Mblib t/z_egg_prefixes_n2t.t
 	exit
 	;;
 tested_ok)
