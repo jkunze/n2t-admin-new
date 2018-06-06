@@ -130,7 +130,7 @@ These sub-commands are at a slightly lower level.
 
 And these sub-commands are at an even lower level.
 
-  tested_ok Create file as flag that "pfx test" succeeded
+  tested_ok Create file as a flag to indicate that "pfx test" succeeded.
   prebuild  Assemble imported prefix components into \$pfx_build dir
             -> these will be used for the next prefix build
             typical edit/test loop: prebuild, validate, build, <test>
