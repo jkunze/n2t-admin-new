@@ -25,13 +25,14 @@ summary="
        $me [flags] hard-stop [ Port ... ]
        $me [flags] status [ Port ... ]
 
+       $me rs_config
+       $me [flags] rs_start
        $me [flags] rs_list
        $me [flags] rs_status
        $me [flags] repltest [ Setcount ]
 "
        #$me [flags] rs_add Port	# not ready for prime time
        #$me [flags] rs_del Port	# not ready for prime time
-       #$me [flags] rs_start	# don't use
        #$me [flags] rs_stop	# don't use
 
 	cat << EOT
@@ -42,34 +43,50 @@ SYNOPSIS                          ($0)
 USAGE $summary
 
 DESCRIPTION
-       The $me tool manages various administrative tasks for MongoDB clents and
-       servers. It currently assumes you are running under an "svu" service
-       version (type "svu" for details). A non-zero exit status indicates an
-       error. The commands
+       The $me tool manages various administrative tasks for EggNog MongoDB
+       clients and servers. It currently assumes you are running under an
+       "svu" service version (type "svu" for details). A non-zero exit status
+       indicates an error. Operating on given Port numbers, the commands
 
            start, restart, stop, hard-stop, status
 
-       do what the name suggests, operating on one or more instances given
-       by Port number. Given no arguments, these commands operate on the set
-       of daemons given by the MG_LOCAL_DAEMONS environment variable usually
-       set in ~/warts/env.sh.
+       do what the name suggests. Given no arguments, these commands operate
+       on all the daemons listed in the MG_LOCAL_DAEMONS environment variable.
+       This and other replica set configuration variables are usually set via
+       ~/warts/env.sh. To see typical settings and other advice, run
+
+           $me rs_config
        
-       Each instance starts up ready to be part of the replica set "live"
-       (default) or "test" (if -t given). Preconfigured replica set state (for
-       "live" mode) should cause started or stopped instances to be smoothly
-       assimilated into or de-assimilated from the replica set, respectively.
-       Currently configuration is not automated except under the "repltest"
-       command. Should reconfiguration under "live" mode be necessary, try
+       You must establish these setting to use most replica set commands
+       (beginning "rs_..."). Once done, you can establish a replica set with
 
-           rs_config
+           $me rs_start
 
-       and follow the printed instructions. Use the commands
+       It starts up all local daemons and adds them to the set. It is meant
+       to be used ONCE or rarely. Permanent replica set state information is
+       maintained in the mongodb data stores of the member instances. After the
+       host reboots, for example, it is sufficient simply to restart a local
+       daemon and it "remembers" that it belongs to the set. Use the commands
 
            rs_list, rs_status, rs_test
 
-       to list current set instances, dump a wordy set status report (JSON),
-       or read freshly written data from each set instance, respectively.
+       to list current set instances, dump a verbose set status report (JSON),
+       or write/read some new data to/from each set instance, respectively.
 
+       Each mongo instance starts up ready to be part of the replica set "live"
+       by default, or "test" if -t was given. Behind the scenes are internal
+       commands that are NOT recommended unless you know what you're doing, eg,
+       for 3 configured local daemons, rs_start does something like
+
+           $me rs_add 27017
+           $me rs_add 27018
+           $me rs_add 27019
+
+       Each instance is started ("$me start") before being added. The first
+       added instance initiates the set. Tearing down a set (uses "rs_del')
+       is messier and mongo resists when the set count falls lower than 3.
+       This can be seen in test mode by running the "repltest" command (below).
+       
        The replica set operated on is the "live" public-facing set (usually
        ports starting from 27017) unless the -t flag is present, in which case
        a test replica set is used (ports usually starting from 47017).
@@ -84,10 +101,6 @@ DESCRIPTION
        instance. Sometimes things get wedged, and specifying a Setsize of 0
        may be useful in reinitializing the testing framework.
 
-       There is a command, rs_start (no arguments), that may be useful starting
-       up a "live" replica for the first time. It starts up all local daemons
-       and adds them to the set. It is meant to be used once or rarely.
-
 OPTION FLAGS
        -v, --verbose   be much more wordy
        -t, --test      run in test mode (protects the "live" data directories)
@@ -96,9 +109,11 @@ FILES
        ~/warts/env.sh  see internal comments affecting $me behavior
 
 EXAMPLES
-       $me start
-       $me stop
-       $me repltest 11
+       $me rs_config      # read this FIRST and configure ~/warts/env.sh
+       $me rs_start       # ONE-TIME operation after configuration
+       $me start          # run at host boot time
+       $me stop           # run at host shutdown
+       $me repltest 11    # set up, test, and tear down 11-member replica set
 
 SUMMARY $summary
 EOT
@@ -594,8 +609,34 @@ function rs_config {
 
 	local instances
 	instances=$( sed 's/,/ /g' <<< $MG_CSTRING_HOSTS )
+	cat << 'EOT0'
+
+// --- Typical settings to append to ~/warts/env.sh ---
+
+# Define fully qualified hostname (don't trust hostname -f on some networks).
+export MG_HOST=$EGNAPA_HOST
+
+# Define the hostports of the mongod daemons that should start up.
+export MG_LOCAL_DAEMONS="$MG_HOST:27017,$MG_HOST:27018,$MG_HOST:27019"
+
+# Define connection string hosts, which may include non-local servers.
+# If undefined, this var defaults to MG_LOCAL_DAEMONS.
+export MG_CSTRING_HOSTS="$MG_LOCAL_DAEMONS"
+
+# Define default mongo replica set options for the connection string.
+export MG_REPSETOPTS="socketTimeoutMS=30000&readPreference=primaryPreferred"
+
+# Define default mongo replica set name for the connection string.
+export MG_REPSETNAME="live"
+
+# Define default starter port (in a series) for replica set testing.
+export MG_TEST_PORT="47017"
+
+EOT0
 	cat << EOT1
-From xxx stackoverlow
+// --- work in progress -- How to (re)configure a set in one go ---
+
+(From xxx? stackoverflow)
 ( instructions for forcing new primary?)
 Stop daemons ?
 Backup ?
