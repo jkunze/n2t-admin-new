@@ -89,7 +89,7 @@ DESCRIPTION
        
        The replica set operated on is the "live" public-facing set (usually
        ports starting from 27017) unless the -t flag is present, in which case
-       a test replica set is used (ports usually starting from 47017).
+       a test replica set is used (usually ports starting from 47017).
 
        The "repltest" command operates on the test replica set, in a slightly
        different way from the live mode in that it changes the configuration
@@ -608,7 +608,7 @@ function del_proc_base {
 function rs_config {
 
 	local instances
-	instances=$( sed 's/,/ /g' <<< $MG_CSTRING_HOSTS )
+	instances=$( sed 's/,/ /g' <<< ${MG_CSTRING_HOSTS:-none} )
 	cat << 'EOT0'
 
 // --- Typical settings to append to ~/warts/env.sh ---
@@ -644,7 +644,7 @@ Start mongo client against one of local daemons?
 Run something like...
 
 rs.initiate( {
-    _id : "$MG_REPSETNAME",
+    _id : "${MG_REPSETNAME:-live}",
     members: [
 EOT1
 
