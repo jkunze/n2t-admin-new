@@ -8,6 +8,7 @@ MAILTO=jak@ucop.edu
 30 21 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO ids-n2t-dev.n2t.net"
 
 # update stg operating system automatically on Thursdays
+# NB: changed admegn to reboot on any non-empty change (eg, crontab broke)
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
 
 # yyy comment out until transaction log fix

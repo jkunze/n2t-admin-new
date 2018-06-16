@@ -40,6 +40,9 @@ The prefix database is a yaml file built from processed component files.
 A crucial "base" prefix component file lives in and evolves with N2T.net's
 EggNog source. Ingest of components is staged in order to automate entry
 of prefix changes while protecting the system from errors and instability.
+This sub-command lists component locations (if initialized):
+
+    $me dirs
 
 The following sub-commands may be executed in the order listed to update
 the prefixes running on the system.
@@ -145,10 +148,22 @@ And these sub-commands are at an even lower level.
             NB: exposes builds to prefix base source code changes
   validate  Validate component prefix files in \$pfx_build
             -> -d strongly recommended
+            yyy Very ripe for recoding, this does a huge amount of work
+	    with some (now understood to be) poorly named functions
+       validate_ebi
+              - converts ebireg.xml to ebireg.clean.xml
+              - converts ebireg.clean.xml to ebireg.xpathout
+              - converts ebireg.xpathout to ebireg.yaml
+              - converts ebireg.yaml to ebireg_tmp
+              - converts ebireg_tmp to ebi.yaml
+       pfx_validate_prefixes
+	      - converts ebi.yaml to ebi.anvl
   combine   Combine NAANs, shoulders, prefixes into validated $mainout
             -> -d strongly recommended
             NB: updates still invisible to running system until "n2t rollout"
-            (to be fixed).
+            (to be fixed). Calls
+       pfx_combine
+              - converts *.anvl to prefixes.yaml
 
 Prefixes are built in a server tree directory given by, in precedence order,
 either the -d option or the EGNAPA_BUILDOUT_ROOT environment variable. If
@@ -595,6 +610,7 @@ function validate_ebi {
 	# Need to strip namespace definition because xmllint --xpath is picky.
 	# Also remove odd \r\n sequences that mess up later ANVL parsing.
 	#
+	# zzz ebireg.xml to ebireg.clean.xml
 	< $ebireg.xml \
 		perl -pe '/<miriam/ and s/xmlns="[^"]*"//; s/\r\n/ /gs;' \
 	> $ebireg.clean.xml
@@ -629,6 +645,7 @@ function validate_ebi {
 	#	| //$node//resource/@primary
 	#"
 	#	| //$node//dataEntry/../../../synonyms/synonym
+	# zzz ebireg.clean.xml to ebireg.xpathout
 	xmllint --xpath "$xpath" $ebireg.clean.xml > $ebireg.xpathout ||
 		echo xmllint exited with error status $?
 	echo "  created" $ebireg.xpathout: $( wc -c < $ebireg.xpathout ) chars
@@ -659,6 +676,7 @@ function validate_ebi {
 	 s/&lt;/</g;
 	 s/&amp;/&/g;	# yyy watch out for multiple encodings, eg, &amp;amp;
 	' < $ebireg.xpathout > $ebireg.yaml
+	# zzz ebireg.xpathout to ebireg.yaml
 	echo "  created" $ebireg.yaml: $( wc -l < $ebireg.yaml ) lines
 	# This $ebireg.yaml is "pre-anvl yaml", the first yaml conversion of
 	#    the file, eventually to become anvl and then again yaml!
@@ -808,6 +826,7 @@ EOT
 	#
 	# xxx move -00 and -w into script, where it belongs
 	local err
+	# zzz ebireg.yaml to ebireg_tmp
 	err=$( env NOTHING_TO_PASS=niente \
 		perl -00 -we "$perl_prog" \
 			< $ebireg.yaml > ebireg_tmp 2>&1 )
@@ -816,6 +835,7 @@ EOT
 		return 1
 	}
 
+	# zzz ebireg_tmp to ebi.yaml
 	< ebireg_tmp > ebi.yaml \
 	perl -lp \
 	    -e 's/^namespace:/-\n  $&/ and next;	# new record' \
@@ -836,6 +856,8 @@ EOT
 }
 
 function pfx_validate_prefixes {
+
+	# zzz takes ebi.yaml to ebi.anvl
 
 	# Store a big blob of perl we'll be using in the var $perl_prog,
 	# using a "heredoc" (<<) so we don't have worry about quotes
@@ -1084,6 +1106,8 @@ EOT
 	[[ "$err" ]] &&
 		echo "err: $err"
 		# yyy use ${LINENO}?
+
+	# zzz takes ebi.yaml to ebi.anvl
 }
 
 function validate_n2t_base {
@@ -1248,7 +1272,7 @@ function pfx_validate {
 	# verified prefix array in ebi.yaml: 751 prefix/provider code combinations
 	echo "$s"
 	#echo Nebi=$Nebi
-	pfx_validate_prefixes
+	pfx_validate_prefixes	# zzz takes ebi.yaml to ebi.anvl
 
 	echo "- Validating n2t base prefixes"
 		validate_n2t_base || return 1
@@ -2179,14 +2203,20 @@ tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 # yyy should put this init stuff in a function and not call it on
 #     nonsense commands or bad options
 
-[[ "$verbose" ]] && {
-	echo === Start default values ===
-	echo buildout_root: $buildout_root
-	echo pfx_import: $pfx_import
-	echo pfx_build: $pfx_build
-	echo master_prefixes: $master_prefixes
-	echo === End default values ===
-}
+#[[ "$verbose" ]] && { ... }
+if [[ "$cmd" == dirs ]]
+then
+cat << EOT
+Default component directories
+
+    buildout_root:  $buildout_root
+       pfx_import:  $pfx_import
+        pfx_build:  $pfx_build
+  master_prefixes:  $master_prefixes
+
+EOT
+	exit
+fi
 
 [[ ! -d $pfx_import ]] && {	# make sure we're initialized yyy needed here?
 	pfx_init || exit

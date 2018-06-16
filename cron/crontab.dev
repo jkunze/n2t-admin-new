@@ -3,6 +3,7 @@
 MAILTO=jak@ucop.edu
 
 # update operating system automatically on Mondays
+# NB: changed admegn to reboot on any non-empty change (eg, crontab broke)
 38 5 * * 1 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
 
 # Every 3 minutes check that resolution is working.  If not, an alert email

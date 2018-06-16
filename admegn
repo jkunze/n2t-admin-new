@@ -1415,11 +1415,17 @@ function sysupdate {
 		echo 'WARNING: "n2t test" failed'
 		# fall through because some test failures are benign
 	}
-	[[ "$msg" =~ "kernel-" ]] && {
+	if [[ "$msg" =~ "kernel-" ]]
+	then
 		echo "+==== Kernel updates -- system reboot advised."
-		exit 2
-	}
-	exit 0
+	else
+		echo "+==== Kernel updates not detected --" \
+			"system reboot advised anyway."
+		# NB: experience has shown that updates without reboot
+		# can disable critical infrastructure, such as crontab
+	fi
+	exit 2
+	#exit 0
 }
 
 logmax=6
