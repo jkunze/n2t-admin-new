@@ -7,6 +7,10 @@ MAILTO=jak@ucop.edu
 # yyy are prefix backups being done?
 30 21 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO ids-n2t-dev.n2t.net"
 
+# Check daily for system (possibly error) messages.
+#
+55 7 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn error_check $MAILTO 2>&1"
+
 # update stg operating system automatically on Thursdays
 # NB: changed admegn to reboot on any non-empty change (eg, crontab broke)
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1

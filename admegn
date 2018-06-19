@@ -25,6 +25,7 @@ summary="
      $me rstat IdPattern Logfile ...
      $me bootwatch [ -n ] Server [ WebServer ]
      $me sysupdate [ -y ]
+     $me error_check [ email_notification_address ]
      $me patch_check [ email_notification_address ]
      $me pingwhen
      $me logdelete [ N ]
@@ -109,6 +110,11 @@ DESCRIPTION
        finished, which may fool you into thinking it's not working.  For 
        optimistic or non-interactive operation, use -y to proceed past
        each question (continue? yes).(work in progress)
+
+       The "error_check" form, usually started via crontab, checks for logged
+       system errors (eg, /var/log/kernel). If there is an argument, it is
+       taken to be an email address to which to send summary information,
+       which is otherwise listed on stdout.
 
        The "patch_check" form, usually started via crontab, checks for
        critical OS updates. If there is an argument, it is taken to be an
@@ -1881,6 +1887,36 @@ sysupdate)
 		exit 1
 	}
 	sysupdate $@
+	exit
+	;;
+error_check)
+	logfile=
+	loglisting=
+	for f in /var/log/kernel /var/log/system.log
+	do
+		[[ -e $f && -s $f ]] &&		# if a non-empty file exists
+			loglisting+=$( ls -l $f )
+		[[ -r $f && -s $f ]] &&	{	# file readable and non-empty?
+			logfile=$f		# if so, we have a logfile
+			break
+		}
+	done
+	[[ ! "$loglisting" ]] &&		# if nothing to report
+		exit 0				# just return
+	linecount=$( wc -l $logfile | perl -pe 's/^\s*//; s/ .*//' )
+	errors=$( \
+		echo $loglisting; \
+		echo "$linecount lines, first and last lines below."; \
+		head -1 $logfile; \
+		tail -1 $logfile; \
+	)
+	if [[ ! -z "$1" ]]
+	then
+		class=$( admegn class )
+		mail -s "$class system log messages" $1 <<< "$errors"
+	else
+		echo "$errors"
+	fi
 	exit
 	;;
 patch_check)
