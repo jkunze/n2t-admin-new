@@ -13,6 +13,10 @@ MAILTO=jak@ucop.edu
 #
 */3 * * * * bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
 
+# Check daily for system (possibly error) messages.
+#
+55 7 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn error_check $MAILTO 2>&1"
+
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.
 #
