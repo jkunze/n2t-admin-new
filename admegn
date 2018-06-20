@@ -1904,11 +1904,18 @@ error_check)
 	[[ ! "$loglisting" ]] &&		# if nothing to report
 		exit 0				# just return
 	linecount=$( wc -l $logfile | perl -pe 's/^\s*//; s/ .*//' )
-	errors=$( \
-		echo $loglisting; \
-		echo "$linecount lines, first and last lines below."; \
-		head -1 $logfile; \
-		tail -1 $logfile; \
+	interesting=$( egrep -in 'segfault' $logfile )
+	errors=$(
+		echo $loglisting
+		echo    "=== $linecount lines, cleared out weekly ==="
+		echo -n "1: "; head -1 $logfile
+		echo -n "\$: "; tail -1 $logfile
+		[[ "$interesting" ]] && {
+			echo -n "=== possibly interesting lines ===" $'\n'
+			echo "$interesting"
+		}
+		echo "=== last two reboots ==="
+		last | head -2
 	)
 	if [[ ! -z "$1" ]]
 	then
