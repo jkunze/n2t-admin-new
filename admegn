@@ -1907,7 +1907,7 @@ error_check)
 	interesting=$( egrep -in 'segfault' $logfile )
 	errors=$(
 		echo $loglisting
-		echo    "=== $linecount lines, cleared out weekly ==="
+		echo    "=== $linecount lines, cleared weekly ==="
 		echo -n "1: "; head -1 $logfile
 		echo -n "\$: "; tail -1 $logfile
 		[[ "$interesting" ]] && {
@@ -1915,7 +1915,7 @@ error_check)
 			echo "$interesting"
 		}
 		echo "=== last two reboots ==="
-		last | head -2
+		last reboot | head -2
 	)
 	if [[ ! -z "$1" ]]
 	then
