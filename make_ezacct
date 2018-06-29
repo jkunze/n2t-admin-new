@@ -99,9 +99,9 @@ data center).  The -n option will do a dry run without creating shoulders.
 	my ($prefix, $dshdr, $naan, $ashdr) = @ARGV[0,1,2,3];
 	# xxx verify type checks with regexps?
 
-	use File::Temper 'etemper';
+	use EggNog::Temper 'etemper';
 	my ($edate, $eyear);
-	($edate, $eyear) = File::Temper::etemper() =~ /^((....)......)/;
+	($edate, $eyear) = EggNog::Temper::etemper() =~ /^((....)......)/;
 
 	{			# modify $/ temporarily
 		local $/;	# set so one read slurps entire file

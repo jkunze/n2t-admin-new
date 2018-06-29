@@ -1584,7 +1584,7 @@ function pfx_grok {
 	use strict;
 	use warnings;
 
-	use File::Resolver ':all';
+	use EggNog::Resolver ':all';
 	#use YAML::Tiny 'LoadFile';
 	use Try::Tiny;		# for exceptions
 	use Safe::Isa;		# provides $_isa (yyy remind for what purpose?)
@@ -1610,7 +1610,7 @@ function pfx_grok {
 	my $pfxs;
 	try {
 		my $msg;
-		$pfxs = File::Resolver::load_prefix_hash($pfxfile, \$msg);
+		$pfxs = EggNog::Resolver::load_prefix_hash($pfxfile, \$msg);
 		my $intro = $pfxs ? 'Warning' : 'Error';
 		$msg and
 			print(STDERR "$intro from load_prefix_hash: $msg\n");
