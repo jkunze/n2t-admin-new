@@ -986,7 +986,7 @@ function rs_test {
 
 	# start embedded Perl program
 	# call with: $mg_cstring, $dbtest.$collection, test_data_string
-	use 5.010;
+	use 5.10.1;
 	use strict;
 	use MongoDB;
 	use Try::Tiny;		# for exceptions
