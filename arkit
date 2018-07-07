@@ -16,8 +16,9 @@ noexec=						# init flag
 test=						# init flag
 
 summary="
-    $me init [ Options ] File 'Creator|Title|Date' ['Subject[|...]']
-    $me addversion File"
+    $me init [ Options ] Filename 'Creator|Title|Date' ['Subject[|...]']
+        or
+    $me addversion Filename"
 
 function usage {
 	cat << EOT
@@ -28,11 +29,11 @@ SYNOPSIS                          ($0)
 USAGE $summary
 
 DESCRIPTION
-       The "$me" tool manages a versioned archival object, $me.File,
-       that mints and ARK identifier, associates it with a given File,
-       and deposits the object in the LUCK (Long-term UC Knowledge)
-       collection at $repo. The local file, $me.File, records
-       initial object metadata as well as subsequent version metadata.
+       Given a Filename, the "$me" tool manages a versioned archival object
+       (data plus metadata) via a local file that it creates called
+       "$me.Filename". The tool mints an ARK identifier associated with the
+       object, and deposits it in the LUCK (Long-term UC Knowledge) collection
+       at $repo.
 
        The "init" form mints a new ARK and makes the first deposit of an
        object that associates File with the given Dublin Core metadata.
@@ -155,7 +156,7 @@ function arkit_addversion {
 	#   existing version file
 echo version is "${vn_vfile[0]}"
 echo file is "${vn_vfile[1]}"
-	if [[ ! "$vfile" ]] && {
+	[[ ! "$vfile" ]] && {
 		version=0
 		version_string=''
 	}

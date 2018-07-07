@@ -25,7 +25,7 @@ summary="
      $me rstat IdPattern Logfile ...
      $me bootwatch [ -n ] Server [ WebServer ]
      $me sysupdate [ -y ]
-     $me error_check [ email_notification_address ]
+     $me error_check [ -v ] [ email_notification_address ]
      $me patch_check [ email_notification_address ]
      $me pingwhen
      $me logdelete [ N ]
@@ -111,10 +111,11 @@ DESCRIPTION
        optimistic or non-interactive operation, use -y to proceed past
        each question (continue? yes).(work in progress)
 
-       The "error_check" form, usually started via crontab, checks for logged
-       system errors (eg, /var/log/kernel). If there is an argument, it is
-       taken to be an email address to which to send summary information,
-       which is otherwise listed on stdout.
+       The "error_check" form, usually started via crontab, checks for
+       logged system errors (eg, /var/log/kernel) and creates a summary.
+       It saves a summary of the prior run and, unless -v was given, only
+       reports differences. If an email address is given, output is sent
+       there instead of to stdout.
 
        The "patch_check" form, usually started via crontab, checks for
        critical OS updates. If there is an argument, it is taken to be an
@@ -1917,6 +1918,15 @@ error_check)
 		echo "=== last two reboots ==="
 		last reboot | head -2
 	)
+	perrs=~/.admegn_error_check
+	[[ ! -e $perrs ]] &&		# if needed
+		cp /dev/null $perrs	# initialize $perrs file
+	terrs=$( mktemp /tmp/echeck.XXXX )	# temp file for current errors
+	echo "$errors" > $terrs
+	cmp -s $perrs $terrs &&		# if it's the same errors as previous
+		[[ ! "$verbose" ]] &&	# and if we're not in verbose mode
+			errors="no new errors"		# then cut to the chase
+	mv $terrs $perrs		# make current the new previous errors
 	if [[ ! -z "$1" ]]
 	then
 		class=$( admegn class )
