@@ -12,6 +12,7 @@ export PFX_redir=redirect
 pfxadmin=jak@ucop.edu		# yyy dumb
 mainout=prefixes.yaml
 pubout=cdl_ebi_prefixes.yaml
+fullout=n2t_full_prefixes.yaml
 pubregURL=https://n2t.net/e/$pubout
 pubregARK=https://n2t.net/ark:/13030/c7xk84q2j
 requestURL=https://n2t.net/e/prefix_request
@@ -1563,6 +1564,7 @@ EOT
 	# the build are ready to be copied to $buildout_root.
 
 	cp -p $mainout $pubout $n2tregout $buildout_root/
+	cp -p $mainout $buildout_root/$fullout
 
 	# XXX in resolver verify to make sure that UCSD, UCB, etc. ARKs
 	#     don't get sent to the campuses when n2t should handle them,
@@ -1728,6 +1730,7 @@ function pfx_install {
 	local px=prefixes.yaml
 	local pubpx=cdl_ebi_prefixes.yaml
 	local n2tpx=n2t_prefixes.yaml
+	local n2tfpx=n2t_full_prefixes.yaml
 	local err=
 
 	[[ -f $tested_ok_file ]] || {
@@ -1744,10 +1747,11 @@ function pfx_install {
 	cp -p $buildout_root/$px $buildout_root/$px.orig || err=y
 	cp -p $buildout_root/htdocs/e/$pubpx{,.orig} || err=y
 	cp -p $buildout_root/htdocs/e/$n2tpx{,.orig} || err=y
+	cp -p $buildout_root/htdocs/e/$n2tfpx{,.orig} || err=y
 	#cp -p $buildout_root/$n2tpx $buildout_root/$n2tpx.orig || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error backing up public prefix files" \
-			"($px, $pubpx, $n2tpx) to $nsf/*.orig" 1>&2
+			"($px, $pubpx, $n2tpx, $n2tfpx) to $nsf/*.orig" 1>&2
 		return 1
 	}
 	# ensure back up build directory exists
@@ -1773,16 +1777,16 @@ function pfx_install {
 		return 1
 	}
 	err=
-	echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx} to $buildout_root."
+	echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx,$n2tfpx} to $buildout_root."
 	cp -p $nsf/$px $buildout_root || err=y
 	[[ $err ]] && {
 		echo "Error copying in new $px file to $buildout_root" 1>&2
 		return 1
 	}
-	cp -p $nsf/$pubpx $nsf/$n2tpx $buildout_root/htdocs/e/ ||
+	cp -p $nsf/{$pubpx,$n2tpx,$n2tfpx} $buildout_root/htdocs/e/ ||
 		err=y			 # these are publicly readable
 	[[ $err && ! "$force" ]] && {
-		echo "Error copying new public files $pubpx and $n2tpx" \
+		echo "Error copying new public files $pubpx, $n2tpx, and $n2tfpx" \
 			"to $buildout_root/htdocs/e/" 1>&2
 		return 1
 	}
