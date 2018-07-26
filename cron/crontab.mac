@@ -8,9 +8,10 @@ sv=/Users/jak/sv/cur
 #
 30 11 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "pfx cron_hitrnt $MAILTO"
 
+# [ disabled on Mac because it generates too much noise ]
 # Check daily for system (possibly error) messages.
 #
-50 11 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn error_check $MAILTO 2>&1"
+#50 11 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn error_check $MAILTO 2>&1"
 
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.
