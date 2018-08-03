@@ -2,6 +2,7 @@
 
 set -u			# treat unset variables as an error when substituting
 export PFX_redir=redirect
+export LANG=en_US.UTF-8
 
 #if [[ ! "${PFX_REDIR-}" ]]
 #then
@@ -613,7 +614,7 @@ function validate_ebi {
 	#
 	# zzz ebireg.xml to ebireg.clean.xml
 	< $ebireg.xml \
-		perl -pe '/<miriam/ and s/xmlns="[^"]*"//; s/\r\n/ /gs;' \
+		perl -CS -pe '/<miriam/ and s/xmlns="[^"]*"//; s/\r\n/ /gs;' \
 	> $ebireg.clean.xml
 
 	echo "  created $ebireg.clean.xml:" \
@@ -662,7 +663,7 @@ function validate_ebi {
 	#
 	# Uses xpathout file as input.
 	#
-	perl -pe '
+	perl -CS -pe '
 	 s, primary="([^"]*)",<primary>$1</primary>,g;		# attr-to-elem
 	 s,> id="([^"]*)",><provider_id>$1</provider_id>,g;	# same
     s,<status state="([^"]*)" reliability="([^"]*)"/>,<state>$2:$1</state>,g;
@@ -829,7 +830,7 @@ EOT
 	local err
 	# zzz ebireg.yaml to ebireg_tmp
 	err=$( env NOTHING_TO_PASS=niente \
-		perl -00 -we "$perl_prog" \
+		perl -CS -00 -we "$perl_prog" \
 			< $ebireg.yaml > ebireg_tmp 2>&1 )
 	[[ $? -ne 0 ]] && {
 		echo "$err"
@@ -838,7 +839,7 @@ EOT
 
 	# zzz ebireg_tmp to ebi.yaml
 	< ebireg_tmp > ebi.yaml \
-	perl -lp \
+	perl -CS -lp \
 	    -e 's/^namespace:/-\n  $&/ and next;	# new record' \
 	    -e '/./ and s/^/  /;		# indent lines' \
 	    -e 's/([\\"])/\\$1/g;		# \-quote all \ and " chars' \
@@ -846,7 +847,7 @@ EOT
 	-e ';'
 
 	# verify YAML; use non-Tiny YAML for better error messages
-	perl -e 'use YAML "LoadFile"; LoadFile("'ebi.yaml'")' || {
+	perl -CS -e 'use YAML "LoadFile"; LoadFile("'ebi.yaml'")' || {
 		echo "$me: line ${LINENO}: failed to load ebi.yaml"
 		return 1
 	}
@@ -1098,12 +1099,13 @@ EOT
 	# any values via environment variables.  The -00 sets input mode
 	# so that <> reads a paragraph at a time.  We capture just stderr
 	# in $err so we can test if duplicate detection is working.
-	# Use iconv to convert to utf8.
+#	# Use iconv to convert to utf8.
 	#
 	local err
 	err=$( env NOTHING_TO_PASS=niente \
-		perl -e "$perl_prog" ebi.yaml |
-			iconv -f ISO-8859-1 -t UTF-8 2>&1 > $ebi_outfile )
+		perl -CS -e "$perl_prog" ebi.yaml  2>&1 > $ebi_outfile )
+#		perl -e "$perl_prog" ebi.yaml |
+#			iconv -f ISO-8859-1 -t UTF-8 2>&1 > $ebi_outfile )
 	[[ "$err" ]] &&
 		echo "err: $err"
 		# yyy use ${LINENO}?
@@ -1117,7 +1119,7 @@ function validate_n2t_base {
 	# XXX next, add these in _front_ of build process
 
 	# verify YAML; use non-Tiny YAML for better error messages
-	perl -e 'use YAML "LoadFile"; LoadFile("'$n2tadds'")' || {
+	perl -CS -e 'use YAML "LoadFile"; LoadFile("'$n2tadds'")' || {
 		echo "$me: line ${LINENO}: failed to load $n2tadds"
 		return 1
 	}
@@ -1207,7 +1209,7 @@ EOT
 	local err
 	err=$( env NOTHING_TO_PASS=niente \
 		sed '/^[#!]/d' $naans |		# drop comment and private lines
-			perl -00 -e "$perl_prog" \
+			perl -CS -00 -e "$perl_prog" \
 		> naans.anvl )
 }
 
@@ -1220,7 +1222,7 @@ function pfx_stage_shoulders {
 
 function pfx_stage_pfxcoms {
 
-	perl -n \
+	perl -CS -n \
 	-e 's/&gt;/>/g; s/&lt;/</g; s/&amp;/&/g;' \
 	-e 's/^ *preferredPrefix: "([^"]*)" *$/\n:: \L$1\E\ntype: commonspfx/ and print;' \
   -e 's/^ *providerHtmlTemplate: "([^"]*)" *$/'$PFX_redir': $1/ and print' \
@@ -1269,7 +1271,7 @@ function pfx_validate {
 		echo "$s"
 		return 1
 	}
-	Nebi=$( perl -ne '/yaml: (\d+) prefix/ and print "$1\n"' <<< "$s" )
+	Nebi=$( perl -CS -ne '/yaml: (\d+) prefix/ and print "$1\n"' <<< "$s" )
 	# verified prefix array in ebi.yaml: 751 prefix/provider code combinations
 	echo "$s"
 	#echo Nebi=$Nebi
@@ -1283,7 +1285,7 @@ function pfx_validate {
 		echo "$s"
 		return 1
 	}
-	Npxc=$( perl -ne '/^Found (\d+) pxc/ and print "$1\n"' <<< "$s" )
+	Npxc=$( perl -CS -ne '/^Found (\d+) pxc/ and print "$1\n"' <<< "$s" )
 	echo "$s"
 	#echo Npxc=$Npxc
 
@@ -1387,13 +1389,14 @@ EOT
 	#expand {naans,shoulders,ebi,pfxcoms}.anvl > expanded
 	#perl -e "$perl_anvl2yaml" $n2tadds < expanded >> $mainout
 	expand {naans,shoulders,ebi,pfxcoms}.anvl |
-		iconv -f ISO-8859-1 -t UTF-8 2>&1 |
-		perl -e "$perl_anvl2yaml" $n2tadds >> $mainout
+#		iconv -f ISO-8859-1 -t UTF-8 2>&1 |
+		perl -CS -e "$perl_anvl2yaml" $n2tadds >> $mainout
 	# yyy use ${LINENO}?
 	#perl -e "$perl_mkn2treg" $mainout | \
 		#iconv -f ISO-8859-1 -t UTF-8 2>&1 > $n2tregout \
-	perl -e "$perl_mkn2treg" $mainout > $n2tregout || {
-		echo "Error: mkn2treg and iconv: failed to load YAML"
+	perl -CS -e "$perl_mkn2treg" $mainout > $n2tregout || {
+#		echo "Error: mkn2treg and iconv: failed to load YAML"
+		echo "Error: mkn2treg: failed to load YAML"
 		# yyy use ${LINENO}?
 		return 1
 	}
@@ -1521,9 +1524,10 @@ EOT
 
 EOT
 	# Expand any stray tabs to spaces because yaml hates tabs.
-	expand ebi.anvl | perl -e "$perl_anvl2yaml" > pre_pub.yaml
-	perl -e "$perl_mkpubreg" pre_pub.yaml |
-		iconv -f ISO-8859-1 -t UTF-8 2>&1 >> $pubout \
+	expand ebi.anvl | perl -CS -e "$perl_anvl2yaml" > pre_pub.yaml
+#	perl -e "$perl_mkpubreg" pre_pub.yaml |
+#		iconv -f ISO-8859-1 -t UTF-8 2>&1 >> $pubout \
+	perl -CS -e "$perl_mkpubreg" pre_pub.yaml 2>&1 >> $pubout \
 	|| {
 		echo "Error: $me: line ${LINENO}: failed to load pre_pub.yaml"
 		return 1
@@ -1531,7 +1535,7 @@ EOT
 	echo "YAML syntax verified for pre-public registry pre_pub.yaml" 1>&2
 
 	# verify YAML; use non-Tiny YAML for better error messages
-	perl \
+	perl -CS \
 		-e 'use YAML "LoadFile"; $p = LoadFile("'$pubout'");' \
 		-e 'print STDERR ' \
 		-e '    "Verify-loaded ", scalar(@$p), " public prefixes.\n"' \
@@ -1677,7 +1681,7 @@ EOT
 		exit 1
 	}
 	#perl -Mblib -e "$perl_grok" $mainout "$@"
-	perl -e "$perl_grok" $mainout "$@" || {
+	perl -CS -e "$perl_grok" $mainout "$@" || {
 		echo "Error: pfx_grok failed" 1>&2
 		exit 1
 	}
@@ -1898,7 +1902,7 @@ function pfx_find {
 	$show_count and
 		say "$count";
 EOT
-	perl -e "$perl_find" $master_prefixes $show "$@" || {
+	perl -CS -e "$perl_find" $master_prefixes $show "$@" || {
 		echo "Error: pfx_find failed" 1>&2
 		exit 1
 	}
@@ -2310,7 +2314,7 @@ test)
 	echo "$me process running now in $pfx_test directory"
 	# remove temp dir to force re-build and clear $tested_ok_file
 	rm -fr td_egnapa
-	perl -Mblib t/z_egg_prefixes_n2t.t
+	perl -CS -Mblib t/z_egg_prefixes_n2t.t
 	exit
 	;;
 tested_ok)
