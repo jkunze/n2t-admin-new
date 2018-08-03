@@ -1916,7 +1916,10 @@ error_check)
 			echo "$interesting"
 		}
 		echo "=== last two reboots ==="
-		last reboot | head -2
+		last reboot | head -2 | perl -pe 's/(\d \d\d:\d\d).*/$1/'
+
+		# That post-process step above removes variable, Linux-added
+		# duration info for the "reboot" pseudo-login session.
 	)
 	perrs=~/.admegn_error_check
 	[[ ! -e $perrs ]] &&		# if needed
@@ -1926,7 +1929,6 @@ error_check)
 	cmp -s $perrs $terrs &&		# if it's the same errors as previous
 		[[ ! "$verbose" ]] &&	# and if we're not in verbose mode
 			errors="no new errors"		# then cut to the chase
-	mv $terrs $perrs		# make current the new previous errors
 	if [[ ! -z "$1" ]]
 	then
 		class=$( admegn class )
@@ -1934,6 +1936,7 @@ error_check)
 	else
 		echo "$errors"
 	fi
+	mv $terrs $perrs		# make current the new previous errors
 	exit
 	;;
 patch_check)
