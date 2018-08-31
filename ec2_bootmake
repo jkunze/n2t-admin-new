@@ -50,11 +50,13 @@ rpm -V mongodb-org || {			# because it has gpgcheck disabled
 }
 sudo yum -y install 'perl(App::cpanminus)'
 
-# XXX should confirm that these next are still needed
-# This next installs python's lxml module so that the mdsadmin script
-# (that creates DataCite datacenters) can run.
-sudo yum -y install libxml2-devel libxslt-devel python-devel
-sudo yum -y install libxml2-python libxslt-python python-pip
+# Trying hypothesis that we don't need these next two yum installs
+# # XXX should confirm that these next are still needed
+# # This next installs python's lxml module so that the mdsadmin script
+# # (that creates DataCite datacenters) can run.
+# sudo yum -y install libxml2-devel libxslt-devel python-devel
+# sudo yum -y install libxml2-python libxslt-python python-pip
+
 pip install --install-option="--prefix=$sv" lxml
 # To use this module, .bashrc sets PYTHONPATH to something like
 # PYTHONPATH=$sv/lib64/python2.6/dist-packages
@@ -62,7 +64,7 @@ pip install --install-option="--prefix=$sv" lxml
 #hg clone http://hg.cdlib.org/n2t_create
 hg clone ssh://hg@bitbucket.org/cdl/n2t_create
 cd n2t_create
-make			# sets up svu defs; runs "svu init"
+make			# sets up .bashrc and svu defs; runs "svu init"
 
 # xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
 source ~/.bashrc	# so we can do svu new
