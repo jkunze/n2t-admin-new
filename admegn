@@ -1927,13 +1927,18 @@ error_check)
 	terrs=$( mktemp /tmp/echeck.XXXX )	# temp file for current errors
 	echo "$errors" > $terrs
 	cmp -s $perrs $terrs &&		# if it's the same errors as previous
-		[[ ! "$verbose" ]] &&	# and if we're not in verbose mode
-			errors="no new errors"		# then cut to the chase
+		if [[ "$verbose" ]];		# and if in verbose mode, then
+		then
+			errors='[no new errors]'$'\n'"$errors"	# annotate
+		else
+			errors=''		# else (not verbose) silence
+		fi
 	if [[ ! -z "$1" ]]
 	then
 		class=$( admegn class )
 		mail -s "$class system log messages" $1 <<< "$errors"
-	else
+	elif [[ ! -z "$errors" ]]
+	then
 		echo "$errors"
 	fi
 	mv $terrs $perrs		# make current the new previous errors
