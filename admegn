@@ -1933,7 +1933,7 @@ error_check)
 		else
 			errors=''		# else (not verbose) silence
 		fi
-	if [[ ! -z "$1" ]]
+	if [[ ! -z "$1" && ! -z "$errors" ]]
 	then
 		class=$( admegn class )
 		mail -s "$class system log messages" $1 <<< "$errors"
