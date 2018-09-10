@@ -6,9 +6,31 @@ then
 	cat << EOT
 Usage: $0 go
 
-Adds to a brand new minimal package EC2 instance those packages that N2T
-needs to be able to run.  Assumes your hg repos have the latest revisions
-that you want to run.
+Use these instructions and script to set up N2T on a brand new EC2 instance.
+It assumes your hg repos have the latest revisions that you want to run.
+Start by copying this script to the new instance's home directory.
+
+1.  Add your instance's ssh key to bitbucket.org.
+
+  Login to bitbucket, click on your avatar -> "bitbucket settings" -> "add
+  ssh key" (or something like that). You can generate and capture it with
+
+    ssh-keygen -t rsa # do no filename, no passphrase
+    cat ~/.ssh/id_rsa.pub     # then "copy" contents to clipboard
+
+Paste it in when bitbucket asks for it.
+
+2.  Set your instance's name and class with something like
+
+    export EGNAPA_HOST=ids-n2t-dev.n2t.net    # replace the hostname
+    export EGNAPA_HOST_CLASS=dev              # dev, stg, prd, or mac
+
+3.  Replace the username and cdl.username inside the script copy you made,
+  where it creates the .hgrc file contents.
+
+4.  Run this script with
+
+    ./$0 go
 
 EOT
 	exit 1
@@ -19,9 +41,11 @@ cat > ~/.hgrc << EOT
 [ui]
 username = John Kunze <jak@ucop.edu>
 merge=internal:merge
+ssh = ssh -C
 
 [auth]
-cdl.prefix   = https://bitbucket.org
+cdl.prefix   = ssh://hg@bitbucket.org/cdl
+#cdl.prefix   = https://bitbucket.org
 cdl.username = jak
 # but normally from repo's .hg/hgrc file we use ssh://hg@bitbucket.org/cdl/...
 
@@ -40,8 +64,9 @@ sudo yum -y install 'perl(Log::Log4perl)'
 sudo yum -y install 'perl(XML::LibXML)'
 sudo yum -y install 'perl(XML::LibXSLT)'
 sudo yum -y install mongodb-org
-sudo yum -y install jq
 # on mac, need: brew install mongodb --with-openssl
+sudo yum -y install jq
+# yyy never actually used telnet for this
 sudo yum -y install telnet	# for network testing, eg, mongo replication
 rpm -V mongodb-org || {			# because it has gpgcheck disabled
 	sudo yum -y remove mongodb-org
@@ -56,26 +81,33 @@ sudo yum -y install 'perl(App::cpanminus)'
 # # (that creates DataCite datacenters) can run.
 # sudo yum -y install libxml2-devel libxslt-devel python-devel
 # sudo yum -y install libxml2-python libxslt-python python-pip
-
-pip install --install-option="--prefix=$sv" lxml
-# To use this module, .bashrc sets PYTHONPATH to something like
-# PYTHONPATH=$sv/lib64/python2.6/dist-packages
+# pip install --install-option="--prefix=$sv" lxml
+# # To use this module, .bashrc sets PYTHONPATH to something like
+# # PYTHONPATH=$sv/lib64/python2.6/dist-packages
 
 #hg clone http://hg.cdlib.org/n2t_create
-hg clone ssh://hg@bitbucket.org/cdl/n2t_create
+hg clone ssh://hg@bitbucket.org/cdl/n2t-admin
+mv n2t-admin n2t_create
 cd n2t_create
 make			# sets up .bashrc and svu defs; runs "svu init"
+			# sets up of crontab
+		# XXX do not background or redirect, since it asks questions!
 
 # xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
 source ~/.bashrc	# so we can do svu new
 svu new
-./make_instance build mongodb_pm httpd n2t 2>&1 > berrs
+#./make_instance build mongodb_pm httpd n2t 2>&1 > berrs
+./make_instance.alt build mongodb_pm httpd n2t > berrs 2>&1
 
 svu rollout	# ok as no users yet, and this puts everything of interest
 		# under the 'cur' version, our default logged-in state
+
+### now logout and login again???
+
 svu cur		# now make sure that instance is in effect yyy needed?
 
-set_crontab go		# takes care of crontab tests
+##### !!! you might have to logout and back in for $sv to be correct?
+#set_crontab go		# takes care of crontab tests
 n2t rollout		# takes care of dvscid test
 n2t test		# test that things are more or less ok
 
