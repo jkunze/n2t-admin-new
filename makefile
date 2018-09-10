@@ -7,7 +7,10 @@
 #PATH=$(HOME)/local/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin
 SHELL=bash
 HOST=`hostname -f`
-EGNAPA_HCLASS=`admegn class | sed 's/ .*//'`
+# ?= differs from = in not setting the value if it's already set; more at
+# https://stackoverflow.com/questions/448910/what-is-the-difference-between-the-gnu-makefile-variable-assignments-a
+EGNAPA_HOST_CLASS ?= `admegn class | sed 's/ .*//'`
+#EGNAPA_HOST_CLASS=`admegn class | sed 's/ .*//'`
 LBIN=$(HOME)/local/bin
 LOGS=$(HOME)/sv/cur/apache2/logs
 TMP=/tmp/n2t_create
@@ -112,11 +115,11 @@ export MG_TEST_PORT=\"47017\"\
 #@ export EGN_CLASS=$$( admegn class | sed 's/ .*//' )
 
 egnapa:
-	@if [[ -z "$(EGNAPA_HCLASS)" ]]; then \
-		echo 'EGNAPA_HCLASS not defined (see "admegn class")'; \
+	@if [[ -z "$(EGNAPA_HOST_CLASS)" ]]; then \
+		echo 'EGNAPA_HOST_CLASS not defined (see "admegn class")'; \
 		exit 1; \
 	fi
-	@echo "Defining host class \"$(EGNAPA_HCLASS)\""
+	@echo "Defining host class \"$(EGNAPA_HOST_CLASS)\""
 
 #egnapa:
 #	@if [[ -z "$(EGNAPA_HOST_CLASS)" ]]; then \
@@ -129,12 +132,12 @@ cron: egnapa
 	@cd cron; \
 	if [[ ! -s $$( readlink crontab ) ]]; then \
 		rm -f crontab; \
-		ln -s "crontab.$(EGNAPA_HCLASS)" crontab; \
+		ln -s "crontab.$(EGNAPA_HOST_CLASS)" crontab; \
 	fi; \
 	if [[ ! -s $$( readlink crontab ) ]]; then \
 		echo 'Error: not updating crontab from zero-length file'; \
-	elif [[ $$(readlink crontab) != crontab.$(EGNAPA_HCLASS) ]]; then \
-		echo "Error: crontab doesn't link to a $(EGNAPA_HCLASS)-class file"; \
+	elif [[ $$(readlink crontab) != crontab.$(EGNAPA_HOST_CLASS) ]]; then \
+		echo "Error: crontab doesn't link to a $(EGNAPA_HOST_CLASS)-class file"; \
 	else \
 		crontab -l > crontab_saved; \
 		cmp --silent crontab_saved crontab && { \
@@ -145,7 +148,7 @@ cron: egnapa
 	fi
 
 # Goal here is to reflect basic skeleton in the maintenance/role account.
-# removed:     rsync -ia ssl/$(EGNAPA_HCLASS)/ $(HOME)/ssl/;
+# removed:     rsync -ia ssl/$(EGNAPA_HOST_CLASS)/ $(HOME)/ssl/;
 basicfiles: egnapa
 	@cd skel; \
 	asked=; \
@@ -180,7 +183,7 @@ $(HOME)/backups:
 		mkdir $(HOME)/../n2tbackup/backups; \
 		ln -s $(HOME)/../n2tbackup/backups $@; \
 	else \
-		mkdir -p $@
+		mkdir -p $@ \
 	fi
 
 $(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/init.d $(HOME)/batches:

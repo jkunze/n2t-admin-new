@@ -717,16 +717,15 @@ function do_n2t {
 # list is order-sensitive; later packages depend on earlier packages, so
 # they need to be built and tested later.
 #
-pkgs=( File-Value File-ANVL File-Namaste File-Pairtree eggnog )
+#pkgs=( File-Value File-ANVL File-Namaste File-Pairtree eggnog )
+pkgs=( File-Value File-ANVL File-Namaste File-Pairtree n2t-eggnog )
 
 for p in ${pkgs[@]}
 do
 	echo ======================== package $p ========================
 	rm -fr $p
-	#hg clone ssh://jak@hg.cdlib.org/~hg/repos/$p
-	# XXX not very secure -- requires plaintext password
-	# XXX consider using ssh://... and ssh-agent
-	hg clone https://hg.cdlib.org/$p
+	#hg clone https://hg.cdlib.org/$p
+	hg clone ssh://hg@bitbucket.org/cdl/$p
 
 	#[[ ! "$updateflag" ]] &&
 	#	rm -fr $p
@@ -758,6 +757,7 @@ do
 		$gmake install
 	)
 done
+mv n2t-eggnog eggnog
 
 }
 
