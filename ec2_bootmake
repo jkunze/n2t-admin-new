@@ -12,23 +12,26 @@ Start by copying this script to the new instance's home directory.
 
 1.  Add your instance's ssh key to bitbucket.org.
 
-  Login to bitbucket, click on your avatar -> "bitbucket settings" -> "add
-  ssh key" (or something like that). You can generate and capture it with
+    Login to bitbucket, click on your avatar -> "bitbucket settings" -> "add
+    ssh key" (or something like that). You can generate and capture it with
 
-    ssh-keygen -t rsa # do no filename, no passphrase
-    cat ~/.ssh/id_rsa.pub     # then "copy" contents to clipboard
+      ssh-keygen -t rsa         # enter no filename, no passphrase
+      cat ~/.ssh/id_rsa.pub     # then "copy" contents to clipboard
 
-Paste it in when bitbucket asks for it.
+    Paste it in when bitbucket asks for it. You'll also likely want to
+    add this key to other n2t hosts that you'll want to interact with.
 
 2.  Set your instance's name and class with something like
 
-    export EGNAPA_HOST=ids-n2t-dev.n2t.net    # replace the hostname
-    export EGNAPA_HOST_CLASS=dev              # dev, stg, prd, or mac
+      export EGNAPA_HOST=ids-n2t-dev.n2t.net    # replace the hostname
+      export EGNAPA_HOST_CLASS=dev              # dev, stg, prd, or mac
 
 3.  Replace the username and cdl.username inside the script copy you made,
-  where it creates the .hgrc file contents.
+    where it creates the .hgrc file contents.
 
-4.  Run this script with
+4.  Adjust cert values in ~/warts/env.sh and set up ~/warts/.pswdfile.n2t.
+
+5.  Run this script with
 
     ./$0 go
 
@@ -108,7 +111,12 @@ svu cur		# now make sure that instance is in effect yyy needed?
 
 ##### !!! you might have to logout and back in for $sv to be correct?
 #set_crontab go		# takes care of crontab tests
+
 n2t rollout		# takes care of dvscid test
+
+# yyy may be a chicken and egg problem with rollout depending on prefixes
+#      	and prefixes depending on n2t installation
+
 n2t test		# test that things are more or less ok
 
 echo 'Now grab and install warts/.pswdfile.n2t from another system.'

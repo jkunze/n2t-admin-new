@@ -388,8 +388,15 @@ function pfx_harvest {
 	# SPECIAL base file, to keep it from being empty
 	rfiles+=" $prd_master_base_prefixes"
 	# INTERNALLY maintained registry
-	rfiles+=' shoulders/master_shoulders.txt'
+	# old:     rfiles+=' shoulders/master_shoulders.txt'
+	# new location below is better, since it's the "installed" version,
+	#     and it also comes with strong assurance of being validated;
+	#     so we don't have to run ezid-specific validation on every
+	#     instance of n2t where we want to validate prefixes
+	rfiles+=' sv/cur/apache2/htdocs/e/pop/ezid/master_shoulders.txt'
 	# INTERNALLY maintained registry
+# XXX should change this to use an installed version separate from raw version
+#     similar to master_shoulders
 	rfiles+=' shoulders/naans/master_naans'
 	# EXTERNALLY maintained (but on hiatus) registry; this is a snapshot
 	rfiles+=' shoulders/lsregistry.yml'
@@ -1256,10 +1263,11 @@ function pfx_validate {
 		# are we Validating converted $naanFile?
 
 	echo - Validating $shdrFile
-		(cd ~/shoulders
-			echo "    using $pfx_build/$shdrFile"
-			./validate-shoulders $pfx_build/$shdrFile) ||
-				return 1
+		echo "    assuming pre-validated: $pfx_build/$shdrFile"
+		#(cd ~/shoulders
+		#	echo "    using $pfx_build/$shdrFile"
+		#	./validate-shoulders $pfx_build/$shdrFile) ||
+		#		return 1
 
 		echo - Staging $shdrFile, creating shoulders.anvl
 			pfx_stage_shoulders $shdrFile || return 1
@@ -1748,10 +1756,19 @@ function pfx_install {
 	}
 	echo "$me process running now in $pfx_build directory"
 	# back up public prefix files
-	cp -p $buildout_root/$px $buildout_root/$px.orig || err=y
-	cp -p $buildout_root/htdocs/e/$pubpx{,.orig} || err=y
-	cp -p $buildout_root/htdocs/e/$n2tpx{,.orig} || err=y
-	cp -p $buildout_root/htdocs/e/$n2tfpx{,.orig} || err=y
+	local file
+	for file in $px htdocs/e/$pubpx htdocs/e/$n2tpx htdocs/e/$n2tfpx
+	do
+		[[ -f $file ]] ||       # non-existence (ie, first time through)
+			continue                # don't count as an error
+		cp -p $buildout_root/$file $buildout_root/$file.orig ||
+			err=y           # else an error counts
+	done
+	#cp -p $buildout_root/$px $buildout_root/$px.orig || err=y
+	#cp -p $buildout_root/htdocs/e/$pubpx{,.orig} || err=y
+	#cp -p $buildout_root/htdocs/e/$n2tpx{,.orig} || err=y
+	#cp -p $buildout_root/htdocs/e/$n2tfpx{,.orig} || err=y
+
 	#cp -p $buildout_root/$n2tpx $buildout_root/$n2tpx.orig || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error backing up public prefix files" \
@@ -1766,7 +1783,8 @@ function pfx_install {
 		return 1
 	}
 	err=
-	cp -pr * $pfx_build.orig/ || err=y
+	[[ $(ls) == '' ]] ||	# don't bother with empty direcyory (first time)
+		cp -pr * $pfx_build.orig/ || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error backing up prefix build files from " \
 			"$pfx_build to $pfx_build.org" 1>&2
@@ -1787,11 +1805,12 @@ function pfx_install {
 		echo "Error copying in new $px file to $buildout_root" 1>&2
 		return 1
 	}
+	mkdir -p $buildout_root/htdocs/e	# helps first time installation
 	cp -p $nsf/{$pubpx,$n2tpx,$n2tfpx} $buildout_root/htdocs/e/ ||
 		err=y			 # these are publicly readable
 	[[ $err && ! "$force" ]] && {
-		echo "Error copying new public files $pubpx, $n2tpx, and $n2tfpx" \
-			"to $buildout_root/htdocs/e/" 1>&2
+		echo "Error copying new public files $pubpx, $n2tpx, and " \
+			"$n2tfpx to $buildout_root/htdocs/e/" 1>&2
 		return 1
 	}
 	err=
@@ -1916,6 +1935,7 @@ function pfx_test_rollout_n2t_test {
 	local changed_files=${1:-''}
 	local file old new diffs=
 	local diffsfile="$pfx_import/diffs"
+	rm -f $diffsfile
 	for file in $changed_files
 	do
 		old=$pfx_build/$file
@@ -1927,11 +1947,11 @@ function pfx_test_rollout_n2t_test {
 			echo -ne '+++ ';
 			ls -l $new | sed s/^..........................//;
 			diff --ignore-space-change $old $new; 
-		) > $diffsfile
+		) >> $diffsfile 2>&1
 		# want much quieter diff, eg, only want text changes,
 		# not the line position of every text change
 	done
-	cat <<< "$diffs" > $diffsfile
+	#cat <<< "$diffs" > $diffsfile
 
 	local output=	# NB: local ALWAYS succeeds, so don't initialize
 	# via command in a "local" and expect to save the return status!
