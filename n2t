@@ -86,6 +86,14 @@ function check_default_minders {
 function check_minders {
 	for m in binders minters shoulders
 	do
+		# Don't want to overwrite any existing binders, but we want
+		# make sure (eg, first time deploy ever on new system) that
+		# at least some binders are in place (that's what
+		# check_default_minders is for). Regarding minters and
+		# shoulders, we don't copy in anything if there's already a
+		# minters (shoulders) directory, but for the first time, we
+		# do copy in fresh defaults.
+
 		if [[ -e $aptop/$m ]]
 		then
 			check_default_minders $m	# not checking return
@@ -295,7 +303,7 @@ rollout)
 		echo "$b_out"
 		exit 1
 	}
-	check_minders		# see if there are any minders at all
+	check_minders		# if there are minders, copy them in
 
 	make || {		# "make" again, in case "import" wasn't done
 		echo Problem running make.
