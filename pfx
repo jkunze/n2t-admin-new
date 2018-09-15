@@ -556,6 +556,7 @@ function pfx_prebuild {
 }
 
 function pfx_init {
+	echo Running pfx_init
 	mkdir -p $pfx_import $pfx_build || {
 		echo Could not create prefix work directories. 1>&2
 		return 1
