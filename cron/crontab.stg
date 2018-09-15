@@ -2,17 +2,19 @@
 
 MAILTO=jak@ucop.edu
 
-# Fetch/import prefixes from EBI at 05:30 GMT.
-#
+# Fetch/import prefixes from EBI at 05:30 GMT, but only on one of possibly
+# many instances.
 # yyy are prefix backups being done?
-30 21 * * 1-7 bash -lc "pfx cron_hitrnt $MAILTO ids-n2t-dev.n2t.net"
+
+30 21 * * 1-7 bash -lc "[[ \$(hostname) =~ ids-n2t-stg-2c ]] && pfx cron_hitrnt $MAILTO ids-n2t-dev.n2t.net"
 
 # Check daily for system (possibly error) messages.
-#
+
 55 7 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn error_check $MAILTO 2>&1"
 
 # update stg operating system automatically on Thursdays
 # NB: changed admegn to reboot on any non-empty change (eg, crontab broke)
+
 38 5 * * 4 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
 
 # yyy comment out until transaction log fix
@@ -23,9 +25,10 @@ MAILTO=jak@ucop.edu
 
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.
-#
+
 15 00 * * 1-7 bash -lc "admegn logrename > /dev/null 2>&1"
 
 #### Sundays at 4:03 am, delete log files older than 6 months.
+
 03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
 

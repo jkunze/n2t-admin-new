@@ -1,15 +1,11 @@
-# Support for creating an exportable tar file of "n2t_create".
-
-# yyy To do:
-# - add code to autogenerate (openssl x509 -in file.crt -text -noout) a
-#   text version (README) of cert in the warts/ssl dir
+# yyy? Support for creating an exportable tar file of "n2t_create".
 
 #PATH=$(HOME)/local/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin
 SHELL=bash
 HOST=`hostname -f`
 # ?= differs from = in not setting the value if it's already set; more at
-# https://stackoverflow.com/questions/448910/what-is-the-difference-between-the-gnu-makefile-variable-assignments-a
 EGNAPA_HOST_CLASS ?= `admegn class | sed 's/ .*//'`
+
 #EGNAPA_HOST_CLASS=`admegn class | sed 's/ .*//'`
 LBIN=$(HOME)/local/bin
 LOGS=$(HOME)/sv/cur/apache2/logs
@@ -39,7 +35,7 @@ basic: basicdirs basicfiles hostname svu utilities $(HOME)/init.d/apache cron
 all: basic n2t_create.tar.gz
 
 # sub-targets of "basic"
-utilities: $(UTILITIES)
+utilities: $(UTILITIES) sslreadme
 
 # this uses a "static pattern"
 $(UTILITIES): $(LBIN)/%: %
@@ -67,9 +63,6 @@ svu: $(LBIN)/svu_run $(HOME)/sv
 
 hostname: $(HOME)/warts/env.sh
 
-# yyy probably should link to copies in ~/warts/ssl/.. of system-supplied
-# certs dropped into (~/ssl)
-
 $(HOME)/warts/env.sh:
 	@echo -e > $@ \
 "#!/bin/sh\n\
@@ -84,7 +77,7 @@ $(HOME)/warts/env.sh:
 #"
 	@read -t 60 -p "HOSTNAME (default $(HOST)): " && echo -e >> $@ \
 "export EGNAPA_HOST=$${REPLY:-$(HOST)}\n\
-export EGNAPA_HOST_CLASS=mac              # eg, one of dev, stg, prd, mac\n\
+export EGNAPA_HOST_CLASS=$${EGNAPA_HOST_CLASS:-mac}              # eg, one of dev, stg, prd, mac\n\
 export EGNAPA_SSL_CERTFILE=\n\
 export EGNAPA_SSL_KEYFILE=\n\
 export EGNAPA_SSL_CHAINFILE=\n\
@@ -183,11 +176,19 @@ $(HOME)/backups:
 		mkdir $(HOME)/../n2tbackup/backups; \
 		ln -s $(HOME)/../n2tbackup/backups $@; \
 	else \
-		mkdir -p $@ \
+		mkdir -p $@; \
 	fi
 
 $(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/init.d $(HOME)/batches:
 	mkdir -p $@
+
+sslreadme:
+	@ cfile=$$( echo $(HOME)/warts/ssl/*.crt ); \
+	  rfile=$(HOME)/warts/ssl/README ; \
+	if [[ -f "$$cfile" && ( ! -f $$rfile || $$cfile -nt $$rfile ) ]]; \
+	then \
+		echo openssl x509 -in $$cfile -text -noout > $$rfile ; \
+	fi
 
 # xxx add $(HOME) to last arg of ln -s ...  ?? (else problem if run in
 # wrong directory)

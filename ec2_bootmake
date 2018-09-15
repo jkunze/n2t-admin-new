@@ -26,12 +26,15 @@ Start by copying this script to the new instance's home directory.
       export EGNAPA_HOST=ids-n2t-dev.n2t.net    # replace the hostname
       export EGNAPA_HOST_CLASS=dev              # dev, stg, prd, or mac
 
-3.  Replace the username and cdl.username inside the script copy you made,
-    where it creates the .hgrc file contents.
+3.  Replace the username and cdl.username inside this script copy that you
+    made, where it creates the .hgrc file contents.
 
-4.  Adjust cert values in ~/warts/env.sh and set up ~/warts/.pswdfile.n2t.
+4.  Copy in ~/warts/.pswdfile.n2t from another host.
 
-5.  Run this script with
+5.  Adjust cert values in ~/warts/env.sh after copying, into ~/warts/ssl,
+    certificates that should have been placed for you in ~/ssl/....
+
+6.  Run this script with
 
     ./$0 go
 
@@ -99,8 +102,7 @@ make			# sets up .bashrc and svu defs; runs "svu init"
 # xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
 source ~/.bashrc	# so we can do svu new
 svu new
-#./make_instance build mongodb_pm httpd n2t 2>&1 > berrs
-./make_instance.alt build mongodb_pm httpd n2t > berrs 2>&1
+./make_instance build mongodb_pm httpd n2t > berrs 2>&1
 
 svu rollout	# ok as no users yet, and this puts everything of interest
 		# under the 'cur' version, our default logged-in state
@@ -112,14 +114,20 @@ svu cur		# now make sure that instance is in effect yyy needed?
 ##### !!! you might have to logout and back in for $sv to be correct?
 #set_crontab go		# takes care of crontab tests
 
+pfx hitrnt		# establish prefix stuff, needed for first rollout
+			# yyy this will error out
+
 n2t rollout		# takes care of dvscid test
 
-# yyy may be a chicken and egg problem with rollout depending on prefixes
-#      	and prefixes depending on n2t installation
+# yyy chicken and egg problem (?) with rollout, which depends on prefixes.
+#     seems we might need to run "pfx hitrnt" before rollout?, but we can't do
+#     that before we've rolled things out the first time (or can we?)
 
 n2t test		# test that things are more or less ok
 
-echo 'Now grab and install warts/.pswdfile.n2t from another system.'
+#echo 'Now grab and install warts/.pswdfile.n2t from another system.'
+
+#### IMPORTANT!
 echo 'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
 and set up chkconfig so that the N2T service comes up on machine (re)boot.'
 echo 'Also, ask for a Nagios web service monitor to be set up.'
