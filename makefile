@@ -187,7 +187,7 @@ sslreadme:
 	  rfile=$(HOME)/warts/ssl/README ; \
 	if [[ -f "$$cfile" && ( ! -f $$rfile || $$cfile -nt $$rfile ) ]]; \
 	then \
-		echo openssl x509 -in $$cfile -text -noout > $$rfile ; \
+		openssl x509 -in $$cfile -text -noout > $$rfile ; \
 	fi
 
 # xxx add $(HOME) to last arg of ln -s ...  ?? (else problem if run in
