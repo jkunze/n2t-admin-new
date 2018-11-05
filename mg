@@ -64,9 +64,13 @@ DESCRIPTION
 
        It starts up all local daemons and adds them to the set. It is meant
        to be used ONCE or rarely. Permanent replica set state information is
-       maintained in the mongodb data stores of the member instances. After the
-       host reboots, for example, it is sufficient simply to restart a local
-       daemon and it "remembers" that it belongs to the set. Use the commands
+       maintained in the mongodb data stores of the member instances. After
+       the host reboots, for example, it's enough simply to restart a local
+       daemon, which remembers that it belongs to the set. If you mess up
+       initialization (easy), stop all mongo servers and remove the data
+       directories under \$sv/apache2/mongo/, and do "$me rs_start" again.
+
+       Use the commands
 
            rs_list, rs_status, rs_test
 
