@@ -8,11 +8,11 @@ MAILTO=jak@ucop.edu
 # non-zero status, which we test (via ||) to trigger an apache restart.  Do
 # the same on Sunday, but take a break during our maintenance window.
 
-*/2 * * * 1-6 bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
+*/2 * * * 1-6 bash -lc "[[ \$(hostname) =~ ids-n2t-prd-2a ]] && admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
 
 # Do resolution check except during Sunday 8:00-8:59am maintenance window.
 
-*/2 0-7,9-23 * * 0 bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
+*/2 0-7,9-23 * * 0 bash -lc "[[ \$(hostname) =~ ids-n2t-prd-2a ]] && admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
 
 # Replication
 # xxx 2016.11.19_12:46 turning off replication to help ease swap problem
@@ -26,8 +26,8 @@ MAILTO=jak@ucop.edu
 # xxx but fix so only on one of possibly many instances.
 # Use bash -l so "svu cur" is in effect and ~/local/bin is in the PATH.
 
-37 2 * * * bash -lc "admegn backup; admegn backup_rotate" >> logs/backup_log 2>&1
-37 14 * * * bash -lc "admegn backup" >> logs/backup_log 2>&1
+37 2 * * * bash -lc "[[ \$(hostname) =~ ids-n2t-prd-2a ]] && (admegn backup; admegn backup_rotate)" >> logs/backup_log 2>&1
+37 14 * * * bash -lc "[[ \$(hostname) =~ ids-n2t-prd-2a ]] && admegn backup" >> logs/backup_log 2>&1
 
 # Look once a night for rotated transaction_log files to rename.
 # Note that such files are generally created only once a week.

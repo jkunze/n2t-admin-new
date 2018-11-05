@@ -808,7 +808,10 @@ function validate_ebi {
 		# when the user doesn't specify a provider_code.
 
 		print(	"\n",		# record separator
-			"namespace: $namespace\n",
+			#"namespace: $namespace\n",
+			# yyy normalize to lowercase because that's what
+			#     N2T does before looking up prefixes
+			"namespace: ", lc($namespace), "\n",
 			"type: scheme\n",
 			"name: $name\n",
 			"description: $description\n",
@@ -1687,12 +1690,14 @@ EOT
 #	local srcdir=~/sv/cur/build/eggnog
 	cd $pfx_build || {
 		echo Could not chdir to $pfx_build. 1>&2
-		exit 1
+		return 1
+		#exit 1
 	}
 	#perl -Mblib -e "$perl_grok" $mainout "$@"
 	perl -CS -e "$perl_grok" $mainout "$@" || {
 		echo "Error: pfx_grok failed" 1>&2
-		exit 1
+		return 1
+		#exit 1
 	}
 }
 
@@ -1749,11 +1754,16 @@ function pfx_install {
 	[[ -f $tested_ok_file ]] || {
 		echo "Aborting: no $tested_ok_file file." 1>&2
 		echo "Did you run \"pfx test\" first?" 1>&2
-		exit 1
+		return 1
+		#exit 1
+	}
+	[[ ! -d $pfx_build || ! -d $pfx_import ]] && {
+		pfx_init || return 1
 	}
 	cd $pfx_build || {
 		echo Could not chdir to $pfx_build. 1>&2
-		exit 1
+		return 1
+		#exit 1
 	}
 	echo "$me process running now in $pfx_build directory"
 	# back up public prefix files
@@ -1822,7 +1832,10 @@ function pfx_install {
 }
 
 # NB: does not use running server, but just raw prefixes.yaml file
+# NBB: this does linear search, while N2T does hash lookup -- these
+#      different lookup methods can yield different results!
 #  [-s records|lines|count] find [ Term ]
+
 function pfx_find {
 
 	local term="$@"
@@ -1924,7 +1937,8 @@ function pfx_find {
 EOT
 	perl -CS -e "$perl_find" $master_prefixes $show "$@" || {
 		echo "Error: pfx_find failed" 1>&2
-		exit 1
+		return 1
+		#exit 1
 	}
 }
 
@@ -2352,6 +2366,7 @@ init)
 	;;
 find)
 	pfx_find "$@"
+	exit
 	;;
 grok)
 	pfx_grok "$@"

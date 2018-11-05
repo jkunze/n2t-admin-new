@@ -22,6 +22,11 @@ alias mkperl='perl Makefile.PL INSTALL_BASE=$PERL_INSTALL_BASE'
 
 n2prda='n2t@ids-n2t-prd-2a.n2t.net'
 	alias n2prda="ssh $n2prda"
+n2prdb='n2t@ids-n2t-prd-2b.n2t.net'
+	alias n2prdb="ssh $n2prdb"
+
+ezprd='ezid@ezid.cdlib.org'
+	alias ezprd="ssh $ezprd"
 
 n2stga='n2t@ids-n2t-stg-2a.n2t.net'
 	alias n2stga="ssh $n2stga"

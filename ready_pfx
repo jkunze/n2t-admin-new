@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -u			# treat unset variables as an error when substituting
+export PFX_redir=redirect
+export LANG=en_US.UTF-8
+export LC_ALL=C		# to deal with unicode errors ? yyy needed?
+
+me=$( basename $0 )
+availabledir=$HOME/sv/cur/apache2/htdocs/e/ready
+naans=master_naans
+shoulders=master_shoulders.txt
+
+function usage {
+	cat << EOT
+
+SYNOPSIS                          ($0)
+    $me - make prefix component file ready for harvest by others
+
+USAGE
+    $me [ naans | shoulders ]
+
+DESCRIPTION
+
+This script makes a cleansed copy of the "naans" or "shoulders" master file
+available for harvest by others, after first making a backup copy of the
+currently available file. A cleansed copy is one that has any personally
+identifiable information or other sensitive removed.
+
+NB: source files to copy must be in the script process' current directory.
+
+FILES
+    $availabledir
+            directory of available files
+    $naans.backup
+            previously available naans file
+    $shoulders.backup
+            previously available shoulders file
+
+EOT
+}
+
+component="${1:-}"
+
+case $component in
+naans)
+	file=$naans
+	;;
+shoulders)
+	file=$shoulders
+	;;
+"")
+	usage
+	exit
+	;;
+*)
+	echo "Error: unknown component file: $component" 1>&2
+	usage
+	exit 1
+	;;
+esac
+
+[[ -e "$file" ]] || {
+	echo Error: no such file: $file 1>&2
+	exit 1
+}
+[[ -e "$availabledir/$file" ]] || {	# just in case it's the first run ever
+	mkdir -p $availabledir
+	cp /dev/null $availabledir/$file
+}
+
+# Backup from old copy
+cp -p $availabledir/$file $file.backup
+
+# Remove sensitive info and save in to a place where it can be picked up,
+#    eg, by prefix harvester or by EZID
+sed   '/^[#!]/d'   $file > $availabledir/$file
+
+# Retouch modtime to be the same as that of the uncleansed content.
+touch    -r $file    $availabledir/$file
+
+echo Ready for harvest: $availabledir/$file
+

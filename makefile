@@ -29,13 +29,13 @@ QLOGLINKS=$(QL)/access_log $(QL)/error_log $(QL)/rewrite_log \
 	$(QL)/binders/ezid/rrm.rlog
 
 # default target
-basic: basicdirs basicfiles hostname svu utilities $(HOME)/init.d/apache cron
+basic: basicdirs basicfiles hostname svu utilities $(HOME)/init.d/apache cron sslreadme
 
 # a bigger target
 all: basic n2t_create.tar.gz
 
 # sub-targets of "basic"
-utilities: $(UTILITIES) sslreadme
+utilities: $(UTILITIES)
 
 # this uses a "static pattern"
 $(UTILITIES): $(LBIN)/%: %
@@ -78,6 +78,7 @@ $(HOME)/warts/env.sh:
 	@read -t 60 -p "HOSTNAME (default $(HOST)): " && echo -e >> $@ \
 "export EGNAPA_HOST=$${REPLY:-$(HOST)}\n\
 export EGNAPA_HOST_CLASS=$${EGNAPA_HOST_CLASS:-mac}              # eg, one of dev, stg, prd, mac\n\
+\n\
 export EGNAPA_SSL_CERTFILE=\n\
 export EGNAPA_SSL_KEYFILE=\n\
 export EGNAPA_SSL_CHAINFILE=\n\
@@ -101,11 +102,6 @@ export MG_REPSETNAME=\"live\"\n\
 # Define default starter port (in a series) for replica set testing.\n\
 export MG_TEST_PORT=\"47017\"\
 "
-
-# yyy after waiting period, drop EGNAPA_HOST_CLASS defs from warts
-# yyy bug? some things require a defined EGNAPA_HOST_CLASS (chicken and egg)
-# yyy 
-#@ export EGN_CLASS=$$( admegn class | sed 's/ .*//' )
 
 egnapa:
 	@if [[ -z "$(EGNAPA_HOST_CLASS)" ]]; then \
@@ -141,7 +137,7 @@ cron: egnapa
 	fi
 
 # Goal here is to reflect basic skeleton in the maintenance/role account.
-# removed:     rsync -ia ssl/$(EGNAPA_HOST_CLASS)/ $(HOME)/ssl/;
+
 basicfiles: egnapa
 	@cd skel; \
 	asked=; \

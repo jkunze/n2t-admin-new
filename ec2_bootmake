@@ -4,11 +4,15 @@ if [[ "$1" != go ]]
 then
 
 	cat << EOT
-Usage: $0 go
+Usage: $0 [ go ]
 
 Use these instructions and script to set up N2T on a brand new EC2 instance.
-It assumes your hg repos have the latest revisions that you want to run.
-Start by copying this script to the new instance's home directory.
+Start by copying this script to the new instance's home directory. It assumes
+your hg repos have the latest revisions that you want to run.
+
+Make sure with your system people that (a) you've obtained certs for step 5,
+(b) they've added mongodb.repo to /etc/yum.repos.d, and (c) they've opened up
+access between mongo replicas on ports 27017-27027 and 47017-47027.
 
 1.  Add your instance's ssh key to bitbucket.org.
 
@@ -29,18 +33,28 @@ Start by copying this script to the new instance's home directory.
 3.  Replace the username and cdl.username inside this script copy that you
     made, where it creates the .hgrc file contents.
 
-4.  Copy in ~/warts/.pswdfile.n2t from another host.
+4.  Do "mkdir warts" and copy in ~/warts/.pswdfile.n2t from another host, eg,
+
+      scp -p n2t-dev.n2t.net:warts/.pswdfile.n2t ~/warts/
 
 5.  Adjust cert values in ~/warts/env.sh after copying, into ~/warts/ssl,
     certificates that should have been placed for you in ~/ssl/....
 
 6.  Run this script with
 
-    ./$0 go
+      $0 go
+
+7.  Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
+    so that the application properly comes up and shuts down during reboots.
 
 EOT
-	exit 1
+	exit
 fi
+
+[[ ~/ssl/* =~ \*\$ ]] && {
+	echo "No ~/ssl directory 1&>2
+	exit 1
+}
 
 cat > ~/.hgrc << EOT
 
@@ -59,6 +73,7 @@ EOT
 
 # I I check into (thinking Perl) installonlypkgs ("man yum.conf")
 
+sudo yum -y update			# update to latest OS version
 sudo yum -y group install "Development Libraries"
 sudo yum -y group install "Development Tools"   # gcc
 sudo yum -y group install "Web Server"          # mod_ssl, ExtUtils/MakeMaker
@@ -69,9 +84,11 @@ sudo yum -y install 'perl(Time::HiRes)'
 sudo yum -y install 'perl(Log::Log4perl)'
 sudo yum -y install 'perl(XML::LibXML)'
 sudo yum -y install 'perl(XML::LibXSLT)'
+sudo yum -y install 'perl(App::cpanminus)'
+sudo yum -y install jq
+
 sudo yum -y install mongodb-org
 # on mac, need: brew install mongodb --with-openssl
-sudo yum -y install jq
 # yyy never actually used telnet for this
 sudo yum -y install telnet	# for network testing, eg, mongo replication
 rpm -V mongodb-org || {			# because it has gpgcheck disabled
@@ -79,7 +96,6 @@ rpm -V mongodb-org || {			# because it has gpgcheck disabled
 	echo error: mongodb-org installation failed to verify -- aborting.
 	exit 1
 }
-sudo yum -y install 'perl(App::cpanminus)'
 
 # Trying hypothesis that we don't need these next two yum installs
 # # XXX should confirm that these next are still needed
@@ -104,6 +120,8 @@ source ~/.bashrc	# so we can do svu new
 svu new
 ./make_instance build mongodb_pm httpd n2t > berrs 2>&1
 
+# XXXX oops: should fail early if ~/ssl isn't present
+
 svu rollout	# ok as no users yet, and this puts everything of interest
 		# under the 'cur' version, our default logged-in state
 
@@ -111,11 +129,20 @@ svu rollout	# ok as no users yet, and this puts everything of interest
 
 svu cur		# now make sure that instance is in effect yyy needed?
 
+mg rs_start		# one-time replica set initialization
+
 ##### !!! you might have to logout and back in for $sv to be correct?
 #set_crontab go		# takes care of crontab tests
 
+# XXXX oops: crontab is now set up, but n2t isn't even rolled out!
+
+pfx init
 pfx hitrnt		# establish prefix stuff, needed for first rollout
-			# yyy this will error out
+			# yyy this will error out: cd:
+			# /apps/n2t/sv/cv2/apache2/pfx_work/build: No such file
+			# or directory
+			# Could not chdir to
+			# /apps/n2t/sv/cv2/apache2/pfx_work/build.
 
 n2t rollout		# takes care of dvscid test
 
