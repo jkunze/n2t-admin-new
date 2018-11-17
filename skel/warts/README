@@ -1,2 +1,2 @@
-The files in this directory contain settings peculiar to this machine
-and service instance.  THEY MUST NOT BE COPIED BETWEEN MACHINES!
+The files in this directory define settings PECULIAR to this host
+and service instance. THEY MUST NOT BE COPIED BETWEEN MACHINES!

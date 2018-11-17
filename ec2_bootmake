@@ -1,23 +1,34 @@
 #!/usr/bin/env bash
 
-if [[ "$1" != go ]]
+# xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
+
+set -u		# make the use of unset variables throw an error
+hgrc=~/.hgrc
+envsh=warts/env.sh
+fakeuser=samsmith
+
+cmd=${1:-}
+if [[ "$cmd" != init && "$cmd" != go ]]
 then
-
 	cat << EOT
-Usage: $0 [ go ]
+Usage: $0 [ init | go ]
 
-Use these instructions and script to set up N2T on a brand new EC2 instance.
-Start by copying this script to the new instance's home directory. It assumes
-your hg repos have the latest revisions that you want to run.
+Use these instructions and script to set up N2T on a new AWS EC2 instance.
+Start by assuming the identity of the user (eg, sudo to a role account login)
+that you intend to administer the service and change to its home directory.
+Set up some foundation files by running (interactively, not backgrounding)
 
-Make sure with your system people that (a) you've obtained certs for step 5,
-(b) they've added mongodb.repo to /etc/yum.repos.d, and (c) they've opened up
-access between mongo replicas on ports 27017-27027 and 47017-47027.
+      $0 init
 
-1.  Add your instance's ssh key to bitbucket.org.
+and follow the instructions that follow and those that it prints.
+
+1.  Verify that you have correct values for username and cdl.username
+    inside your ~/.hgrc file.
+
+2.  Add your instance's ssh key to bitbucket.org.
 
     Login to bitbucket, click on your avatar -> "bitbucket settings" -> "add
-    ssh key" (or something like that). You can generate and capture it with
+    ssh key" (or something like that). If needed, you can generate it with
 
       ssh-keygen -t rsa         # enter no filename, no passphrase
       cat ~/.ssh/id_rsa.pub     # then "copy" contents to clipboard
@@ -25,53 +36,171 @@ access between mongo replicas on ports 27017-27027 and 47017-47027.
     Paste it in when bitbucket asks for it. You'll also likely want to
     add this key to other n2t hosts that you'll want to interact with.
 
-2.  Set your instance's name and class with something like
-
-      export EGNAPA_HOST=ids-n2t-dev.n2t.net    # replace the hostname
-      export EGNAPA_HOST_CLASS=dev              # dev, stg, prd, or mac
-
-3.  Replace the username and cdl.username inside this script copy that you
-    made, where it creates the .hgrc file contents.
-
-4.  Do "mkdir warts" and copy in ~/warts/.pswdfile.n2t from another host, eg,
+3.  Copy into ~/warts/.pswdfile.n2t the same from from another host, eg,
 
       scp -p n2t-dev.n2t.net:warts/.pswdfile.n2t ~/warts/
 
-5.  Adjust cert values in ~/warts/env.sh after copying, into ~/warts/ssl,
-    certificates that should have been placed for you in ~/ssl/....
+4.  Make sure that your system people have (a) put your web server certs
+    file into the ~/ssl/ directory, (b) added mongodb.repo to
+    /etc/yum.repos.d, and (c) opened up access between mongo replicas on
+    ports 27017-27027 and 47017-47027.
 
-6.  Run this script with
+5.  Per the cert filename assignments in ~/$envsh, copy the correct files
+    from ~/ssl/... into ~/warts/ssl.
+
+6.  The main installation step is next, done by running
 
       $0 go
 
-7.  Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
-    so that the application properly comes up and shuts down during reboots.
+7.  Finally have your system people copy ~/n2t_create/apache.n2t to
+    /etc/init.d/apache.n2t so that the service comes up and shuts down
+    properly during system reboots. You'll also want to have web service
+    monitoring set up, eg, Nagios.
 
 EOT
 	exit
 fi
 
-[[ ~/ssl/* =~ \*\$ ]] && {
-	echo "No ~/ssl directory 1&>2
-	exit 1
-}
+function ec2_init {
 
-cat > ~/.hgrc << EOT
+	local hostname class mailto def_hostname def_class def_mailto
+	local p		# prompt strings
+
+	def_hostname=$( hostname -f )
+	def_class=loc
+	def_mailto='samsmith at example dot org'	# use wrong syntax
+		# to trigger downstream external warnings if set to default
+
+	# get $hostname and $class vars
+	read -t 60 -p "Enter hostname (default $def_hostname): " hostname || {
+		echo Error: the hostname must be defined 1>&2
+		return 1
+	}
+	[[ "$hostname" ]] ||
+		hostname="$def_hostname"
+	p="Enter service class: [loc(default)|dev|stg|prd] "
+	read -t 60 -p "$p" class || {
+		echo Error: the service class must be defined 1>&2
+		return 1
+	}
+	[[ "$class" ]] ||
+		class="$def_class"
+	case "$class" in
+	loc|dev|stg|prd) ;;
+	*)	echo Error: service class must be one of \
+				loc, dev, stg, or prd 1>&2
+		return 1 ;;
+	esac
+	p="Enter email address for system notifications: "
+	read -t 60 -p "$p" mailto || {
+		echo Error: the service mailto must be defined 1>&2
+		return 1
+	}
+	[[ "$mailto" ]] ||
+		mailto="$def_mailto"
+
+	local create=
+	[[ -e "$envsh" ]] && {
+		p="Backup and overwrite existing $envsh file? "
+			p+="[y/n] (default no): "
+		read -t 60 -p "$p" || {
+			echo Error: response required 1>&2
+			return 1
+		}
+		[[ "$REPLY" =~ ^[yY] ]] && {
+			create=yes
+			echo ok, keeping existing file
+		}
+	}
+
+	# If we get here, we're committed to actual filesystem mods.
+	mkdir -p ssl warts/ssl
+
+	[[ -e $hgrc ]] || {
+		echo creating generic $hgrc - edit to change user names
+		cat > $hgrc << EOT
 
 [ui]
-username = John Kunze <jak@ucop.edu>
+# EDIT NEXT LINE
+username = Sam Smith <samsmith@example.org>
 merge=internal:merge
 ssh = ssh -C
 
 [auth]
 cdl.prefix   = ssh://hg@bitbucket.org/cdl
-#cdl.prefix   = https://bitbucket.org
-cdl.username = jak
-# but normally from repo's .hg/hgrc file we use ssh://hg@bitbucket.org/cdl/...
+# EDIT NEXT LINE
+cdl.username = $fakeuser
 
 EOT
+	}
 
-# I I check into (thinking Perl) installonlypkgs ("man yum.conf")
+	[[ "$create" ]] && {			# create $envsh
+		[[ -e "$envsh" ]] &&
+			cp -p "$envsh" "$envsh.bak"
+		cat > $envsh << EOT
+#!/bin/sh
+
+# This shell script sets some instance-specific environment variables.
+# The build_server_tree script (eggnog source) reads these for host and
+# certificate configuration.
+
+export EGNAPA_HOST=$hostname
+export EGNAPA_HOST_CLASS=$class              # eg, one of dev, stg, prd, loc
+
+# Define filenames to hold copies (NOT the master files) of your certificates.
+# Use EGNAPA_SSL_CERTFILE for the full path of a signed certificate, if any,
+#     and similarly for EGNAPA_SSL_KEYFILE and EGNAPA_SSL_CHAINFILE.
+export EGNAPA_SSL_CERTFILE=/apps/n2t/warts/ssl/n2t_net.crt
+export EGNAPA_SSL_KEYFILE=/apps/n2t/warts/ssl/n2t_net.key
+export EGNAPA_SSL_CHAINFILE=/apps/n2t/warts/ssl/n2t_net.int-root
+
+# Define email address to receive system notifications, eg, from crontab.
+export EGNAPA_MAILTO='$mailto'
+
+# Define fully qualified hostname (don't trust hostname -f on some networks).
+export MG_HOST=\$EGNAPA_HOST
+
+# Define the hostports of the mongod daemons that should start up.
+export MG_LOCAL_DAEMONS="\$MG_HOST:27017,\$MG_HOST:27018,\$MG_HOST:27019"
+
+# Define connection string hosts, which may include non-local servers.
+# If undefined, this var defaults to MG_LOCAL_DAEMONS.
+export MG_CSTRING_HOSTS="\$MG_LOCAL_DAEMONS"
+
+# Define default mongo replica set options for the connection string.
+export MG_REPSETOPTS="socketTimeoutMS=30000&readPreference=primaryPreferred"
+
+# Define default mongo replica set name for the connection string.
+export MG_REPSETNAME="live"
+
+# Define default starter port (in a series) for replica set testing.
+export MG_TEST_PORT="47017"
+EOT
+		echo Created $envsh -- now you must copy your cert, keyfile, \
+			and chainfile to warts/ssl/n2t_net.{crt,key,int-root}
+	}
+	return 0
+}
+
+[[ "$cmd" == init ]] && {
+	ec2_init
+	exit
+}
+
+source ~/warts/env.sh
+
+# If we get get here, $cmd was "go", so full steam ahead.
+# yyy ask for more info to get $hgrc correct with init
+
+grep "^cdl.username.*$fakeuser" $hgrc && {
+	echo "Error: you first need to edit values in $hgrc"
+	exit 1
+}
+
+# I I check into whether to use installonlypkgs; from "man yum.conf":
+#   "installonlypkgs=<space separated list of packages>
+#      Here you can provide a space-separated list of packages which
+#      yum can install, but will never update."
 
 sudo yum -y update			# update to latest OS version
 sudo yum -y group install "Development Libraries"
@@ -109,18 +238,18 @@ rpm -V mongodb-org || {			# because it has gpgcheck disabled
 
 #hg clone http://hg.cdlib.org/n2t_create
 hg clone ssh://hg@bitbucket.org/cdl/n2t-admin
-mv n2t-admin n2t_create
+rm -fr n2t_create		# if it exists the rename below won't work
+mv n2t-admin n2t_create		# simple rename
 cd n2t_create
 make			# sets up .bashrc and svu defs; runs "svu init"
 			# sets up of crontab
 		# XXX do not background or redirect, since it asks questions!
 
-# xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
+set +u			# cannot count on .bashrc to be squeaky clean
 source ~/.bashrc	# so we can do svu new
 svu new
+set -u
 ./make_instance build mongodb_pm httpd n2t > berrs 2>&1
-
-# XXXX oops: should fail early if ~/ssl isn't present
 
 svu rollout	# ok as no users yet, and this puts everything of interest
 		# under the 'cur' version, our default logged-in state
