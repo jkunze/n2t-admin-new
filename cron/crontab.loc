@@ -1,4 +1,4 @@
-# n2t crontab file -- macbook version
+# n2t crontab file -- local version
 
 MAILTO=jak@ucop.edu
 SHELL=/usr/local/bin/bash

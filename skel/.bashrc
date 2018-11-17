@@ -47,7 +47,7 @@ alias n2edina="ssh n2t@n2tlx.edina.ac.uk"
 #     but that's what the SLES /etc/... startup files for bash do it;
 #     we'll go along because we really only want this next bit done if
 #     we're an interactive shell and _after_ the svu function is defined
-if [ ! -z "$PS1" ]; then	# if there's a prompt, make it decent
+if [ ! -z "${PS1:-}" ]; then	# if there's a prompt, make it decent
         PS1='\h:\W \u\$ '
 	# Make bash check its window size after a process completes
 	shopt -s checkwinsize
@@ -155,7 +155,7 @@ function func() {
 # the change into svu mode to be the last PATH change we need to do.
 # Put it here at the end to be safe.
 # 
-if [ ! -z "$SVU_USING" ]; then	# if SVU mode is set
+if [ ! -z "${SVU_USING:-}" ]; then	# if SVU mode is set
 	svu reset > /dev/null	# clear it out
 fi
 svu cur			# this is what we want by default

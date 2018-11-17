@@ -1,4 +1,4 @@
 # This file is meant to be source'd by .bashrc/.bash_profile.
 # It isolates a bash function that is needed by n2t scripts.
 #
-function svu { eval `svu_run "$PS1"\|\|\|b "$@"`; }
+function svu { eval `svu_run "${PS1:-}"\|\|\|b "$@"`; }

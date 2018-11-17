@@ -17,10 +17,10 @@ UTILITIES=$(LBIN)/n2t $(LBIN)/wegn $(LBIN)/wegnpw $(LBIN)/admegn \
 		$(LBIN)/pfx $(LBIN)/mg $(LBIN)/showargs \
 		$(LBIN)/make_shdr $(LBIN)/shdr_exists $(LBIN)/make_ezacct \
 		$(LBIN)/doip2naan $(LBIN)/naan $(LBIN)/valsh \
-	$(LBIN)/granvl $(LBIN)/set_crontab $(LBIN)/replicate \
+	$(LBIN)/granvl $(LBIN)/replicate \
 	$(LBIN)/egg_batch
 FILES=boot_install_n2t db-5.3.28.tar.gz zlib-1.2.8.tar.gz \
-	make_instance set_crontab replicate n2t apache svu_run
+	make_instance replicate n2t apache svu_run
 # NB: that the two ezid rlogs get pride of place over all other binders
 #QLINKS=$(HOME)/shoulders $(HOME)/minters $(HOME)/binders
 QL=$(HOME)/logs
@@ -55,11 +55,6 @@ $(UTILITIES): $(LBIN)/%: %
 #	date
 
 svu: $(LBIN)/svu_run $(HOME)/sv
-
-# XXXXXXXX why was this so necessary to set up at one time!!??
-# This is the production master cert dir; should start with a 4-digit year.
-# If there's more than one, take only the latest (lexically last) one.
-#CERT_DIR=`cd skel; ls -d ssl/20[0-9][0-9]* | tail -1`
 
 hostname: $(HOME)/warts/env.sh
 
@@ -116,6 +111,9 @@ egnapa:
 #		exit 1; \
 #	fi
 #	@echo "Defining $(EGNAPA_CLASS) host class \"$(EGNAPA_HOST_CLASS)\" via ~/warts/env.sh. xxx next time via 'admegn class'"
+
+# yyy to do: preprocess crontab files so that MAILTO var gets set via a
+#     setting in warts/env.sh
 
 cron: egnapa
 	@cd cron; \
@@ -208,30 +206,6 @@ $(HOME)/.ssh/id_rsa:
 	ssh-keygen -t rsa
 	chmod 700 $(HOME)/.ssh
 
-#$(LBIN)/n2t: n2t
-#	cp -p $^ $(LBIN)
-#
-#$(LBIN)/wegn: wegn
-#	cp -p $^ $(LBIN)
-#
-#$(LBIN)/wegnpw: wegnpw
-#	cp -p $^ $(LBIN)
-#
-#$(LBIN)/logwatch: logwatch
-#	cp -p $^ $(LBIN)
-#
-#$(LBIN)/bdbkeys: bdbkeys
-#	cp -p $^ $(LBIN)
-#
-#$(LBIN)/logwhich: logwhich
-#	cp -p $^ $(LBIN)
-#
-#$(LBIN)/set_crontab: set_crontab
-#	cp -p $^ $(LBIN)
-#
-#$(LBIN)/replicate: replicate
-#	cp -p $^ $(LBIN)
-
 $(HOME)/init.d/apache: $(LBIN)/apache $(LBIN)/egnapa apache
 	cp -p apache $(HOME)/init.d/
 
@@ -240,10 +214,6 @@ $(LBIN)/apache:
 
 $(LBIN)/egnapa:
 	-ln -s $(HOME)/init.d/apache $(LBIN)/egnapa
-
-#$(LBIN)/cron_daily: cron_daily
-#	cp -p $^ $(LBIN)
-#	./cron_daily extract_crontab_entry | crontab -
 
 $(LBIN)/svu_run: svu_run
 	@echo NOTE: svu is maintained in its own repo.

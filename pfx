@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u			# treat unset variables as an error when substituting
+set -u		# use of unset variables throws an error
 export PFX_redir=redirect
 export LANG=en_US.UTF-8
 
@@ -49,6 +49,11 @@ This sub-command lists component locations (if initialized):
 The following sub-commands may be executed in the order listed to update
 the prefixes running on the system.
 
+  publish Component
+            To be run on the host (usually prd) where it's maintained, copy
+	    each given Component to a publicly harvestable part of the host's
+	    server, eg, to be harvested from prd to dev and stg. It's of
+	    limited use to publish on servers (eg, stg) that no one harvests.
   harvest   Assemble components from external sources (eg, daily via cron)
             -> these will be used for files missing from \$pfx_import dir
             won't overwrite newer files unless -f given
@@ -299,7 +304,10 @@ pfx_sources=(					# yyy normalized names
 	lsregistry.yml
 ) # $pfx_base is also a component, but not listed in $pfx_sources
 source_base_prefixes=build/eggnog/t/n2t/$pfx_base
-prd_master_base_prefixes=sv/cur/$source_base_prefixes
+master_base_prefixes=sv/cur/$source_base_prefixes
+
+published=~/sv/cur/apache2/htdocs/e/pub
+ark_published=~/sv/cur/apache2/htdocs/e/arks.org
 
 # first check for errors in harvested sources; if none move out of
 # quarantine; if there's an error in a quarantined file, it stays
@@ -354,6 +362,43 @@ function pfx_mark4refresh {
 	echo "$(cat $markfile) marked for refresh"
 }
 
+# "publish" various prefix components via the current server
+
+function pfx_publish {
+
+	mkdir -p $published $ark_published
+	local comp=${1:-}
+	case $comp in
+	naans)		# not really harvested, this completes the components
+		# yyy source path change from shoulders/naans to just naans
+		cp -p ~/shoulders/naans/master_naans $published
+		# yyy who should update $ark_published ?
+		cp -p ~/shoulders/naans/master_naans \
+			$ark_published/naan_registry.txt
+		;;
+	shoulders)
+		cp -p ~/shoulders/master_shoulders.txt $published
+		;;
+	other)
+		cp -p ~/shoulders/lsregistry.yml $published
+		;;
+	base)		# not really harvested, this completes the components
+		cp -p ~/$master_base_prefixes $published
+		;;
+	*)
+		cat << EOT
+Usage: pfx publish base|shoulders|naans|other
+where
+  shoulders  is maintained on the prd server
+  naans      is maintained on the prd server
+  base       is taken from the eggnog source code
+  other      (lsregistry.yml) is maintained on the prd server
+EOT
+		;;
+	esac
+	return 0
+}
+
 # harvest: bring external files into $pfx_harvest directory (seldom)
 #     - usually called via cron
 # import: bring harvested files into $pfx_import directory (often),
@@ -384,9 +429,11 @@ function pfx_harvest {
 	# dev builds should overwrite it from the developer code repo
 	# (via build_server_tree).
 
+# xxx revise this block of declarations into documentation
+# ebireg.xml lsregistry.yml master_naans master_shoulders.txt pfx_base.yaml
 	rfiles=''			# remote files -- globals?
 	# SPECIAL base file, to keep it from being empty
-	rfiles+=" $prd_master_base_prefixes"
+	rfiles+=" $master_base_prefixes"
 	# INTERNALLY maintained registry
 	# old:     rfiles+=' shoulders/master_shoulders.txt'
 	# new location below is better, since it's the "installed" version,
@@ -395,19 +442,28 @@ function pfx_harvest {
 	#     instance of n2t where we want to validate prefixes
 	rfiles+=' sv/cur/apache2/htdocs/e/pop/ezid/master_shoulders.txt'
 	# INTERNALLY maintained registry
-# XXX should change this to use an installed version separate from raw version
-#     similar to master_shoulders
 	rfiles+=' shoulders/naans/master_naans'
 	# EXTERNALLY maintained (but on hiatus) registry; this is a snapshot
 	rfiles+=' shoulders/lsregistry.yml'
 	# EXTERNALLY maintained registry, updated daily at 05:30 GMT.
 	ebi_url='http://identifiers.org/service/registryxml'
 
-	scp -qp $pfx_maint_host:"$rfiles" $pfx_quarantine || {
-		echo "Error running scp -qp $pfx_maint_host:\"$rfiles\"" \
-			"$pfx_quarantine" 1>&2
-		return 1
-	}
+	#scp -qp $pfx_maint_host:"$rfiles" $pfx_quarantine || 
+	local rfiles=
+# XXX this must be tested in production
+	local rfile
+	local maint_service=https://n2t.net/e/pub
+	for rfile in naan_registry.txt master_shoulders.txt lsregistry.yml
+	do
+		wget -q -O $pfx_quarantine/$rfile $maint_service/$rfile || {
+			echo "Error running wget -q -O $pfx_quarantine/$rfile" \
+				"$maint_service/$rfile" 1>&2
+			return 1
+		}
+	done
+	# kludge!
+	mv $pfx_quarantine/{naan_registry.txt,master_naans}	# yyy kludge!
+
 	# by default, dns, connect, and read timeouts are 900 secs (15 mins)
 	# yyy --timeout=90 ?
 	wget -q -O $pfx_quarantine/ebireg.xml $ebi_url || {
@@ -1708,8 +1764,7 @@ EOT
 
 function pfx_onboard {
 
-	local source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
-
+	#local source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
 	# yyy separate proc, or call direct?
 	pfx -d $buildout_root prebuild || {	# import from import area
 		echo Error: prebuild failed 1>&2
@@ -1739,7 +1794,6 @@ function pfx_build {
 	}
 	return 0
 }
-
 
 # yyy change n2t rollout to call this
 function pfx_install {
@@ -2242,6 +2296,7 @@ pfx_test=$buildout_root/../build/eggnog
 #tested_ok_flag=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 #tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
+source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
 
 # yyy should put this init stuff in a function and not call it on
 #     nonsense commands or bad options
@@ -2321,6 +2376,10 @@ onboard)
 	;;
 build)
 	pfx_build
+	exit
+	;;
+publish)
+	pfx_publish "$@"
 	exit
 	;;
 validate)
