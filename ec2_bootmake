@@ -8,54 +8,63 @@ envsh=warts/env.sh
 fakeuser=samsmith
 
 cmd=${1:-}
-if [[ "$cmd" != init && "$cmd" != go ]]
+if [[ "$cmd" != init && "$cmd" != build ]]
 then
 	cat << EOT
-Usage: $0 [ init | go ]
+Usage: $0 [ init | build ]
 
 Use these instructions and script to set up N2T on a new AWS EC2 instance.
 Start by assuming the identity of the user (eg, sudo to a role account login)
-that you intend to administer the service and change to its home directory.
-Set up some foundation files by running (interactively, not backgrounding)
+that you intend will administer the service and change to its home directory.
+Roughly, there are three steps: "init", configuration, and "build".
+
+Set up yum installation and other foundation files, by running (interactively,
+not backgrounding)
 
       $0 init
 
-and follow the instructions that follow and those that it prints.
+and follow the instructions that follow and those that it prints, including:
 
-1.  Verify that you have correct values for username and cdl.username
-    inside your ~/.hgrc file.
+  1.  Verify that you have correct values for username and cdl.username
+      inside your ~/.hgrc file.
 
-2.  Add your instance's ssh key to bitbucket.org.
+  2.  Add your instance's ssh key to bitbucket.org.
 
-    Login to bitbucket, click on your avatar -> "bitbucket settings" -> "add
-    ssh key" (or something like that). If needed, you can generate it with
+      Login to https://bitbucket.org/cdl, click on your avatar, then on
+      "bitbucket settings" -> "add ssh key" (or something like that).
+      If needed, you can generate it with
 
-      ssh-keygen -t rsa         # enter no filename, no passphrase
-      cat ~/.ssh/id_rsa.pub     # then "copy" contents to clipboard
+        ssh-keygen -t rsa         # enter no filename, no passphrase
+        cat ~/.ssh/id_rsa.pub     # then "copy" contents to clipboard
 
-    Paste it in when bitbucket asks for it. You'll also likely want to
-    add this key to other n2t hosts that you'll want to interact with.
+      Paste it in when bitbucket asks for it. You'll also likely want to
+      add this key to other n2t hosts that you'll want to interact with.
 
-3.  Copy into ~/warts/.pswdfile.n2t the same from from another host, eg,
+  3.  Copy into ~/warts/.pswdfile.n2t the same from from another host, eg,
 
-      scp -p n2t-dev.n2t.net:warts/.pswdfile.n2t ~/warts/
+        scp -p n2t-dev.n2t.net:warts/.pswdfile.n2t ~/warts/
 
-4.  Make sure that your system people have (a) put your web server certs
-    file into the ~/ssl/ directory, (b) added mongodb.repo to
-    /etc/yum.repos.d, and (c) opened up access between mongo replicas on
-    ports 27017-27027 and 47017-47027.
+  4.  Make sure that your system people have (a) put your web server certs
+      file into the ~/ssl/ directory, (b) added mongodb.repo to
+      /etc/yum.repos.d, and (c) opened up access between mongo replicas on
+      ports 27017-27027 and 47017-47027.
 
-5.  Per the cert filename assignments in ~/$envsh, copy the correct files
-    from ~/ssl/... into ~/warts/ssl.
+  5.  Per the cert filename assignments in ~/$envsh, copy the correct
+      files from ~/ssl/... into ~/warts/ssl.
 
-6.  The main installation step is next, done by running
+Now do some basic configuration by running
 
-      $0 go
+      source ~/.bashrc
+      svu new
 
-7.  Finally have your system people copy ~/n2t_create/apache.n2t to
-    /etc/init.d/apache.n2t so that the service comes up and shuts down
-    properly during system reboots. You'll also want to have web service
-    monitoring set up, eg, Nagios.
+and then by running
+
+      $0 build
+
+Finally have your system people copy ~/n2t_create/apache.n2t to
+/etc/init.d/apache.n2t so that the service comes up and shuts down
+properly during system reboots. You'll also want to have web service
+monitoring set up, eg, Nagios.
 
 EOT
 	exit
@@ -100,7 +109,8 @@ function ec2_init {
 		mailto="$def_mailto"
 
 	local create=
-	[[ -e "$envsh" ]] && {
+	if [[ -e "$envsh" ]]
+	then
 		p="Backup and overwrite existing $envsh file? "
 			p+="[y/n] (default no): "
 		read -t 60 -p "$p" || {
@@ -111,13 +121,15 @@ function ec2_init {
 			create=yes
 			echo ok, keeping existing file
 		}
-	}
+	else
+		create=yes
+	fi
 
 	# If we get here, we're committed to actual filesystem mods.
 	mkdir -p ssl warts/ssl
 
 	[[ -e $hgrc ]] || {
-		echo creating generic $hgrc - edit to change user names
+		echo creating generic $hgrc '<---' edit this change user names
 		cat > $hgrc << EOT
 
 [ui]
@@ -197,97 +209,117 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	exit 1
 }
 
-# I I check into whether to use installonlypkgs; from "man yum.conf":
-#   "installonlypkgs=<space separated list of packages>
-#      Here you can provide a space-separated list of packages which
-#      yum can install, but will never update."
+[[ "$cmd" == config ]] && {
+	# I I check into whether to use installonlypkgs; from "man yum.conf":
+	#   "installonlypkgs=<space separated list of packages>
+	#      Here you can provide a space-separated list of packages which
+	#      yum can install, but will never update."
 
-sudo yum -y update			# update to latest OS version
-sudo yum -y group install "Development Libraries"
-sudo yum -y group install "Development Tools"   # gcc
-sudo yum -y group install "Web Server"          # mod_ssl, ExtUtils/MakeMaker
-sudo yum -y install hg
-sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
-sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
-sudo yum -y install 'perl(Time::HiRes)'
-sudo yum -y install 'perl(Log::Log4perl)'
-sudo yum -y install 'perl(XML::LibXML)'
-sudo yum -y install 'perl(XML::LibXSLT)'
-sudo yum -y install 'perl(App::cpanminus)'
-sudo yum -y install jq
+	sudo yum -y update			# update to latest OS version
+	sudo yum -y group install "Development Libraries"
+	sudo yum -y group install "Development Tools"   # gcc
+	sudo yum -y group install "Web Server"    # mod_ssl, ExtUtils/MakeMaker
+	sudo yum -y install hg
+	sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
+	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
+	sudo yum -y install 'perl(Time::HiRes)'
 
-sudo yum -y install mongodb-org
-# on mac, need: brew install mongodb --with-openssl
-# yyy never actually used telnet for this
-sudo yum -y install telnet	# for network testing, eg, mongo replication
-rpm -V mongodb-org || {			# because it has gpgcheck disabled
-	sudo yum -y remove mongodb-org
-	echo error: mongodb-org installation failed to verify -- aborting.
-	exit 1
+
+
+	sudo yum -y install 'perl(Log::Log4perl)'
+	# XXX AWS: No package perl(Log::Log4perl) available.
+	#     Error: Nothing to do
+
+	# xxx when system comes up, even partially, crontab is off and spewing
+	#     error messages a little too easily --  how to stop?
+
+
+	sudo yum -y install 'perl(XML::LibXML)'
+	sudo yum -y install 'perl(XML::LibXSLT)'
+	sudo yum -y install 'perl(App::cpanminus)'
+	sudo yum -y install jq
+
+	sudo yum -y install mongodb-org
+	# on mac, need: brew install mongodb --with-openssl
+	# yyy never actually used telnet for this
+	sudo yum -y install telnet	# network testing, eg, mongo replication
+	rpm -V mongodb-org || {		# because it has gpgcheck disabled
+		sudo yum -y remove mongodb-org
+		echo error: mongodb-org installation failed to verify -- aborting.
+		exit 1
+	}
+
+	# Trying hypothesis that we don't need these next two yum installs
+	# # XXX should confirm that these next are still needed
+	# # This next installs python's lxml module so that the mdsadmin script
+	# # (that creates DataCite datacenters) can run.
+	# sudo yum -y install libxml2-devel libxslt-devel python-devel
+	# sudo yum -y install libxml2-python libxslt-python python-pip
+	# pip install --install-option="--prefix=$sv" lxml
+	# # To use this module, .bashrc sets PYTHONPATH to something like
+	# # PYTHONPATH=$sv/lib64/python2.6/dist-packages
+
+	#hg clone http://hg.cdlib.org/n2t_create
+	hg clone ssh://hg@bitbucket.org/cdl/n2t-admin
+	rm -fr n2t_create	# if it exists the rename below won't work
+	mv n2t-admin n2t_create		# simple rename
+	cd n2t_create
+	make			# sets up .bashrc and svu defs; runs "svu init"
+				# sets up of crontab
+		# XXX do not background or redirect, since it asks questions!
+	exit
 }
 
-# Trying hypothesis that we don't need these next two yum installs
-# # XXX should confirm that these next are still needed
-# # This next installs python's lxml module so that the mdsadmin script
-# # (that creates DataCite datacenters) can run.
-# sudo yum -y install libxml2-devel libxslt-devel python-devel
-# sudo yum -y install libxml2-python libxslt-python python-pip
-# pip install --install-option="--prefix=$sv" lxml
-# # To use this module, .bashrc sets PYTHONPATH to something like
-# # PYTHONPATH=$sv/lib64/python2.6/dist-packages
+# XXXX stop here, and make the user do source and svu
+#set +u			# cannot count on .bashrc to be squeaky clean
+#source ~/.bashrc	# so we can do svu new
+#svu new
+#set -u
 
-#hg clone http://hg.cdlib.org/n2t_create
-hg clone ssh://hg@bitbucket.org/cdl/n2t-admin
-rm -fr n2t_create		# if it exists the rename below won't work
-mv n2t-admin n2t_create		# simple rename
-cd n2t_create
-make			# sets up .bashrc and svu defs; runs "svu init"
-			# sets up of crontab
-		# XXX do not background or redirect, since it asks questions!
 
-set +u			# cannot count on .bashrc to be squeaky clean
-source ~/.bashrc	# so we can do svu new
-svu new
-set -u
-./make_instance build mongodb_pm httpd n2t > berrs 2>&1
+[[ "$cmd" == build ]] && {
+	# XXXX resume script here
+	./make_instance build mongodb_pm httpd n2t > berrs 2>&1
 
-svu rollout	# ok as no users yet, and this puts everything of interest
-		# under the 'cur' version, our default logged-in state
+	svu rollout	# ok as no users yet; this puts everything of interest
+			# under the 'cur' version, our default logged-in state
 
-### now logout and login again???
+	### now logout and login again???
 
-svu cur		# now make sure that instance is in effect yyy needed?
+	svu cur		# now make sure that instance is in effect yyy needed?
 
-mg rs_start		# one-time replica set initialization
+	mg rs_start		# one-time replica set initialization
 
-##### !!! you might have to logout and back in for $sv to be correct?
-#set_crontab go		# takes care of crontab tests
+	##### !!! you might have to logout and back in for $sv to be correct?
+	#set_crontab go		# takes care of crontab tests
 
-# XXXX oops: crontab is now set up, but n2t isn't even rolled out!
+	# XXXX oops: crontab is now set up, but n2t isn't even rolled out!
 
-pfx init
-pfx hitrnt		# establish prefix stuff, needed for first rollout
+	pfx init
+	pfx hitrnt	# establish prefix stuff, needed for first rollout
 			# yyy this will error out: cd:
 			# /apps/n2t/sv/cv2/apache2/pfx_work/build: No such file
 			# or directory
 			# Could not chdir to
 			# /apps/n2t/sv/cv2/apache2/pfx_work/build.
 
-n2t rollout		# takes care of dvscid test
+	n2t rollout	# takes care of dvscid test
 
-# yyy chicken and egg problem (?) with rollout, which depends on prefixes.
-#     seems we might need to run "pfx hitrnt" before rollout?, but we can't do
-#     that before we've rolled things out the first time (or can we?)
+	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
+	#     seems we might need to run "pfx hitrnt" before rollout?, but we
+	#     can't do that before we've rolled things out the first time
+	#     (or can we?)
 
-n2t test		# test that things are more or less ok
+	n2t test		# test that things are more or less ok
 
-#echo 'Now grab and install warts/.pswdfile.n2t from another system.'
+	#echo 'Now grab and install warts/.pswdfile.n2t from another system.'
 
-#### IMPORTANT!
-echo 'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
-and set up chkconfig so that the N2T service comes up on machine (re)boot.'
-echo 'Also, ask for a Nagios web service monitor to be set up.'
+	#### IMPORTANT!
+	echo 'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
+	and set up chkconfig so that the N2T service comes up on machine (re)boot.'
+	echo 'Also, ask for a Nagios web service monitor to be set up.'
 
-echo To switch between two main utility directories, use '"cd $sn; pd $se"'.
-echo
-
+	echo To switch between two main utility directories, use '"cd $sn; pd $se"'.
+	echo
+	exit
+}
