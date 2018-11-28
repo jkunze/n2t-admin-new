@@ -189,7 +189,8 @@ function n2t_rollout {	# assumes caller ran check_changes!
 		# It's a feature that source code changes to
 		# eggnog_conf_default will be installed with the system.
 
-		for d in cgi-bin conf htdocs ssl eggnog_conf_default
+		#for d in cgi-bin conf htdocs ssl eggnog_conf_default
+		for d in cgi-bin conf htdocs eggnog_conf_default
 		do
 			echo Copying contents of $nsf/$d.
 			cp -pr $nsf/$d . || {

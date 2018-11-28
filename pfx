@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# XXX ideal candidate for warts and class definition; fix this
+# pfx_maint_host=$pfx_maint_user@ids-n2t-prd-2a.n2t.net	# where maintained
+
 set -u		# use of unset variables throws an error
 export PFX_redir=redirect
 export LANG=en_US.UTF-8
@@ -14,10 +17,10 @@ pfxadmin=jak@ucop.edu		# yyy dumb
 mainout=prefixes.yaml
 pubout=cdl_ebi_prefixes.yaml
 fullout=n2t_full_prefixes.yaml
+n2tregout=n2t_prefixes.yaml
 pubregURL=https://n2t.net/e/$pubout
 pubregARK=https://n2t.net/ark:/13030/c7xk84q2j
 requestURL=https://n2t.net/e/prefix_request
-n2tregout=n2t_prefixes.yaml
 harvest_log=~/logs/pfx_harvest_log
 none='(none)'
 
@@ -95,6 +98,16 @@ Some assistive sub-commands.
             Called by "hitrnt" and "pfxsync" to install and rollout.
             If present, ChangedFiles should be a space-separated list of
             names of files that have changed.
+  save Webtop
+            Snapshots the prefix build products from under the web server
+	    root directory, Webtop, and saves them in a subdirectory,
+	    pfx_saved, of the Eggnog source code directory. Together with
+            "restore", this can avoid the lengthy process of rebuilding
+            prefix products which would otherwise be destroyed when the web
+            server is rebuilt.
+  restore Webtop
+            Copies prefix build products from the pfx_saved directory into
+            the web server rooted at Webtop.
 
 These sub-commands are purely about querying the prefix data itself.
 
@@ -157,19 +170,19 @@ And these sub-commands are at an even lower level.
             -> -d strongly recommended
             yyy Very ripe for recoding, this does a huge amount of work
 	    with some (now understood to be) poorly named functions
-       validate_ebi
+        validate_ebi
               - converts ebireg.xml to ebireg.clean.xml
               - converts ebireg.clean.xml to ebireg.xpathout
               - converts ebireg.xpathout to ebireg.yaml
               - converts ebireg.yaml to ebireg_tmp
               - converts ebireg_tmp to ebi.yaml
-       pfx_validate_prefixes
+        pfx_validate_prefixes
 	      - converts ebi.yaml to ebi.anvl
   combine   Combine NAANs, shoulders, prefixes into validated $mainout
             -> -d strongly recommended
             NB: updates still invisible to running system until "n2t rollout"
             (to be fixed). Calls
-       pfx_combine
+        pfx_combine
               - converts *.anvl to prefixes.yaml
 
 Prefixes are built in a server tree directory given by, in precedence order,
@@ -281,6 +294,7 @@ function pfx_updates_ready_in {
 		ready+=( $( cat $ondeck/mark4refresh ) )
 		rm -f $ondeck/mark4refresh
 	}
+	# yyy we don't check for existence of prefixes.yaml
 	[[ ${#ready[@]} -gt 0 ]] && {
 		echo ${ready[@]}	# output the list
 		return 0		# either something's ready
@@ -294,6 +308,7 @@ function pfx_updates_ready_in {
 pfx_maint_user=n2t					# who maintains
 pfx_harvest=~/pfx_harvest			# one harvest area per HOST
 pfx_quarantine=$pfx_harvest/quarantine
+# XXX ideal candidate for warts and class definition
 pfx_maint_host=$pfx_maint_user@ids-n2t-prd-2a.n2t.net	# where maintained
 ebireg=ebireg		# from http://identifiers.org/service/registryxml
 pfx_base=pfx_base.yaml				# yyy should be pfx_base.yaml
@@ -354,7 +369,7 @@ function pfx_harvest_validate {
 
 function pfx_mark4refresh {
 
-	local  markfile=$pfx_harvest/mark4refresh
+	local markfile=$pfx_harvest/mark4refresh
 	local mark=${1:-master_shoulders.txt}
 
 	mark=$( basename $mark )
@@ -1865,6 +1880,14 @@ function pfx_install {
 	}
 	err=
 	echo "Copying contents of $nsf/{$px,$pubpx,$n2tpx,$n2tfpx} to $buildout_root."
+
+# XXXXXX 
+#cp: /Users/jak/sv/cv2/build/eggnog/td_egnapa/cdl_ebi_prefixes.yaml: No such file or directory
+#cp: /Users/jak/sv/cv2/build/eggnog/td_egnapa/n2t_prefixes.yaml: No such file or directory
+#cp: /Users/jak/sv/cv2/build/eggnog/td_egnapa/n2t_full_prefixes.yaml: No such file or directory
+#Error copying new public files cdl_ebi_prefixes.yaml, n2t_prefixes.yaml, and  n2t_full_prefixes.yaml to /Users/jak/sv/cv2/apache2/htdocs/e/
+# XXXXXX n2t_full_prefixes.yaml missing from pfx_work/build
+
 	cp -p $nsf/$px $buildout_root || err=y
 	[[ $err ]] && {
 		echo "Error copying in new $px file to $buildout_root" 1>&2
@@ -2049,6 +2072,41 @@ function pfx_test_rollout_n2t_test {
 	echo "$( temper ) changed files: $changed_files; $statsline" \
 		>> $ok_updates
 	return 0
+}
+
+function pfx_save {
+	local w=${1:-}			# top of web server
+	[[ "$w" && -d "$w" ]] || {
+		echo "Error: no web server at $w" 1>&2
+		return 1
+	}
+	rm -fr $saveddir
+	mkdir $saveddir
+	ls $w/{,cdl_ebi_,n2t_,n2t_full_}prefixes.yaml $w/pfx_work > /dev/null ||
+		return 1		# all these must be present
+	cp -pr $w/pfx_work/* $saveddir/
+	# these next files to save are put in place by pfx_install
+			# yyy find a way to put these in variables
+	cp -p $w/{cdl_ebi_prefixes,n2t_prefixes,n2t_full_prefixes}.yaml \
+		$saveddir
+	return
+}
+
+function pfx_restore {
+	local w=${1:-}			# top of web server
+	[[ "$w" && -d "$w" ]] || {
+		echo "Error: no web server at $w" 1>&2
+		return 1
+	}
+	local work=$w/pfx_work
+	mkdir -p $work
+	cp -pr $saveddir/* $work/		# restore pfx_work plus
+	cp -p $work/build/prefixes.yaml \
+		$work/{cdl_ebi_prefixes,n2t_prefixes,n2t_full_prefixes}.yaml \
+			$w/		# some top level files
+	ls $w/{,cdl_ebi_,n2t_,n2t_full_}prefixes.yaml $w/pfx_work > /dev/null ||
+		return 1		# all these must be present
+	return
 }
 
 # Meant to be called from cron with $MAILTO as 1st arg. If optional 2nd arg
@@ -2292,11 +2350,13 @@ aborted_trnt=$buildout_root/pfx_work/aborted_update
 ok_updates=$buildout_root/pfx_work/ok_updates
 master_prefixes=$buildout_root/prefixes.yaml
 
-pfx_test=$buildout_root/../build/eggnog
+pfx_test=$sv/build/eggnog
+#pfx_test=$buildout_root/../build/eggnog
 #tested_ok_flag=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 #tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
 source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
+saveddir=$sv/build/eggnog/pfx_saved
 
 # yyy should put this init stuff in a function and not call it on
 #     nonsense commands or bad options
@@ -2344,6 +2404,14 @@ mark4refresh)
 	;;
 test_rollout_n2t_test)
 	pfx_test_rollout_n2t_test "$@"
+	exit
+	;;
+save)
+	pfx_save "$@"
+	exit
+	;;
+restore)
+	pfx_restore "$@"
 	exit
 	;;
 harvest)
