@@ -136,14 +136,23 @@ hard-restart)
 	;;
 
 status)
+	lines=$( netstat -an | grep -w -e $port_http -e $port_https | wc -l )
+	if [[ "$lines" -eq 2 ]]
+	then
+		netstat_up="and netstat -an agrees"
+		netstat_down="but netstat -an disagrees"
+	else
+		netstat_up="but netstat -an disagrees"
+		netstat_down="and netstat -an agrees"
+	fi
 	let up=2
 	pidcount=`ps -fU $user | grep -c '[Hh]ttpd'`
 	if [ $pidcount -le 0 ]; then
-		echo "DOWN (not running)"
+		echo "DOWN (not running), $netstat_down"
 		let up--
 		#exit 1
 	else
-		echo "UP ($cfg_info) -- $listening"
+		echo "UP ($cfg_info) -- $listening, $netstat_up"
 	fi
 	# yyy no probe no "graceful"
 	mg status
