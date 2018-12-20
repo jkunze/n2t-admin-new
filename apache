@@ -136,11 +136,13 @@ hard-restart)
 	;;
 
 status)
-	lines=$( netstat -an | grep -w -e $port_http -e $port_https | wc -l )
-	if [[ "$lines" -eq 2 ]]
+	lines=$( netstat -an | perl -anE \
+		"\$F[3] =~ /\b($port_http|$port_https)$/ and print" )
+	linecnt=$( wc -l <<< "$lines" )
+	if [[ "$linecnt" -eq 2 ]]
 	then
 		netstat_up="and netstat -an agrees"
-		netstat_down="but netstat -an disagrees"
+		netstat_down="but netstat -an disagrees"$'\n'"$lines"
 	else
 		netstat_up="but netstat -an disagrees"
 		netstat_down="and netstat -an agrees"
