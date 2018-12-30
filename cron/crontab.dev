@@ -1,27 +1,2 @@
 # n2t crontab file -- dev version
 
-MAILTO=jak@ucop.edu
-
-# update operating system automatically on Mondays
-# NB: changed admegn to reboot on any non-empty change (eg, crontab broke)
-38 5 * * 1 bash -lc "admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; else echo +==== no reboot required; fi" >> logs/sysupdate_log 2>&1
-
-# Every 3 minutes check that resolution is working.  If not, an alert email
-# is sent and apache is restarted, which mitigates the "off-by-one" error.
-# It uses "admegn rcheck" to send an email on failure and exit with non-zero
-# status, which is tested (via ||) for an apache restart.
-#
-*/3 * * * * bash -lc "admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart) >> logs/restart_log 2>&1"
-
-# Check daily for system (possibly error) messages.
-#
-55 7 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn error_check $MAILTO 2>&1"
-
-# Look once a night for rotated transaction_log files to rename.
-# Note that such files are generally created only once a week.
-#
-15 00 * * 1-7 bash -lc "admegn logrename > /dev/null 2>&1"
-
-#### Sundays at 4:03 am, delete log files older than 6 months.
-03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
-

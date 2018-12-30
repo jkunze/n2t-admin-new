@@ -177,7 +177,7 @@ mg_live_mode=live		# 'live' or 'test'
 mg_test_mode=test		# 'live' or 'test'
 
 mg_other="--fork --logappend"		# additional mongod daemon flags
-mg_other+=" --storageEngine wiredTiger"
+#mg_other+=" --storageEngine wiredTiger"	# this is the default
 #--bind_ip 'localhost,172.31.23.24'	# no space after comma
 #--rest		# deprecated since 3.2: admin UI: http://localhost:28017
 
@@ -273,6 +273,7 @@ function use_mg {			# call with: port|'any' [ setname ]
 	mg_procfile="$mg_proc_base""local:$mg_port"
 	mg_procfile_alt="$mg_proc_base_alt""local:$mg_port"
 	mg_flags=(
+		--bind_ip "localhost,$mg_host"		# no space after comma
 		--port $mg_port --replSet $mg_setname
 		--dbpath $mg_dbpath --logpath $mg_dblog
 		$mg_other
