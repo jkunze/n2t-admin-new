@@ -45,6 +45,7 @@ The prefix database is a yaml file built from processed component files.
 A crucial "base" prefix component file lives in and evolves with N2T.net's
 EggNog source. Ingest of components is staged in order to automate entry
 of prefix changes while protecting the system from errors and instability.
+A one-time system initialization of components requires internet access.
 This sub-command lists component locations (if initialized):
 
     $me dirs
@@ -53,10 +54,10 @@ The following sub-commands may be executed in the order listed to update
 the prefixes running on the system.
 
   publish Component
-            To be run on the host (usually prd) where it's maintained, copy
-	    each given Component to a publicly harvestable part of the host's
-	    server, eg, to be harvested from prd to dev and stg. It's of
-	    limited use to publish on servers (eg, stg) that no one harvests.
+            To be run only on the host (usually prd) where the Component file
+	    is maintained, copy it to a publicly harvestable part of the host's
+	    server, eg, to be harvested by dev, stg, or replica prd servers.
+	    It is of no use to publish on servers (eg, stg) no one harvests.
   harvest   Assemble components from external sources (eg, daily via cron)
             -> these will be used for files missing from \$pfx_import dir
             won't overwrite newer files unless -f given
@@ -70,8 +71,10 @@ the prefixes running on the system.
   test      Test prefix lookup and redirect rules (only tests BUILD area)
             Calls (via eggnog's t/z_egg_prefixes_n2t.t) "tested_ok" if all
             tests succeeded. Starts with a completely empty build area.
+	    -> requires built eggnog server
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" now (but see "hitrnt" below).
+	    -> requires built eggnog server
 
 The highest level sub-commands, the first meant to be initiated via crontab.
 
@@ -332,7 +335,7 @@ ark_published=~/sv/cur/apache2/htdocs/e/arks.org
 function pfx_harvest_validate {
 
 	[[ ! -d $pfx_harvest || ! -d $pfx_import ]] && {
-		pfx_init || return
+		pfx_init || return		# yyy needed?
 	}
 	[[ ! -r $pfx_harvest/$pfx_base ]] &&	# yyy update previous stage
 		pfx_base harvest		# from default
@@ -522,7 +525,7 @@ function pfx_base {
 	esac
 
 	# default file with new content default
-	local nfile=$buildout_root/../$source_base_prefixes
+	local nfile=$buildout_root/../../../$source_base_prefixes
 	[[ $# -gt 0 ]] && {
 		nfile=$1
 		shift
@@ -565,7 +568,7 @@ function pfx_base {
 
 function pfx_import {
 	[[ ! -d $pfx_harvest || ! -d $pfx_import ]] && {
-		pfx_init || return
+		pfx_init || return		# yyy needed?
 	}
 	local f
 	for f in $pfx_base ${pfx_sources[@]}
@@ -634,6 +637,14 @@ function pfx_init {
 	}
 	mkdir -p $pfx_harvest || {
 		echo Could not create $pfx_harvest directory. 1>&2
+		return 1
+	}
+	pfx_harvest || {
+		echo Could initialize harvest. 1>&2
+		return 1
+	}
+	pfx_import || {
+		echo Could initialize import 1>&2
 		return 1
 	}
 }
@@ -1326,6 +1337,12 @@ function pfx_stage_pfxcoms {
 # YYY relies on caller defining $pfx_build putting us in the dir it names
 function pfx_validate {
 
+	cd $pfx_build || {
+		echo Could not chdir to $pfx_build. 1>&2
+		return 1
+	}
+	echo "$me process running now in $pfx_build directory"
+
 	local s Nnaans Nshoulders Nebi Npxc	# Numbers of prefixes
 
 	echo - Validating $naanFile
@@ -1379,6 +1396,12 @@ function pfx_validate {
 }
 
 function pfx_combine {
+
+	cd $pfx_build || {
+		echo Could not chdir to $pfx_build. 1>&2
+		return 1
+	}
+	echo "$me process running now in $pfx_build directory"
 
 	# main output
 	cat > $mainout << EOT
@@ -1780,30 +1803,36 @@ EOT
 function pfx_onboard {
 
 	#local source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
-	# yyy separate proc, or call direct?
-	pfx -d $buildout_root prebuild || {	# import from import area
+	# xxx separate proc, or call direct?
+	#pfx -d $buildout_root prebuild || {	# import from import area
+	pfx_prebuild || {	# import from import area
 		echo Error: prebuild failed 1>&2
 		return 1
 	}
-	# yyy separate proc, or call direct?
-	pfx -d $buildout_root base prebuild \
-		$source_base_prefixes || {	# update with latest base file
+	# xxx separate proc, or call direct?
+	#pfx -d $buildout_root base prebuild || {
+	pfx_base prebuild || {
+		#$source_base_prefixes || {	# update with latest base file
 		echo Error: base prebuild failed 1>&2
 		return 1
 	}
-	# yyy separate proc, or call direct?
-	pfx -d $buildout_root updates_ready_in prebuild
+	# xxx separate proc, or call direct?
+	#pfx -d $buildout_root updates_ready_in prebuild
+	pfx_updates_ready_in prebuild
+	# NB: this function's return status will be that of the above command
 }
 
 function pfx_build {
 
-	# yyy separate proc, or call direct?
-	pfx -d $buildout_root validate || {	# validate prefix sources
+	# xxx separate proc, or call direct?
+	#pfx -d $buildout_root validate || {	# validate prefix sources
+	pfx_validate || {	# validate prefix sources
 		echo Error: failed to validate prefixes 1>&2
 		return 1
 	}
-	# yyy separate proc, or call direct?
-	pfx -d $buildout_root combine || {	# create combined prefixes file
+	# xxx separate proc, or call direct?
+	#pfx -d $buildout_root combine || {	# create combined prefixes file
+	pfx_combine || {	# create combined prefixes file
 		echo Error: failed to build prefixes 1>&2
 		return 1
 	}
@@ -2049,6 +2078,7 @@ function pfx_test_rollout_n2t_test {
 	# via command in a "local" and expect to save the return status!
 	echo "+==== trnt: diffs in $diffsfile"
 	local output statsline
+# xxx pfx_<verb>?
 	output=$( pfx test 2>&1 ) || {
 		echo "$output"
 		echo "+==== Error: trnt: pfx test failed"
@@ -2058,6 +2088,7 @@ function pfx_test_rollout_n2t_test {
 	statsline=$( grep '+==== STATS' <<< "$output" )
 	echo "${statsline:-+==== Warning: no STATS line}"
 	echo "$output"
+# xxx pfx_<verb>?
 	pfx rollout 2>&1 || {
 		echo "+==== Error: trnt: pfx rollout failed"
 		return 1
@@ -2120,6 +2151,7 @@ function pfx_cron_hitrnt {
 	local msg=
 	local output=	# NB: local ALWAYS succeeds, so don't initialize
 	# via command in a "local" and expect to save the return status!
+# xxx pfx_<verb>?
 	output+=$( pfx hitrnt 2>&1 )$'\n' || {
 		msg="+==== Error: pfx hitrnt"
 		output+="$msg"
@@ -2144,6 +2176,7 @@ function pfx_cron_hitrnt {
 
 	# else sync to remote host
 	output+="+==== launching \"pfx pfxsync $rhost\""$'\n'
+# xxx pfx_<verb>?
 	output+=$( pfx pfxsync $rhost 2>&1 )$'\n' || {
 		msg="+==== Error: pfx pfxsync $rhost"
 		output+="$msg"
@@ -2160,7 +2193,9 @@ function pfx_cron_hitrnt {
 function pfx_hitrnt {
 
 	echo -n "+==== $( date ) hitrnt: "
-	pfx harvest 2>&1
+# xxx pfx_<verb>?
+	pfx harvest 2>&1		# yyy use internal pfx_harvest, eg,
+				# so we're assure of using correct version?
 	if [[ $? -eq 1 ]]
 	then
 		echo "pfx harvest error; bailing out"
@@ -2178,6 +2213,7 @@ function pfx_hitrnt {
 	then			# proceed with previously aborted update
 		u=$( head -1 $aborted_trnt )
 	else			# proceed if there are any new updates
+# xxx pfx_<verb>?
 		u=$( pfx updates_ready_in harvest ) || {
 					# yyy not checking for real errors
 			echo "$none"		# no updates, caller meant to
@@ -2186,6 +2222,7 @@ function pfx_hitrnt {
 	fi
 	echo "$u"
 
+# xxx pfx_<verb>?
 	pfx import 2>&1 || {
 		echo -e "$u\n+==== import error; bailing out"
 		return 1
@@ -2355,7 +2392,7 @@ pfx_test=$sv/build/eggnog
 #tested_ok_flag=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
 #tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
-source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
+#source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
 saveddir=$sv/build/eggnog/pfx_saved
 
 # yyy should put this init stuff in a function and not call it on
@@ -2451,20 +2488,20 @@ publish)
 	exit
 	;;
 validate)
-	cd $pfx_build || {
-		echo Could not chdir to $pfx_build. 1>&2
-		exit 1
-	}
-	echo "$me process running now in $pfx_build directory"
+	#cd $pfx_build || {
+	#	echo Could not chdir to $pfx_build. 1>&2
+	#	exit 1
+	#}
+	#echo "$me process running now in $pfx_build directory"
 	pfx_prebuild "$@" && pfx_validate "$@"		# yyy args unused
 	exit
 	;;
 combine)
-	cd $pfx_build || {
-		echo Could not chdir to $pfx_build. 1>&2
-		exit 1
-	}
-	echo "$me process running now in $pfx_build directory"
+	#cd $pfx_build || {
+	#	echo Could not chdir to $pfx_build. 1>&2
+	#	exit 1
+	#}
+	#echo "$me process running now in $pfx_build directory"
 	pfx_combine "$@"	# yyy args unused
 	exit
 	;;
@@ -2488,7 +2525,8 @@ tested_ok)
 	exit
 	;;
 init)
-	pfx_init "$@"
+	echo Initialized	# yyy implicitly, else we wouldn't get this far
+	#pfx_init "$@"
 	exit
 	;;
 find)

@@ -219,7 +219,7 @@ cd $sv || exit 1
 mkdir -p bin build lib man	# -p quells complaints if these already exist
 				# yyy puppet will ensure modes...
 
-# Now descend into "build", where we keep all scaffolding.  This includes an
+# Now descend into "build", where we keep all scaffolding.  This includes a
 # log file that accumulates across multiple runs (ie, we have some history).
 #
 cd $sv/build || exit 1
@@ -576,6 +576,30 @@ echo =================== fetching/building $ossl ===================
 }
 
 function do_httpd {
+
+# As usual, this assumes the current directory is $sv/cur.
+# New version for AWS Linux2. Build server from Apache 2.4 system installation.
+httpd=/etc/httpd
+echo =================== copying in from $httpd ===================
+
+# The easiest way to find all of the configuration flags for Apache 2.2
+# is to run ./configure --help.
+
+(cd $httpd
+
+	#echo configure
+	#./configure --prefix=$sv/apache2 --with-z=$sv \
+	#	--enable-modules=all --enable-ssl --with-included-apr \
+	#	--with-ssl=$sv
+	#echo $gmake
+	#$gmake
+	#echo $gmake install
+	#$gmake install
+)
+
+}
+
+function do_httpd_old {
 
 # Fetch Apache HTTPD server and build it.
 #

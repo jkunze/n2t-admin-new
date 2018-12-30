@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
 
-# xxx use EGNAPA_SSL_{CERT,KEY,CHAIN}FILE if you want non-self-signed certs
+source ~/.bashrc	# which might not exist yet
 
-set -u		# make the use of unset variables throw an error
+set -u			# now make the use of unset variables throw an error
 hgrc=~/.hgrc
 envsh=warts/env.sh
 fakeuser=samsmith
 
 cmd=${1:-}
-if [[ "$cmd" != init && "$cmd" != build ]]
+if [[ "$cmd" != init && "$cmd" != build && "$cmd" != httpd ]]
 then
 	cat << EOT
 Usage: $0 [ init | build ]
 
-Use these instructions and script to set up N2T on a new AWS EC2 instance.
+Use these instructions and script to set up N2T on a new AWS EC2 instance
+(SSD and xfs recommended).
 Start by assuming the identity of the user (eg, sudo to a role account login)
 that you intend will administer the service and change to its home directory.
-Roughly, there are three steps: "init", configuration, and "build".
+Roughly, there are two steps: "init" and "build".
 
 Set up yum installation and other foundation files, by running (interactively,
 not backgrounding)
@@ -52,12 +53,8 @@ and follow the instructions that follow and those that it prints, including:
   5.  Per the cert filename assignments in ~/$envsh, copy the correct
       files from ~/ssl/... into ~/warts/ssl.
 
-Now do some basic configuration by running
 
-      source ~/.bashrc
-      svu new
-
-and then by running
+Then run
 
       $0 build
 
@@ -194,6 +191,46 @@ EOT
 	return 0
 }
 
+# All we need to do is the minimum to bring up Apache successfully,
+# since we'll overwrite most inherited configuration.
+
+function do_apache_httpd24 {
+
+	# ! assumes svu cur
+	local sysap=/etc/httpd		# system apache
+	local aptop=~/sv/cur/apache2
+	rm -fr $aptop
+	mkdir $aptop
+	cd $aptop
+	mkdir bin cgi-bin conf conf.d htdocs httpauth logs var var/run var/lock
+	ln -s /usr/sbin/httpd bin/httpd			# yyy needed?
+	ln -s $sysap/modules modules
+	ln -s $sysap/conf/magic conf/magic		# seem to be empty
+	ln -s $sysap/conf.modules.d conf.modules.d	# keep these verbatim,
+		# eg, /etc/httpd/conf.modules.d/00-base.conf; later we'll
+		# override selectively via build_server_tree, eg, 00-ssl.conf
+	cp /etc/httpd/conf.d/* conf.d	# later build_server_tree removes these
+	cp /etc/httpd/conf/httpd.conf conf/httpd.conf.sys	# one-time save
+	perl -pE '/^(Server|Document)Root/ and s/^/#/;
+		/^Listen/ and s/.*/Listen 18880/' conf/httpd.conf.sys \
+		> conf/httpd.conf
+	cat >> conf/httpd.conf << EOT
+
+PidFile $aptop/var/run/httpd.pid
+DefaultRuntimeDir $aptop/var/run
+EOT
+	rm  conf.d/ssl.conf		# disable SSL stuff for now
+	#cp conf.d/ssl.conf conf.d/ssl.conf.sys
+	#perl -pE '/^SSLCert/ and s/^/#/;
+	#	/^Listen/ and s/.*/Listen 18443/' conf.d/ssl.conf.sys \
+	#		> conf.d/ssl.conf
+}
+
+[[ "$cmd" == httpd ]] && {
+	do_apache_httpd24
+	exit
+}
+
 [[ "$cmd" == init ]] && {
 	ec2_init
 	exit
@@ -216,26 +253,46 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	#      yum can install, but will never update."
 
 	sudo yum -y update			# update to latest OS version
-	sudo yum -y group install "Development Libraries"
+
+	# To browse so-called "package groups", do "yum group list ids".
+# xxx next 3 commands may not have worked
+#    check return status?
+	#sudo yum -y group install "Development Libraries"
 	sudo yum -y group install "Development Tools"   # gcc
-	sudo yum -y group install "Web Server"    # mod_ssl, ExtUtils/MakeMaker
+	sudo yum -y group install "Web Server"    	# ? ExtUtils/MakeMaker
+	sudo yum -y install mod_ssl
+#$ sudo yum -y group install "Development Libraries"
+#Loaded plugins: extras_suggestions, langpacks, priorities, update-motd
+#153 packages excluded due to repository priority protections
+#Warning: group Development Libraries does not exist.
+#Maybe run: yum groups mark install (see man yum)
+#Error: No packages in any requested group available to install or update
+#$ sudo yum -y group install
+#"Development Tools"   # gcc
+#Loaded plugins: extras_suggestions, langpacks, priorities, update-motd
+#153 packages excluded due to repository priority protections
+#Maybe run: yum groups mark install (see man yum)
+#No packages in any requested group available to install or update
+#$ sudo yum -y group install
+#"Web Server"    # mod_ssl, ExtUtils/MakeMaker
+#Loaded plugins: extras_suggestions, langpacks, priorities, update-motd
+#153 packages excluded due to repository priority protections
+#Warning: Group web-server does not have any packages to install.
+#Maybe run: yum groups mark install (see man yum)
+#No packages in any requested group available to install or update
+
 	sudo yum -y install hg
 	sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 	sudo yum -y install 'perl(Time::HiRes)'
 
 
-
 	sudo yum -y install 'perl(Log::Log4perl)'
-	# XXX AWS: No package perl(Log::Log4perl) available.
-	#     Error: Nothing to do
 
-	# xxx when system comes up, even partially, crontab is off and spewing
-	#     error messages a little too easily --  how to stop?
+# xxx when system comes up, even partially, crontab is off and spewing
+#     error messages a little too easily --  how to stop?
 
-
-	sudo yum -y install 'perl(XML::LibXML)'
-	sudo yum -y install 'perl(XML::LibXSLT)'
+	sudo yum -y install 'perl(XML::LibXML)' 'perl(XML::LibXSLT)'
 	sudo yum -y install 'perl(App::cpanminus)'
 	sudo yum -y install jq
 
@@ -249,7 +306,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 		exit 1
 	}
 
-	# Trying hypothesis that we don't need these next two yum installs
+	# Try the hypothesis that we don't need these next two yum installs
 	# # XXX should confirm that these next are still needed
 	# # This next installs python's lxml module so that the mdsadmin script
 	# # (that creates DataCite datacenters) can run.
@@ -259,6 +316,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	# # To use this module, .bashrc sets PYTHONPATH to something like
 	# # PYTHONPATH=$sv/lib64/python2.6/dist-packages
 
+	cd		# go to home directory
 	#hg clone http://hg.cdlib.org/n2t_create
 	hg clone ssh://hg@bitbucket.org/cdl/n2t-admin
 	rm -fr n2t_create	# if it exists the rename below won't work
@@ -276,26 +334,66 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 #svu new
 #set -u
 
-
 [[ "$cmd" == build ]] && {
-	# XXXX resume script here
-	./make_instance build mongodb_pm httpd n2t > berrs 2>&1
 
+	# XXX watch out that you haven't done svu new already! else this
+	# will build stuff in the next higher svu level
+	svu new || {
+		echo Bailing
+		exit 1
+	}
+	cd ~/n2t_create	|| {	# go to build directory
+		echo Bailing
+		exit 1
+	}
+	# XXXX resume script here
+	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
+	# NB: ./make_instance requires "svu new", where installs go
+	./make_instance build mongodb_pm n2t > berrs 2>&1 || {
+		echo make_instance error -- bailing
+		svu cur
+		exit 1
+	}
+
+	# now make installed stuff "current" (what was "new" will be "cur")
 	svu rollout	# ok as no users yet; this puts everything of interest
 			# under the 'cur' version, our default logged-in state
+	echo done svu rollout
 
-	### now logout and login again???
+# xxx note that linux1 had libdb 4.7 and linux2 (in /usr/lib64) has
+#     libdb 5.3 -- we MAY need to do db conversion
+	do_apache_httpd24 	# copy and modify system version just
+				# enough to let us start a server
 
-	svu cur		# now make sure that instance is in effect yyy needed?
 
-	mg rs_start		# one-time replica set initialization
+# xxx uncomment
+#	# this now works with Linux2
+#	mg rs_start || {	# one-time replica set initialization
+#		echo Bailing
+#		exit 1
+#	}
+
+
+
+# xxx need to do something to bootstrap this, eg, n2t rollout but before
+#     the first pfx harvest is done, chicken/egg problem
+
+	n2t init
+
+
+
+	apache start
+#config file not found: /apps/n2t/sv/cur/apache2/conf/httpd.conf
+#warning: no apache config file; may be ok for 'stop' or 'status'
+#head: cannot open '/apps/n2t/sv/cur/apache2/conf/httpd.conf' for reading:
+#No such file or directory
 
 	##### !!! you might have to logout and back in for $sv to be correct?
 	#set_crontab go		# takes care of crontab tests
 
 	# XXXX oops: crontab is now set up, but n2t isn't even rolled out!
 
-	pfx init
+	#pfx init
 	pfx hitrnt	# establish prefix stuff, needed for first rollout
 			# yyy this will error out: cd:
 			# /apps/n2t/sv/cv2/apache2/pfx_work/build: No such file

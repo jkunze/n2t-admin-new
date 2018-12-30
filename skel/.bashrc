@@ -43,14 +43,73 @@ alias zp='ezcl p admin:$(wegnpw ezidadmin) pause'
 
 alias n2edina="ssh n2t@n2tlx.edina.ac.uk"
 
-# XXX it's not clear if this file is always source'd by convention,
-#     but that's what the SLES /etc/... startup files for bash do it;
-#     we'll go along because we really only want this next bit done if
-#     we're an interactive shell and _after_ the svu function is defined
-if [ ! -z "${PS1:-}" ]; then	# if there's a prompt, make it decent
-        PS1='\h:\W \u\$ '
+if [ ! -z "${PS1:-}" ]; then		# if interactive shell
+
+	[ -f /usr/local/etc/bash_completion ] &&
+		source /usr/local/etc/bash_completion
+	#blue=$(tput setaf 4)
+	yellow=$(tput setaf 3)
+	reset=$(tput sgr0)
+        #PS1='\[$blue\]\h:\W \u\$ \[$reset\]'
 	# Make bash check its window size after a process completes
 	shopt -s checkwinsize
+	#set -o vi		# for vi-style command line editing
+
+	# Code below sets prompt to indicate which mercurial or git
+	# branch is active, and whether there's anything to commit.
+
+	# Code adapted (--quiet, changing ⚡ to ** because of utf8 character
+	# width problems) from
+	# https://blog.progs.be/351/change-bash-prompt-to-include-dvcs-branch-and-dirty-indicator
+
+	# From https://stackoverflow.com/questions/7112774/how-to-escape-unicode-characters-in-bash-prompt-correctly
+	# tput sc/rc gets around bash bug in correct unicode char widths
+	#dirty='\[$yellow\]**\[$reset\]'
+	dvcs_dirty_mark='⚡'
+# xxx until Nov 2018, high sierra, bash 4.4.12, this next pad was only one
+#     space, ie, ' '; not tested this under linux2
+# xxx maybe this need for padding etc is obviated!
+	dvcs_dirty_pad='  '	# same width as dirty mark, for width bug
+	dvcs_branch=
+	function parse_dvcs_branch {
+		dvcs_branch=$( hg branch 2> /dev/null ) && {
+			echo "$dvcs_branch"
+			#echo "<\[$yellow\]$dvcs_branch\[$reset\]>"
+			#echo "<$dvcs_branch>"
+			return
+		}
+		dvcs_branch=$( git branch --no-color 2> /dev/null ) ||
+			return		# no git repo
+		dvcs_branch=$( sed -ne 's/^\* //p' <<< "$dvcs_branch" ) && {
+			# cleans up multi-line git branch message
+			echo "$dvcs_branch"
+			#echo "<$dvcs_branch>"
+			return
+		}
+		# yyy wish I could save $dvcs_branch in calling shell
+	}
+	function parse_dvcs_dirty {
+		[[ $( hg --quiet status 2> /dev/null ) != "" ]] && {
+			echo "$dvcs_dirty_mark"
+			return
+		}
+		local gitish=
+		dvcs_dirty=$( git status 2> /dev/null ) &&
+			gitish=1		# git repo present
+		[[ "$gitish" && ! $( tail -n1 <<< "$dvcs_dirty" ) =~ \
+				'nothing to commit, working' ]] && {
+			echo "$dvcs_dirty_mark"
+			return
+		}
+		echo "$dvcs_dirty_pad"
+		return
+	}
+	#PS1+='$(parse_dvcs_branch)\[$yellow\]$(parse_dvcs_dirty)\[$reset\]'
+	PS1='\[$yellow\]\h\[$reset\]:\W \u'
+	PS1+='<\[$yellow\]$(parse_dvcs_branch)\[$reset\]>'
+	PS1+='\[`tput sc`\]$dvcs_dirty_pad\[`tput rc`$(parse_dvcs_dirty)\]'
+	#PS1+='\[`tput sc`\]$dvcs_dirty_pad\[`tput rc`$dvcs_dirty_mark\]'
+	PS1+='\$ '
 fi
 
 # General aliases and functions.
