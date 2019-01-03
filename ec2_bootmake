@@ -192,7 +192,9 @@ EOT
 }
 
 # All we need to do is the minimum to bring up Apache successfully,
-# since we'll overwrite most inherited configuration.
+# since we'll overwrite most inherited configuration. However, these
+# snapshot copies we make here will be incorporated over and over
+# when the n2t/eggnog instance is rebuilt (very frequent operation).
 
 function do_apache_httpd24 {
 
@@ -202,14 +204,17 @@ function do_apache_httpd24 {
 	rm -fr $aptop
 	mkdir $aptop
 	cd $aptop
-	mkdir bin cgi-bin conf conf.d htdocs httpauth logs var var/run var/lock
-	ln -s /usr/sbin/httpd bin/httpd			# yyy needed?
-	ln -s $sysap/modules modules
-	ln -s $sysap/conf/magic conf/magic		# seem to be empty
-	ln -s $sysap/conf.modules.d conf.modules.d	# keep these verbatim,
+	mkdir -p bin cgi-bin htdocs logs var/run
+	cp /usr/sbin/httpd bin/httpd
+	cp -Lpr $sysap/modules .
+	cp -pr $sysap/conf.modules.d .	# keep these verbatim,
 		# eg, /etc/httpd/conf.modules.d/00-base.conf; later we'll
 		# override selectively via build_server_tree, eg, 00-ssl.conf
-	cp /etc/httpd/conf.d/* conf.d	# later build_server_tree removes these
+	cp -pr $sysap/conf .
+ 	cp $sysap/conf/magic conf/
+	cp /etc/mime.types conf/
+	cp -pr /etc/httpd/conf.d .	# later build_server_tree removes these
+	mv conf.d/ssl.conf{,.noop}	# disable SSL so we come up w.o certs
 	cp /etc/httpd/conf/httpd.conf conf/httpd.conf.sys	# one-time save
 	perl -pE '/^(Server|Document)Root/ and s/^/#/;
 		/^Listen/ and s/.*/Listen 18880/' conf/httpd.conf.sys \
@@ -219,11 +224,42 @@ function do_apache_httpd24 {
 PidFile $aptop/var/run/httpd.pid
 DefaultRuntimeDir $aptop/var/run
 EOT
-	rm  conf.d/ssl.conf		# disable SSL stuff for now
-	#cp conf.d/ssl.conf conf.d/ssl.conf.sys
-	#perl -pE '/^SSLCert/ and s/^/#/;
-	#	/^Listen/ and s/.*/Listen 18443/' conf.d/ssl.conf.sys \
-	#		> conf.d/ssl.conf
+	cat > README << EOT
+This README file and the foundation structure of the enclosing directory
+were created from scratch by the ec2_bootmake script. This directory supports
+a public-facing Eggnog server on this host, as well as test servers.
+
+The part of its structure that survives repeated rebuilding of the public
+and test servers mirrors the system-installed Apache HTTPD 2.4 server.
+Eggnog doesn't use all the directory structure (eg, conf.d/*), and rebuilds
+just those parts it needs.
+EOT
+
+# # xxx drop these?
+# 	ln -s /usr/sbin/httpd bin/httpd			# yyy needed?
+# 	ln -s /etc/mime.types conf/mime.types
+# 	ln -s $sysap/modules modules
+# 	ln -s $sysap/conf/magic conf/magic
+# 	ln -s $sysap/conf.modules.d conf.modules.d	# keep these verbatim,
+# 		# eg, /etc/httpd/conf.modules.d/00-base.conf; later we'll
+# 		# override selectively via build_server_tree, eg, 00-ssl.conf
+# 
+# 	cp /etc/httpd/conf.d/* conf.d	# later build_server_tree removes these
+# 				# xxx but are they even needed to start?
+# 	cp /etc/httpd/conf/httpd.conf conf/httpd.conf.sys	# one-time save
+# 	perl -pE '/^(Server|Document)Root/ and s/^/#/;
+# 		/^Listen/ and s/.*/Listen 18880/' conf/httpd.conf.sys \
+# 		> conf/httpd.conf
+# 	cat >> conf/httpd.conf << EOT
+# 
+# PidFile $aptop/var/run/httpd.pid
+# DefaultRuntimeDir $aptop/var/run
+# EOT
+# 	rm  conf.d/ssl.conf		# disable SSL stuff for now
+# 	#cp conf.d/ssl.conf conf.d/ssl.conf.sys
+# 	#perl -pE '/^SSLCert/ and s/^/#/;
+# 	#	/^Listen/ and s/.*/Listen 18443/' conf.d/ssl.conf.sys \
+# 	#		> conf.d/ssl.conf
 }
 
 [[ "$cmd" == httpd ]] && {
@@ -281,6 +317,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 #Maybe run: yum groups mark install (see man yum)
 #No packages in any requested group available to install or update
 
+	sudo yum -y install libdb4	# version 4 (v5 is default)
 	sudo yum -y install hg
 	sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
@@ -346,19 +383,8 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 		echo Bailing
 		exit 1
 	}
-	# XXXX resume script here
-	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
-	# NB: ./make_instance requires "svu new", where installs go
-	./make_instance build mongodb_pm n2t > berrs 2>&1 || {
-		echo make_instance error -- bailing
-		svu cur
-		exit 1
-	}
-
-	# now make installed stuff "current" (what was "new" will be "cur")
-	svu rollout	# ok as no users yet; this puts everything of interest
-			# under the 'cur' version, our default logged-in state
-	echo done svu rollout
+	make
+# XXXX oops: crontab is now set up, but n2t isn't even rolled out!
 
 # xxx note that linux1 had libdb 4.7 and linux2 (in /usr/lib64) has
 #     libdb 5.3 -- we MAY need to do db conversion
@@ -374,33 +400,21 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 #	}
 
 
+	# XXXX resume script here
+	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
+	# NB: ./make_instance requires "svu new", where installs go
+	./make_instance build mongodb_pm n2t > berrs 2>&1 || {
+		echo make_instance error -- bailing
+		svu cur
+		exit 1
+	}
 
-# xxx need to do something to bootstrap this, eg, n2t rollout but before
-#     the first pfx harvest is done, chicken/egg problem
+	# now make installed stuff "current" (what was "new" will be "cur")
+	svu rollout	# ok as no users yet; this puts everything of interest
+			# under the 'cur' version, our default logged-in state
+	echo done svu rollout
 
-	n2t init
-
-
-
-	apache start
-#config file not found: /apps/n2t/sv/cur/apache2/conf/httpd.conf
-#warning: no apache config file; may be ok for 'stop' or 'status'
-#head: cannot open '/apps/n2t/sv/cur/apache2/conf/httpd.conf' for reading:
-#No such file or directory
-
-	##### !!! you might have to logout and back in for $sv to be correct?
-	#set_crontab go		# takes care of crontab tests
-
-	# XXXX oops: crontab is now set up, but n2t isn't even rolled out!
-
-	#pfx init
-	pfx hitrnt	# establish prefix stuff, needed for first rollout
-			# yyy this will error out: cd:
-			# /apps/n2t/sv/cv2/apache2/pfx_work/build: No such file
-			# or directory
-			# Could not chdir to
-			# /apps/n2t/sv/cv2/apache2/pfx_work/build.
-
+# XXXXXX! alter rollout now that td_egnapa contains complete server!!
 	n2t rollout	# takes care of dvscid test
 
 	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
