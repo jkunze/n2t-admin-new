@@ -128,7 +128,7 @@ function n2t_import {	# assumes caller ran check_changes!
 	#rm -fr $nsf	# XXX why? none of these steps alter td_egnapa_public
 }
 
-# This is the main event.  It assumes that caller (elsewhere in this
+# This is the main event. It assumes that the caller (elsewhere in this
 # script) has already run build_server_tree and has already stopped
 # (or tried to stop) the server.  So this is usually called in the
 # fraction of a second when the server needs to be down.
@@ -138,7 +138,7 @@ function n2t_import {	# assumes caller ran check_changes!
 # But there's one big exception: the prefixes yaml file is created
 # fresh each time from various text files kept under revision control.
 # XXX make sure to use only anonymized shoulders and naans files
-#
+
 function n2t_rollout {	# assumes caller ran check_changes!
 
 	local f d err=
