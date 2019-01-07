@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# XXX add pfx backup_rotate function to reduce storage for old pfx backups
 # XXX ideal candidate for warts and class definition; fix this
 # pfx_maint_host=$pfx_maint_user@ids-n2t-prd-2a.n2t.net	# where maintained
 
@@ -30,6 +31,40 @@ function temper {
 
 me=$( basename $0 )
 function usage {
+	[[ "${1:-}" == helpshort ]] && {	# just do summary info
+		cat << EOT
+For more information, do "$me help". Basic subcommands:
+
+publish       copy given component to publicly harvestable part of this server
+harvest       assemble components from external sources (eg, daily via cron)
+import        assemble harvested prefix components into \$pfx_import
+test          test prefix lookup and redirect rules (only tests BUILD area)
+rollout       run "install" and restart the N2T Apache server
+cron_hitrnt   given mailto, run "hitrnt"; do pfxsync if also given rhost
+hitrnt        harvest, import, test, rollout, and do "n2t test"
+pfxsync       copy tested prefixes to given rhost and rollout
+help          show full usage information.
+init          initialize pfx system.
+backup        save snapshot of prefixes to given directory
+mark4refresh  marks harvest area so next hitrnt cycle does full refresh
+test_rollout  n2t_test test, install, rollout, and re-test
+save          snapshots prefix products built under given web server
+restore       copies saved prefix products into given web server
+find          given a term, show matching records
+grok          show lexical analysis of each given id (no lookup)
+onboard       assemble imported and system components into \$pfx_build
+build         calls "validate" and "combine" on \$pfx_build
+updates_ready_in      true if any components in given ingest stage are newer
+install       install new prefix file on running system.
+tested_ok     create file as a flag to indicate that "pfx test" succeeded
+prebuild      assemble imported prefix components into \$pfx_build
+base          update given ingest stage with given Base.yaml file
+validate      validate all component prefix files in \$pfx_build
+combine       combine NAANs, shoulders, prefixes into validated $mainout
+
+EOT
+		return
+	}
 	cat << EOT
 
 SYNOPSIS                          ($0)
@@ -39,25 +74,24 @@ USAGE
     $me [ -f ] [ -d ServerTreeDir ] Command
 
 DESCRIPTION
-
-This script automates common prefix-related tasks for the N2T metaresolver.
-The prefix database is a yaml file built from processed component files.
-A crucial "base" prefix component file lives in and evolves with N2T.net's
-EggNog source. Ingest of components is staged in order to automate entry
-of prefix changes while protecting the system from errors and instability.
-A one-time system initialization of components requires internet access.
-This sub-command lists component locations (if initialized):
+    This script automates common prefix tasks for the N2T metaresolver. The
+    prefix database is a yaml file built from processed component files. A
+    crucial "base" prefix component file lives in and evolves with N2T.net's
+    EggNog source. Ingest of components is staged in order to automate entry
+    of prefix changes while protecting the system from errors and instability.
+    A one-time system initialization of components requires internet access.
+    This sub-command lists component locations (if initialized):
 
     $me dirs
 
-The following sub-commands may be executed in the order listed to update
-the prefixes running on the system.
+    The following sub-commands may be executed in the order listed to update
+    the prefixes running on the system.
 
   publish Component
             To be run only on the host (usually prd) where the Component file
-	    is maintained, copy it to a publicly harvestable part of the host's
-	    server, eg, to be harvested by dev, stg, or replica prd servers.
-	    It is of no use to publish on servers (eg, stg) no one harvests.
+            is maintained, copy it to a publicly harvestable part of the host's
+            server, eg, to be harvested by dev, stg, or replica prd servers.
+            It is of no use to publish on servers (eg, stg) no one harvests.
   harvest   Assemble components from external sources (eg, daily via cron)
             -> these will be used for files missing from \$pfx_import dir
             won't overwrite newer files unless -f given
@@ -71,12 +105,12 @@ the prefixes running on the system.
   test      Test prefix lookup and redirect rules (only tests BUILD area)
             Calls (via eggnog's t/z_egg_prefixes_n2t.t) "tested_ok" if all
             tests succeeded. Starts with a completely empty build area.
-	    -> requires built eggnog server
+            -> requires built eggnog server
   rollout   Run "install" and restart the N2T Apache server. It's a good idea
             to run "n2t test" now (but see "hitrnt" below).
-	    -> requires built eggnog server
+            -> requires built eggnog server
 
-The highest level sub-commands, the first meant to be initiated via crontab.
+    The highest level sub-commands, the first meant to be initiated via crontab.
 
   cron_hitrnt Mailto [ RemoteHost ]
             Meant to be called directly from crontab, this calls "hitrnt".
@@ -92,8 +126,12 @@ The highest level sub-commands, the first meant to be initiated via crontab.
             initiate installation and rollout on a running system.  Optional
             ChangedFiles is a space-separated list of changed files.
 
-Some assistive sub-commands.
+    Some assistive sub-commands.
 
+  help      Show full usage information.
+  init      Initialize the pfx system.
+  backup Dest
+            Save snapshot of prefixes to directory Dest, eg, ./2018.04.01/.
   mark4refresh
             Marks the harvest area so that a subsequent hitrnt cycle will
             perform a full refresh of the prefix set.
@@ -103,8 +141,8 @@ Some assistive sub-commands.
             names of files that have changed.
   save Webtop
             Snapshots the prefix build products from under the web server
-	    root directory, Webtop, and saves them in a subdirectory,
-	    pfx_saved, of the Eggnog source code directory. Together with
+            root directory, Webtop, and saves them in a subdirectory,
+            pfx_saved, of the Eggnog source code directory. Together with
             "restore", this can avoid the lengthy process of rebuilding
             prefix products which would otherwise be destroyed when the web
             server is rebuilt.
@@ -112,28 +150,28 @@ Some assistive sub-commands.
             Copies prefix build products from the pfx_saved directory into
             the web server rooted at Webtop.
 
-These sub-commands are purely about querying the prefix data itself.
+    These sub-commands are purely about querying the prefix data itself.
 
   [-s records|lines|count|targets] find [ Term ]
             Print summary lines (default), records, or a count of records
             matching the given Term argument, or a total count of existing
             records if no Term is given. Normally only looks for matches
-	    against prefixes (record headers) themselves. But if the Term
-	    begins with a ":" character, that character is removed and a
-	    match is looked for by testing the remaining Term against both
-	    the header and body of the record. Matching is case-insensitive.
-	    In the special case of "-s targets", the Term will truncated at
-	    the first internal ":" and any suffix after it will be retained;
-	    then, for any matching records, only the target rules will be
-	    printed, and only after substituting the suffix for \${id}.
-	    Note that "-s lines" matches against lines but instead of printing
-	    those lines it prints only header information for records in which
-	    matches occur. Does NOT require a server to be running.
+            against prefixes (record headers) themselves. But if the Term
+            begins with a ":" character, that character is removed and a
+            match is looked for by testing the remaining Term against both
+            the header and body of the record. Matching is case-insensitive.
+            In the special case of "-s targets", the Term will truncated at
+            the first internal ":" and any suffix after it will be retained;
+            then, for any matching records, only the target rules will be
+            printed, and only after substituting the suffix for \${id}.
+            Note that "-s lines" matches against lines but instead of printing
+            those lines it prints only header information for records in which
+            matches occur. Does NOT require a server to be running.
   grok ID ...
             Print a lexical analysis of each given ID (not ID lookup)
             DOES require a server to be running.
 
-These sub-commands are at a slightly lower level.
+    These sub-commands are at a slightly lower level.
 
   onboard   Assemble imported and system prefix components into \$pfx_build
             directory, often a temporary directory (eg, td_egnapa).
@@ -154,7 +192,7 @@ These sub-commands are at a slightly lower level.
             Fails if previous "test" was not successful.
             NB: does not disturb running system until next web server restart.
 
-And these sub-commands are at an even lower level.
+    And these sub-commands are at an even lower level.
 
   tested_ok Create file as a flag to indicate that "pfx test" succeeded.
   prebuild  Assemble imported prefix components into \$pfx_build dir
@@ -172,7 +210,7 @@ And these sub-commands are at an even lower level.
   validate  Validate component prefix files in \$pfx_build
             -> -d strongly recommended
             yyy Very ripe for recoding, this does a huge amount of work
-	    with some (now understood to be) poorly named functions
+            with some (now understood to be) poorly named functions
         validate_ebi
               - converts ebireg.xml to ebireg.clean.xml
               - converts ebireg.clean.xml to ebireg.xpathout
@@ -180,7 +218,7 @@ And these sub-commands are at an even lower level.
               - converts ebireg.yaml to ebireg_tmp
               - converts ebireg_tmp to ebi.yaml
         pfx_validate_prefixes
-	      - converts ebi.yaml to ebi.anvl
+              - converts ebi.yaml to ebi.anvl
   combine   Combine NAANs, shoulders, prefixes into validated $mainout
             -> -d strongly recommended
             NB: updates still invisible to running system until "n2t rollout"
@@ -188,10 +226,10 @@ And these sub-commands are at an even lower level.
         pfx_combine
               - converts *.anvl to prefixes.yaml
 
-Prefixes are built in a server tree directory given by, in precedence order,
-either the -d option or the EGNAPA_BUILDOUT_ROOT environment variable. If
-both of those are empty, it uses ~/sv/cur/apache2. The -f option forces
-some operations to proceed that would otherwise be conditional.
+    Prefixes are built in a server directory given by, in precedence order,
+    either the -d option or the EGNAPA_BUILDOUT_ROOT environment variable.
+    If both of those are empty, it uses ~/sv/cur/apache2. The -f option
+    forces some operations to proceed that would otherwise be conditional.
 
   testall     To do: test all lookups and redirect rules
   testlinks   To do: test redirects by pinging external servers
@@ -246,7 +284,7 @@ n2tadds=pfx_base.yaml
 
 # Prefix products:
 #  $sa/prefixes.yaml
-#  $sa/pfx_work
+#  $sa/$pfx_work
 #       | build/    # replaces need for quarantine/to_import area ?
 #  ~/backups/prefixes/current/    yyy should backups happen only on changes?
 #       | 2017.04.01...  (similar to minters)
@@ -539,9 +577,9 @@ function pfx_base {
 }
 
 # "harvest" daily -> ~/pfx_harvest
-# "import" (when?) from ~/pfx_harvest -> $sa/pfx_work/import
+# "import" (when?) from ~/pfx_harvest -> $sa/$pfx_work/import
 #    test for updates: (any new version of files between harvest and import)?
-# "prebuild" onbuild -> ~/pfx_work/build
+# "prebuild" onbuild -> ~/$pfx_work/build
 
 # need: protect running system from harvests
 # need: protect running system from source pfx_base changes
@@ -557,7 +595,7 @@ function pfx_base {
 #     version without being disturbed by what's sitting in $se
 #
 
-# copy (on build) from $sa/pfx_work/import -> $sa/pfx_work/build
+# copy (on build) from $sa/$pfx_work/import -> $sa/$pfx_work/build
 
 # Meant to be called more frequently than pfx_harvest (eg, in building a
 # specific server for testing), copies "to import" files to server-specific
@@ -640,13 +678,23 @@ function pfx_init {
 		return 1
 	}
 	pfx_harvest || {
-		echo Could initialize harvest. 1>&2
+		echo Could not initialize harvest. 1>&2
 		return 1
 	}
 	pfx_import || {
-		echo Could initialize import 1>&2
+		echo Could not initialize import 1>&2
 		return 1
 	}
+}
+
+function pfx_backup {
+	local dst=${1:-}
+	[[ "$dst" && -d "$dst" ]] || {
+		echo "Error: bad backup destination directory given" 1>&2
+		return 1
+	}
+	local pfx_harvest=~/pfx_harvest
+	cp -Lpr ~/sv/cur/apache2/$pfx_work $pfx_harvest $dst
 }
 
 # function xpfx_harvest {		# placeholder function for the moment
@@ -1901,10 +1949,10 @@ function pfx_install {
 		#return 1
 	}
 	err=
-	cp -pr $nsf/pfx_work/build/* . || err=y
+	cp -pr $nsf/$pfx_work/build/* . || err=y
 	[[ $err && ! "$force" ]] && {
 		echo "Error copying prefix build files from " \
-			"$nsf/pfx_work/build/" 1>&2
+			"$nsf/$pfx_work/build/" 1>&2
 		return 1
 	}
 	err=
@@ -1915,7 +1963,7 @@ function pfx_install {
 #cp: /Users/jak/sv/cv2/build/eggnog/td_egnapa/n2t_prefixes.yaml: No such file or directory
 #cp: /Users/jak/sv/cv2/build/eggnog/td_egnapa/n2t_full_prefixes.yaml: No such file or directory
 #Error copying new public files cdl_ebi_prefixes.yaml, n2t_prefixes.yaml, and  n2t_full_prefixes.yaml to /Users/jak/sv/cv2/apache2/htdocs/e/
-# XXXXXX n2t_full_prefixes.yaml missing from pfx_work/build
+# XXXXXX n2t_full_prefixes.yaml missing from $pfx_work/build
 
 	cp -p $nsf/$px $buildout_root || err=y
 	[[ $err ]] && {
@@ -2060,7 +2108,7 @@ function pfx_test_rollout_n2t_test {
 	for file in $changed_files
 	do
 		old=$pfx_build/$file
-		new=$pfx_work/build/$file
+		new=~/sv/cur/apache2/$pfx_work/build/$file
 		(
 			echo diff $old $new;
 			echo -ne '--- ';
@@ -2113,9 +2161,9 @@ function pfx_save {
 	}
 	rm -fr $saveddir
 	mkdir $saveddir
-	ls $w/{,cdl_ebi_,n2t_,n2t_full_}prefixes.yaml $w/pfx_work > /dev/null ||
+	ls $w/{,cdl_ebi_,n2t_,n2t_full_}prefixes.yaml $w/$pfx_work > /dev/null ||
 		return 1		# all these must be present
-	cp -pr $w/pfx_work/* $saveddir/
+	cp -pr $w/$pfx_work/* $saveddir/
 	# these next files to save are put in place by pfx_install
 			# yyy find a way to put these in variables
 	cp -p $w/{cdl_ebi_prefixes,n2t_prefixes,n2t_full_prefixes}.yaml \
@@ -2129,13 +2177,13 @@ function pfx_restore {
 		echo "Error: no web server at $w" 1>&2
 		return 1
 	}
-	local work=$w/pfx_work
+	local work=$w/$pfx_work
 	mkdir -p $work
-	cp -pr $saveddir/* $work/		# restore pfx_work plus
+	cp -pr $saveddir/* $work/		# restore $pfx_work plus
 	cp -p $work/build/prefixes.yaml \
 		$work/{cdl_ebi_prefixes,n2t_prefixes,n2t_full_prefixes}.yaml \
 			$w/		# some top level files
-	ls $w/{,cdl_ebi_,n2t_,n2t_full_}prefixes.yaml $w/pfx_work > /dev/null ||
+	ls $w/{,cdl_ebi_,n2t_,n2t_full_}prefixes.yaml $w/$pfx_work > /dev/null ||
 		return 1		# all these must be present
 	return
 }
@@ -2257,8 +2305,8 @@ function pfx_pfxsync {
 		return 1
 	}
 	echo +==== copying import files
-	scp -pr ~/sv/cur/apache2/pfx_work/import \
-			$pfx_maint_user@$rhost:sv/cur/apache2/pfx_work/ || {
+	scp -pr ~/sv/cur/apache2/$pfx_work/import \
+			$pfx_maint_user@$rhost:sv/cur/apache2/$pfx_work/ || {
 		echo "+==== error: couldn't scp import area"
 		return 1
 	}
@@ -2281,7 +2329,7 @@ force=			# disregard gaurdup setting
 verbose=		# be more chatty
 yes=			# unused
 no_exec=		# unused
-cmd=help		# default
+cmd=helpshort		# default
 show=lines		# default for "find"
 
 # Check environment in case we're called from eggnog's build_server_tree.
@@ -2305,8 +2353,7 @@ do
 			exit 1
 		}
 		;;
-	-s|--show)		# show lines, records, or count (for "find")
-		shift
+	-s|--show)		# show lines, records, or count (for "find") shift
 		show=${1:-}
 		shift
 		[[ ! "$show" ]] && {
@@ -2351,14 +2398,9 @@ then
 fi
 
 # test for help request before all else, eg, initializing directories
-[[ "$cmd" == help ]] && {
-	usage
-	exit
-}
-
-if [[ "$cmd" == help ]]
+if [[ "$cmd" == helpshort || "$cmd" == help ]]
 then
-	usage
+	usage $cmd
 	exit
 fi
 
@@ -2380,18 +2422,19 @@ buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
 [[ ! "$buildout_root" ]] &&
 	buildout_root=$sv/apache2
 
-pfx_work=$sv/apache2/pfx_work
-pfx_import=$pfx_work/import	# one import area per SERVICE VERSION
-pfx_build=$buildout_root/pfx_work/build	# one build area per BUILT SERVER TREE
-aborted_trnt=$buildout_root/pfx_work/aborted_update
-ok_updates=$buildout_root/pfx_work/ok_updates
+#pfx_work=$sv/apache2/pfx_work
+pfx_work=pfx
+pfx_import=$sv/apache2/$pfx_work/import	# one import area per SERVICE VERSION
+pfx_build=$buildout_root/$pfx_work/build	# one build area per BUILT SERVER TREE
+aborted_trnt=$buildout_root/$pfx_work/aborted_update
+ok_updates=$buildout_root/$pfx_work/ok_updates
 master_prefixes=$buildout_root/prefixes.yaml
 
 pfx_test=$sv/build/eggnog
 #pfx_test=$buildout_root/../build/eggnog
-#tested_ok_flag=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
-tested_ok_file=$sv/build/eggnog/td_egnapa/pfx_work/tested_ok
-#tested_ok_file=$pfx_test/td_egnapa/pfx_work/tested_ok
+#tested_ok_flag=$sv/build/eggnog/td_egnapa/$pfx_work/tested_ok
+tested_ok_file=$sv/build/eggnog/td_egnapa/$pfx_work/tested_ok
+#tested_ok_file=$pfx_test/td_egnapa/$pfx_work/tested_ok
 #source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
 saveddir=$sv/build/eggnog/pfx_saved
 
@@ -2527,6 +2570,10 @@ tested_ok)
 init)
 	echo Initialized	# yyy implicitly, else we wouldn't get this far
 	#pfx_init "$@"
+	exit
+	;;
+backup)
+	pfx_backup "$@"
 	exit
 	;;
 find)

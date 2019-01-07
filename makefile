@@ -194,8 +194,8 @@ $(HOME)/logs:
 
 # NB: don't create dirs under apache2, since "n2t rollout" does special
 #     processing the first time through
-# yyy do we need this shoulders directory any longer?
-$(HOME)/shoulders $(HOME)/minters $(HOME)/binders:
+
+$(HOME)/minters $(HOME)/binders:
 	rm -f $@
 	ln -s $(HOME)/sv/cur/apache2/$$(basename $@) $@
 
