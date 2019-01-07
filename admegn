@@ -881,7 +881,7 @@ EOT
 # these sources usually overridden during pfx validation
 #
 ShouldersFile=~/shoulders/master_shoulders.txt	# default
-NAANsFile=~/shoulders/naans/master_naans	# default
+NAANsFile=~/naans/master_naans	# default
 
 function validate_naans {
 
@@ -1583,8 +1583,6 @@ function backup {
 	now=$( date '+%Y.%m.%d_%H:%M:%S' )
 	local src dst took
 	local txnlog=~/sv/cur/apache2/logs/transaction_log.rlog
-	local pfx_work=~/sv/cur/apache2/pfx_work
-	local pfx_harvest=~/pfx_harvest
 
 	echo ==== creating backups $(date) ====
 	# make sure our base directories are set up; quell complaints
@@ -1602,8 +1600,13 @@ function backup {
 
 	dst=~/backups/prefixes/$now
 	echo Backing up prefixes to $dst.
-	mkdir $dst
-	cp -Lpr $pfx_work $pfx_harvest $dst
+	mkdir -p $dst
+	pfx backup $dst
+
+	# old:
+	#	local pfx_work=~/sv/cur/apache2/pfx_work
+	#	local pfx_harvest=~/pfx_harvest
+	#	cp -Lpr $pfx_work $pfx_harvest $dst
 
 	echo Backing up binders.
 	local binders
