@@ -392,12 +392,11 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 				# enough to let us start a server
 
 
-# xxx uncomment
-#	# this now works with Linux2
-#	mg rs_start || {	# one-time replica set initialization
-#		echo Bailing
-#		exit 1
-#	}
+	# this now works with Linux2
+	mg rs_start || {	# one-time replica set initialization
+		echo Bailing
+		exit 1
+	}
 
 
 	# XXXX resume script here

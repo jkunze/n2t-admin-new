@@ -43,11 +43,8 @@ function valsh {
 		$shdir/validate-shoulders $shdb
 		return $?
 	}
-	$shdir/validate-shoulders $shdb \
-			-m "ezid:$eziduserpw" \
-			-d "$adminpw" \
-		"$shoulder" ||
-			return 1
+	$shdir/validate-shoulders $shdb -m "ezid:$eziduserpw" "$shoulder" ||
+		return 1
 	echo "$shoulder - OK"
 	return 0
 }

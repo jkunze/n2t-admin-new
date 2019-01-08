@@ -7,7 +7,7 @@ use warnings;
 # Author:  John A. Kunze, jak@ucop.edu, California Digital Library
 # Copyright (c) 2013-2015 UC Regents
 
-my $naan_registry = '~/shoulders/naans/master_naans';
+my $naan_registry = '~/naans/master_naans';
 my $naan_re = '^\s*what:\s*';
 
 # main

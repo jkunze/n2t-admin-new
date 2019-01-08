@@ -44,7 +44,7 @@ xxx To do: rename scripts; make ARK and DOI pieces more independent;
     becomes an record of these admin changes)
 
 Do NOT use this script if the EZID customer only needs an ARK NAAN and
-not a DOI prefix.  Instead, go to ~n2t/shoulders/naans/forge, run
+not a DOI prefix.  Instead, go to ~n2t/naans/forge, run
 ./naan_rec with no arguments, and follow its instructions.  Do this also
 for insitutions that are not EZID customers but who want an ARK NAAN.
 
@@ -320,7 +320,7 @@ ezmdsadmin "$alloc_pw" view $datacenterclass.$realmless &&
 	# full depending on options; this simplifies these conditional
 	# print statements
 	print << "EOF";
-You'll need to insert the following in ~n2t/shoulders/master_shoulders.txt
+You'll need to insert the following in ~n2t/master_shoulders.txt
 just after the line "...==== Add new shoulders after this line ====...":
 
 :: ark:/$naan/$ashdr
@@ -371,7 +371,7 @@ be to login to EZID as 'admin', visit 'Create IDs' and verify that
 
 EOF
 	$make_naan and print << "EOF";
-Back in ~n2t/shoulders/naans/forge, insert the following in
+Back in ~n2t/naans/forge, insert the following in
 "../master_naans" near the bottom, just before the TERMS entry:
 
 naa:
@@ -396,7 +396,7 @@ $prefix  # $org
 Finally, publish and replicate the NAAN registry and its derivative files with
 
     admegn validate_naans &&
-    ( cd ~n2t/shoulders/naans ; make diffs.txt all announce )
+    ( cd ~n2t/naans ; make diffs.txt all announce )
 
 EOF
 	$dryrun and print "- End of dry run.  Remove -n from argument ",
