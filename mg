@@ -53,12 +53,22 @@ DESCRIPTION
        do what the name suggests. Given no arguments, these commands operate
        on all the daemons listed in the MG_LOCAL_DAEMONS environment variable.
        This and other replica set configuration variables are usually set via
-       ~/warts/env.sh. To see typical settings and other advice, run
+       ~/warts/env.sh and the "ec2_bootmake" script should have initialized 
+       the replica set ("$me rs_start").
+       
+       Be very careful initializing or reinitializing your replica set, as
+       I find it far too easy to get into a state where the only recourse
+       is to remove all data and start over.
+
+REPLICA SETS
+       Approach with caution (until I can document this better).  To see
+       typical settings and other advice, run
 
            $me rs_config
        
-       You must establish these setting to use most replica set commands
-       (beginning "rs_..."). Once done, you can establish a replica set with
+       To be run exactly ONCE (and if it gets hosed, you may have to remove
+       and lose all your data), the following should have been run in
+       ec2_bootmake to enable most replica set commands (beginning "rs_...").
 
            $me rs_start
 
@@ -67,15 +77,19 @@ DESCRIPTION
        maintained in the mongodb data stores of the member instances. After
        the host reboots, for example, it's enough simply to restart a local
        daemon, which remembers that it belongs to the set. If you mess up
-       initialization (easy), stop all mongo servers and remove the data
+       initialization (easy), stop all mongo servers and remove all the data
        directories under \$sv/apache2/mongo/, and do "$me rs_start" again.
 
+REPLICA SET COMMANDS
        Use the commands
 
            rs_list, rs_status, rs_test
 
        to list current set instances, dump a verbose set status report (JSON),
        or write/read some new data to/from each set instance, respectively.
+       If the rs_* commands can't connect, look for "Error" in the output of
+
+           $me -v status
 
        Each mongo instance starts up ready to be part of the replica set "live"
        by default, or "test" if -t was given. Behind the scenes are internal
@@ -87,10 +101,16 @@ DESCRIPTION
            $me rs_add 27019
 
        Each instance is started ("$me start") before being added. The first
-       added instance initiates the set. Tearing down a set (uses "rs_del')
-       is messier and mongo resists when the set count falls lower than 3.
-       This can be seen in test mode by running the "repltest" command (below).
-       
+       added instance initiates the set. Tearing down a set (via "rs_del')
+       is messier and mongo resists when the set count falls lower than 3,
+       so if you really want to bring the last server down you may have to
+       remove it from the replica set (which doesn't remove its data):
+
+           $me rs_del ...
+
+       The resistance can be seen in test mode by running the "repltest"
+       command (below) and is a pain when stopping and restarting apache.
+
        The replica set operated on is the "live" public-facing set (usually
        ports starting from 27017) unless the -t flag is present, in which case
        a test replica set is used (usually ports starting from 47017).
@@ -1302,13 +1322,13 @@ function status {				# call with: [ port ]
 		[[ "$pidcount" -eq 0 ]] &&
 			echo "WARNING: but the pidcount is $pidcount?"
 		[[ "$verbose" ]] && {
-			echo "=== Mongo Configuration ==="
+			echo "=== $mg_port Mongo Configuration ==="
 			mongo --port $mg_port --eval "db.serverStatus()"
-			echo "=== Mongo Replica Set Configuration ==="
+			echo "=== $mg_port Mongo Replica Set Configuration ==="
 			mongo --port $mg_port --eval "rs.conf()"
-			echo "=== Mongo Replica Set Status ==="
+			echo "=== $mg_port Mongo Replica Set Status ==="
 			mongo --port $mg_port --eval "rs.status()"
-			echo "=== Mongod startup file ==="
+			echo "=== $mg_port Mongod startup file ==="
 			cat $mg_procfile
 		}
 			
