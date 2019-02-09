@@ -4,6 +4,9 @@ MAILTO=jak@ucop.edu
 SHELL=/usr/local/bin/bash
 sv=/Users/jak/sv/cur
 
+# Mac-only, for strongvpn
+*/10 * * * * /usr/bin/curl https://strongdns.com/ipupdater/hvfVUuGskglK9W820S4qMQcrxyItJ1Rb
+
 # Fetch/import prefixes from EBI when I'm likely to be online.
 #
 30 11 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "pfx cron_hitrnt $MAILTO"
