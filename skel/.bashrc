@@ -146,6 +146,29 @@ function llt()  { hd ls -lt ; }
 function llt1() { hd1 ls -lt ; }
 function llt2() { hd2 ls -lt ; }
 
+function in_ezid {
+	local id n=5
+	[[ "$1" ]] || {
+		cat << EOT 1>&2
+Usage: in_ezid ID_START ...
+
+Print any ids (up to $n) in the EZID binder that start with ID_START. Examples:
+
+	in_ezid ark:/13030
+	in_ezid doi:10.5070/P2
+EOT
+		return 1
+	}
+	for id in "$@"
+	do
+		echo "=== $id ==="
+		egg -d ~/binders/ezid list $n "$id"
+	done
+}
+
+# For .vimrc, to change "::" into "make_shdr --remove"
+# :map KM yyP2smake_shdr --remove^[
+
 function modversion () {
 	[[ "$1" ]] || {
 		echo "Usage: modversion ModuleName ..."
