@@ -201,9 +201,9 @@ example: update MDS, adding prefix to datacenter XYZ, and insert line
 
 	my $create_datacenter;
 	if ($make_datacenter) {
-		$create_datacenter = qq@
-ezmdsadmin "$alloc_pw" create $datacenterclass.$realmless "$org" $prefix &&
-@;
+#		$create_datacenter = qq@
+#ezmdsadmin "$alloc_pw" create $datacenterclass.$realmless "$org" $prefix &&
+#@;
 		$dcenter_block = << "EOF";
 :: datacite:$datacenterclass.$realmless
 type: datacenter
@@ -213,9 +213,9 @@ name: $org
 EOF
 	}
 	else {
-		$create_datacenter = qq@
-ezmdsadmin "$alloc_pw" view $datacenterclass.$realmless &&
-@;
+#		$create_datacenter = qq@
+#ezmdsadmin "$alloc_pw" view $datacenterclass.$realmless &&
+#@;
 		# XXX implement ability to add prefixes by first doing
 		# (per Sebastian Peters)
 		#     GET /datacentre?symbol=CDL.FOOBAR
@@ -349,7 +349,8 @@ In ~n2t/shoulders, validate the file and create a new datacenter with
 the commands below, which also perform an operational test (not just a
 syntactic test) on each new shoulder.
 
-   valsh - && $create_datacenter$validater
+   # NB: no more (ez)mdsadmin!
+   valsh - && $validater
 EOF
 
 	$doi_naan eq '-' and print << "EOF";	# really an "else" clause

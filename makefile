@@ -58,6 +58,9 @@ svu: $(LBIN)/svu_run $(HOME)/sv
 
 hostname: $(HOME)/warts/env.sh
 
+
+# XXX this making of env.sh likely obsolete! see ec2_bootmake
+
 $(HOME)/warts/env.sh:
 	@echo -e > $@ \
 "#!/bin/sh\n\

@@ -1,0 +1,14 @@
+[Unit]
+Description=N2T services
+After=network.target remote-fs.target nss-lookup.target
+  
+[Service]
+User=n2t
+Type=forking
+ExecStart=/bin/bash /apps/n2t/init.d/apache start
+ExecReload=/bin/bash /apps/n2t/init.d/apache restart
+ExecStop=/bin/bash /apps/n2t/init.d/apache stop
+PrivateTmp=true
+  
+[Install]
+WantedBy=multi-user.target
