@@ -146,6 +146,44 @@ function llt()  { hd ls -lt ; }
 function llt1() { hd1 ls -lt ; }
 function llt2() { hd2 ls -lt ; }
 
+function yaml {
+	[[ "$1" ]] || {
+		cat << EOT 1>&2
+Usage: yaml [--bash] FILE ...
+This function checks the YAML syntax of each FILE argument. The --bash option
+causes it to output equivalent bash-style environment variable settings.
+EOT
+		return 1
+	}
+	local envout=		# "false"
+	[[ "$1" == "--bash" ]] && {
+		shift
+		# this means we'll output bash-style env vars
+		# xxx to do: create a warts section inside egg_config
+		envout='
+			my $warts = $cfh->{warts};
+			while (my ($k, $v) = each %$warts) {
+				say "$k=$v";
+			}'
+	}
+	local status=0
+	for f in $@
+	do
+		# verify YAML; use non-Tiny YAML for better error messages
+		perl -CS -E '
+			use YAML "LoadFile";
+			my $cfh = LoadFile("'"$f"'");
+			'"$envout"			|| {
+			echo "syntax not ok - $f"
+			status=1
+			continue
+		}
+		[[ "$envout" ]] ||
+			echo syntax ok - $f
+	done
+	return $status
+}
+
 function in_ezid {
 	local id n=5
 	[[ "$1" ]] || {

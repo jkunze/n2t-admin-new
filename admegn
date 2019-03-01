@@ -16,7 +16,7 @@ me=$( basename $0 )
 function usage {
 
 summary="
-     $me mong [-v] [status | [hard-]stop | [re]start | start1 | repltest [N]]
+     $me warts
      $me class [ Host | list ]
      $me mdump [ -v ] [ Minter/nog.bdb ... ] [ > MinterStates ]
      $me mload [ -nv ] Dir [ < MinterStates ]
@@ -48,13 +48,8 @@ DESCRIPTION
        The -v option makes it more verbose for some forms.  A non-zero
        exit status indicates an error.
 
-       The "mong" form takes one argument to deal with the Mongo DB service.
-       Given "status" it reports if the service (daemon) is up or down, and
-       returns a testable process status.  With "repltest", it starts up
-       and tests a number of replicas.  With "start1", it starts the service
-       as a single, non-replicated instance, suppressing any default replica
-       set configuration.  Otherwise the argument instructs the script to
-       start, stop, or restart the service.  Use -v to make it verbose.
+       The "warts" form takes the ~/warts/env.sh bash scripts and creates a
+       corresponding ~/warts/env.yaml form of its settings (in YAML format).
 
        The "class" form prints the service class (dev, stg, prd, mac) and
        canonical hostname of the given Host (the current host by default).
@@ -1805,6 +1800,49 @@ function log_rotate {
 	return 1
 }
 
+# (Re)Make ~/warts/env.yaml if it is out of date wrt ~/warts/env.sh.
+# Setting bash vars in warts is convenient because you can use bash features
+# to do things like variable substitution (eg, references to previously set
+# values, tricky in YAML). But we want a YAML version of those settings
+# because that conforms to Eggnog config file conventions.
+
+function warts2yaml {
+
+	local bashfile=$HOME/warts/env.sh
+	local yamlfile=$HOME/warts/env.yaml
+
+	[[ $yamlfile -nt $bashfile ]] && {
+		echo Nothing to update
+		return
+	}
+
+	# Temporarily put the perl script we'll use in the var $perl_warts,
+	# using a "heredoc" (<<) so we don't have worry about quotes
+	# surrounding it. Use the var right afterwards with perl -E.
+
+	local perl_warts
+	read -r -d '' perl_warts << 'EOT'
+	# start embedded Perl program
+	use strict;
+	sub bash2yaml { my( $bashfile )=@_;
+		my $environment = `bash -c "source $bashfile; env"`;
+		map { /(^(?:EGNAPA|MG)_[^=]+)=(.*)/ and say "$1: \"$2\"" }
+			split /\n/, $environment;
+		return;
+	}
+	foreach my $file (@ARGV) {
+		bash2yaml($file);		# outputs to stdout
+	}
+	# end embedded Perl program
+EOT
+
+	# Now call the script just saved in $perl_warts, pass in values
+	# via environment variables, and put file arguments on the end.
+
+	env perl -E "$perl_warts" $bashfile > $yamlfile
+	return
+}
+
 # MAIN
 
 # Pick up whatever SVU mode may be in effect for the caller.
@@ -1846,6 +1884,10 @@ case $cmd in
 
 help|"")
 	usage
+	exit
+	;;
+warts)
+	warts2yaml $@
 	exit
 	;;
 class)

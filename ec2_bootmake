@@ -153,8 +153,9 @@ EOT
 # The build_server_tree script (eggnog source) reads these for host and
 # certificate configuration.
 
+export EGNAPA_SERVICE=n2t		# database names start egg_n2t_...
 export EGNAPA_HOST=$hostname
-export EGNAPA_HOST_CLASS=$class              # eg, one of dev, stg, prd, loc
+export EGNAPA_HOST_CLASS=$class		# eg, one of dev, stg, prd, loc
 
 # Define filenames to hold copies (NOT the master files) of your certificates.
 # Use EGNAPA_SSL_CERTFILE for the full path of a signed certificate, if any,
@@ -319,19 +320,23 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 
 	sudo yum -y install libdb4	# version 4 (v5 is default)
 	sudo yum -y install hg
-	sudo yum -y install 'perl(DB_File)' 'perl(BerkeleyDB)'
+	sudo yum -y install 'perl(DB_File)'	# xxx drop this soon
+	sudo yum -y install 'perl(BerkeleyDB)'
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 	sudo yum -y install 'perl(Time::HiRes)'
 
-
+	# yyy why not install better version with cpanm?
 	sudo yum -y install 'perl(Log::Log4perl)'
 
 # xxx when system comes up, even partially, crontab is off and spewing
 #     error messages a little too easily --  how to stop?
 
+	# XML to parse and format XML blobs for inflection support
 	sudo yum -y install 'perl(XML::LibXML)' 'perl(XML::LibXSLT)'
 	sudo yum -y install 'perl(App::cpanminus)'
-	sudo yum -y install jq
+	sudo yum -y install jq			# for Internet Archive API
+	sudo yum -y install golang		# nice, but not essential
+	sudo amazon-linux-extras install -y vim	# nice, but not essential
 
 	sudo yum -y install mongodb-org
 	# on mac, need: brew install mongodb --with-openssl
