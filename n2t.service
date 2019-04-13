@@ -1,14 +1,21 @@
+# Enabled after first disabling the default mongod start configuration
+#     $ sudo systemctl disable mongod
+#     $ sudo systemctl enable n2t
+# Created symlink: /etc/systemd/system/multi-user.target.wants/n2t.service
+#   -> /etc/systemd/system/n2t.service
+
 [Unit]
 Description=N2T services
-After=network.target remote-fs.target nss-lookup.target
-  
+After=network.target local-fs.target remote-fs.target nss-lookup.target
+
 [Service]
 User=n2t
 Type=forking
-ExecStart=/bin/bash /apps/n2t/init.d/apache start
-ExecReload=/bin/bash /apps/n2t/init.d/apache restart
-ExecStop=/bin/bash /apps/n2t/init.d/apache stop
+#https://stackoverflow.com/questions/49764993/using-a-users-bashrc-in-a-systemd-service
+ExecStart=/bin/bash  -lc 'exec "$@"' _ /apps/n2t/init.d/apache start
+ExecReload=/bin/bash -lc 'exec "$@"' _ /apps/n2t/init.d/apache restart
+ExecStop=/bin/bash   -lc 'exec "$@"' _ /apps/n2t/init.d/apache stop
 PrivateTmp=true
-  
+
 [Install]
 WantedBy=multi-user.target

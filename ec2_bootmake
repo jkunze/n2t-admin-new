@@ -58,9 +58,14 @@ Then run
 
       $0 build
 
-Finally have your system people copy ~/n2t_create/apache.n2t to
-/etc/init.d/apache.n2t so that the service comes up and shuts down
-properly during system reboots. You'll also want to have web service
+Finally have your system people install ~/n2t_create/n2t.service with
+systemd so that the service comes up and shuts down properly during
+system reboots. This involves them asking turning off the mongod that
+systemd is configured to start up by default.
+
+      \$ sudo systemctl disable mongod
+
+You'll also want to have web service
 monitoring set up, eg, Nagios.
 
 EOT
@@ -339,6 +344,9 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo amazon-linux-extras install -y vim	# nice, but not essential
 
 	sudo yum -y install mongodb-org
+	echo \
+"WARNING: on AWS Linux2, this installation of mongodb configures host boot
+scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# on mac, need: brew install mongodb --with-openssl
 	# yyy never actually used telnet for this
 	sudo yum -y install telnet	# network testing, eg, mongo replication
