@@ -1,0 +1,20 @@
+These are redirects inbound to cdlib.org that Eric Satzman maintains
+   (as of 2019.04.15)
+
+/uc3/ark        http://confluence.ucop.edu/display/Curation/ARK
+        should be     https://n2t.net/e/ark_ids.html
+/services/uc3/naan_table.html   https://n2t.net/e/pub/naan_table.html
+/services/uc3/naan_table.txt   https://n2t.net/e/pub/naan_table.txt
+/services/uc3/naan_registry.txt   https://n2t.net/e/pub/naan_registry.txt
+/services/uc3/arkspec.pdf  https://n2t.net/ark:/13030/c7cv4br18
+/inside/diglib/ark/infinity.gif /services/uc3/images/ark/infinity.gif
+/services/uc3/docs/Abrams-Cruse-Kunze-Preservation-is-not-a-place-final.pdf   https://merritt.cdlib.org/d/ark%3A%2F13030%2Fm5n8782w/0/producer%2FAbrams-Cruse-Kunze-Preservation-is-not-a-place-final.pdf
+/services/uc3/docs/anvlspec.pdf   https://confluence.ucop.edu/display/Curation/Anvl
+/services/uc3/docs/checkmspec.html   https://confluence.ucop.edu/display/Curation/Checkm
+/services/uc3/docs/dax_20110119.pptx   https://merritt.cdlib.org/d/ark%3A%2F13030%2Fm5zp44dh/0/producer%2Fdax_20110119.pptx
+/services/uc3/docs/dax.pdf    https://merritt.cdlib.org/d/ark%3A%2F13030%2Fm5k40gkf/0/producer%2Fdax.pdf
+/services/uc3/docs/dflatspec.pdf    https://confluence.ucop.edu/display/Curation/D-flat
+/services/uc3/docs/jak_ARKs_Berlin_2012.pdf    https://merritt.cdlib.org/d/ark%3A%2F13030%2Fm5sj67jc/1/producer%2Fjak_ARKs_Berlin_2012.pdf
+/uc3/bagit      http://confluence.ucop.edu/display/Curation/BagIt
+/services/uc3/docs/ezidapi_v1.html      http://n2t.net/ezid/doc/apidoc.1.html
+/services/uc3/docs/ezidapi.html http://n2t.net/ezid/doc/apidoc.html

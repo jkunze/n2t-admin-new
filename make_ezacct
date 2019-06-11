@@ -11,6 +11,9 @@ use File::ANVL;
 
 my ($msg, @elems, %hash);		# globals
 
+# XXX to do: check for empty acronym
+# XXX to do: supply default datacenter
+
 # XXX need to automate shoulder selection so caller doesn't have to invent
 #    reqs: explode (split '', ...) chars of org acronym, digits of prefix
 # Default shoulder selection: pick one letter and one digit (not 0 or 1).
