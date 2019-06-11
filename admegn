@@ -1165,6 +1165,7 @@ function rstat {
 	my %h;		# hash for counting
 	my ($key, $mon, $yyyy);
 	my $pat = $ENV{ADMEGN_IDPAT};	# might be empty
+	my $pat_orig = $pat;
 	my $rpat;			# regex version of $pat
 	$pat and $rpat = qr/$pat/;	# if non-empty, assume it's a regex
 	my $alogformat;			# access_log format?
@@ -1192,9 +1193,10 @@ function rstat {
 				# future.  First remove any ark:/ that the
 				# caller might have entered (makes sense),
 				# then add the possibility of the future log
-				# format recording ark:/.  Remember that
-				# $pat may be empty.
+				# format recording ark:/.  Remember to re-init
+				# for each file and that $pat may be empty.
 				#
+				$pat = $pat_orig;		# re-init
 				$pat =~ s|^.*/?ark:/?||;	# if any
 				$pat =~ s|^|BEGIN resolve (?:ark:/)?|;
 				$rpat = qr/$pat/;
