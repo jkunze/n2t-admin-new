@@ -209,7 +209,9 @@ function do_apache_httpd24 {
 	local aptop=~/sv/cur/apache2
 	rm -fr $aptop
 	mkdir $aptop
-	cd $aptop
+
+	cd $aptop			# where we copy stuff to
+
 	mkdir -p bin cgi-bin htdocs logs var/run
 	cp /usr/sbin/httpd bin/httpd
 	cp -Lpr $sysap/modules .

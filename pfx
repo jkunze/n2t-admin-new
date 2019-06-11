@@ -2353,7 +2353,8 @@ do
 			exit 1
 		}
 		;;
-	-s|--show)		# show lines, records, or count (for "find") shift
+	-s|--show)		# show lines, records, or count (for "find")
+		shift
 		show=${1:-}
 		shift
 		[[ ! "$show" ]] && {
