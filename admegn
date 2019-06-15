@@ -1409,6 +1409,16 @@ function sysupdate {
 	# If we get here, do the update
 	local msg
 	msg=$( sudo yum $dontask update )
+
+	# AWS yum updates of mongod automatically enable mongod on reboot,
+	# which creates socket file owned by mongod that we can't remove
+	# without superuser powers. So make sure mongod is always disabled,
+	# after any system update.
+
+	sudo /usr/bin/systemctl stop mongod
+	sudo /usr/bin/systemctl disable mongod
+	sudo /usr/bin/systemctl status mongod
+
 	echo "$msg"
 	echo 'Restarting apache and running "n2t test"'
 	~/init.d/apache restart || {
