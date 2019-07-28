@@ -381,7 +381,8 @@ function pfx_harvest_validate {
 	local f
 	local errcount=0
 	local msg=''
-	for f in $pfx_base ${pfx_sources[@]}
+	# yyy adding naan_table.txt to make it easy to grep for NAANs
+	for f in $pfx_base naan_table.txt ${pfx_sources[@]}
 	do
 		[[ $pfx_harvest/$f -nt $pfx_quarantine/$f && ! "$force" ]] &&
 			continue		# yyy emit message here?
@@ -502,14 +503,17 @@ function pfx_harvest {
 	# EXTERNALLY maintained (but on hiatus) registry; this is a snapshot
 	rfiles+=' shoulders/lsregistry.yml'
 	# EXTERNALLY maintained registry, updated daily at 05:30 GMT.
-	ebi_url='http://identifiers.org/service/registryxml'
+	ebi_url='https://ebi.identifiers.org/service/registryxml'
+	ebi_tmparg='--no-check-certificate'
+		# 2019.06.17 need --no-check-certificate
 
 	#scp -qp $pfx_maint_host:"$rfiles" $pfx_quarantine || 
 	local rfiles=
 # XXX this must be tested in production
 	local rfile
 	local maint_service=https://n2t.net/e/pub
-	for rfile in naan_registry.txt master_shoulders.txt lsregistry.yml
+	# yyy adding naan_table.txt to make it easy to grep for NAANs
+	for rfile in naan_registry.txt master_shoulders.txt lsregistry.yml naan_table.txt
 	do
 		wget -q -O $pfx_quarantine/$rfile $maint_service/$rfile || {
 			echo "Error running wget -q -O $pfx_quarantine/$rfile" \
@@ -522,7 +526,7 @@ function pfx_harvest {
 
 	# by default, dns, connect, and read timeouts are 900 secs (15 mins)
 	# yyy --timeout=90 ?
-	wget -q -O $pfx_quarantine/ebireg.xml $ebi_url || {
+	wget -q -O $pfx_quarantine/ebireg.xml $ebi_tmparg $ebi_url || {
 		echo "Error running wget from $ebi_url" 1>&2
 		return 1
 	}
@@ -609,7 +613,7 @@ function pfx_import {
 		pfx_init || return		# yyy needed?
 	}
 	local f
-	for f in $pfx_base ${pfx_sources[@]}
+	for f in $pfx_base naan_table.txt ${pfx_sources[@]}
 	do
 		[[ ! -r $pfx_harvest/$f ]] && {
 			echo -e "Error: missing prefix source file from" \
@@ -622,7 +626,7 @@ function pfx_import {
 #	[[ ! -r $pfx_harvest/$pfx_base ]] &&	# update previous stage
 #		pfx_base harvest		# from default
 
-	for f in $pfx_base ${pfx_sources[@]}
+	for f in $pfx_base naan_table.txt ${pfx_sources[@]}
 	do
 		[[ $pfx_import/$f -nt $pfx_harvest/$f && ! "$force" ]] &&
 			continue		# yyy emit message here?
