@@ -345,6 +345,7 @@ manager: ezid
 name: $uilabel
 date: $edate
 minter: $doi_minter
+registration_agency: datacite
 datacenter: $datacenterclass.$realmless
 $flags
 

@@ -37,11 +37,14 @@ summary="
 	cat << EOT
 
 SYNOPSIS                          ($0)
-       $me - admin tool for eggnog
+       $me - admin tool for Eggnog (essentially N2T)
 
 USAGE $summary
 
 DESCRIPTION
+       NB: for the moment, this script assumes it is correct to always
+       call Eggnog services with --service n2t.
+
        The $me tool performs various administrative tasks for the eggnog
        server database running under the "svu" service version that is
        currently in effect (or "cur" if none -- type "svu" for details).
