@@ -461,7 +461,9 @@ function pfx_harvest {
 	# EXTERNALLY maintained (but on hiatus) registry; this is a snapshot
 	rfiles+=' shoulders/lsregistry.yml'
 	# EXTERNALLY maintained registry, updated daily at 05:30 GMT.
-	ebi_url='http://identifiers.org/service/registryxml'
+	ebi_url='https://ebi.identifiers.org/service/registryxml'
+	ebi_tmparg='--no-check-certificate'
+		# 2019.06.17 need --no-check-certificate
 
 	#scp -qp $pfx_maint_host:"$rfiles" $pfx_quarantine || 
 	local rfiles=
@@ -481,7 +483,7 @@ function pfx_harvest {
 
 	# by default, dns, connect, and read timeouts are 900 secs (15 mins)
 	# yyy --timeout=90 ?
-	wget -q -O $pfx_quarantine/ebireg.xml $ebi_url || {
+	wget -q -O $pfx_quarantine/ebireg.xml $ebi_tmparg $ebi_url || {
 		echo "Error running wget from $ebi_url" 1>&2
 		return 1
 	}
