@@ -1418,9 +1418,13 @@ function sysupdate {
 	# without superuser powers. So make sure mongod is always disabled,
 	# after any system update.
 
+	ls -l /tmp/mongo*		# check permissions before intervention
+
 	sudo /usr/bin/systemctl stop mongod
 	sudo /usr/bin/systemctl disable mongod
 	sudo /usr/bin/systemctl status mongod
+
+	ls -l /tmp/mongo*		# check permissions after intervention
 
 	echo "$msg"
 	echo 'Restarting apache and running "n2t test"'

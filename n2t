@@ -57,6 +57,7 @@ function check_default_minders {
 	[[ $minder_type != binders ]] &&
 		return			# we don't check minters or shoulders
 	# if we get here, we're checking for default binders
+
 	local binders
 	binders=$( shopt -s nullglob; echo $nsf/$minder_type/* )
 	[[ "$binders" == "" ]] && {
@@ -67,6 +68,7 @@ function check_default_minders {
 	for binder in $binders
 	do
 		b=$( basename $binder )
+# ZZZ modify for exdb case to detect absence of 'public' isolator
 		[[ -e $aptop/$minder_type/$b ]] &&	# if it already exists,
 			continue			# assume binder is ok
 		# Y is default.
@@ -78,6 +80,7 @@ function check_default_minders {
 		}
 		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
 			continue
+# ZZZ modify for exdb case to add 'public' isolator
 		cp -npr $binder $aptop/$minder_type
 	done
 	return 0
@@ -190,7 +193,8 @@ function n2t_rollout {	# assumes caller ran check_changes!
 		# eggnog_conf_default will be installed with the system.
 
 		#for d in cgi-bin conf htdocs ssl eggnog_conf_default
-		for d in cgi-bin conf htdocs eggnog_conf_default
+		#for d in cgi-bin conf htdocs eggnog_conf_default
+		for d in cgi-bin conf htdocs eggnog_conf
 		do
 			echo Copying contents of $nsf/$d.
 			cp -pr $nsf/$d . || {
