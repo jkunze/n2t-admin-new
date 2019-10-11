@@ -1,2 +1,33 @@
 # n2t crontab file -- dev version
 
+EGG='--home /apps/n2t/sv/cur/apache2'
+MAILTO=$( egg host contact_email )
+
+# Update OS automatically on schedule determined by patch_* setting in
+# /apps/n2t/sv/cur/apache2/eggnog_conf and queried by "egg host patch_today".
+# NB: changed admegn to reboot on any non-empty change (eg, crontab broke once).
+
+#xxx58 13 * * * bash -lc "echo hi; egg -q host resolver_check && echo rcheck" >> logs/sysupdate_log 2>&1
+#xxx41 13 * * * bash -lc "egg -q host patch_today && echo mailto: $MAILTO" >> logs/sysupdate_log 2>&1
+38 5 * * * bash -lc "egg -q host patch_today && (admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; fi)" >> logs/sysupdate_log 2>&1
+
+# Every 3 minutes check that resolution is working. If not, an alert email
+# is sent and apache is restarted, which mitigates the "off-by-one" error.
+# It uses "admegn rcheck" to send an email on failure and exit with non-zero
+# status, which is tested (via ||) for an apache restart.
+# NB: this is only done for production host running BerkeleyDB.
+
+*/3 * * * * bash -lc "egg host resolver_check && (admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart)) >> logs/restart_log 2>&1"
+
+# Check daily for system (possibly error) messages.
+#
+#55 7 * * 1-7 PATH=$HOME/local/bin:$PATH $SHELL -lc "admegn error_check $MAILTO 2>&1"
+
+# Look once a night for rotated transaction_log files to rename.
+# Note that such files are generally created only once a week.
+#
+#15 00 * * 1-7 bash -lc "admegn logrename > /dev/null 2>&1"
+
+#### Sundays at 4:03 am, delete log files older than 6 months.
+#03 04 * * 0 bash -lc "admegn logdelete 6" >> logs/logdelete_log 2>&1
+

@@ -60,7 +60,7 @@ Then run
 
 Finally have your system people install ~/n2t_create/n2t.service with
 systemd so that the service comes up and shuts down properly during
-system reboots. This involves them asking turning off the mongod that
+system reboots. This involves asking them to turn off the mongod that
 systemd is configured to start up by default.
 
       \$ sudo systemctl disable mongod

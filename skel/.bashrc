@@ -184,6 +184,25 @@ EOT
 	return $status
 }
 
+# As of 2019.09.16 the NAAN distribution was very heavy in the 80000's
+# 1: 63
+# 2: 59
+# 3: 52
+# 4: 53
+# 5: 53
+# 6: 56
+# 7: 57
+# 8: 146
+
+function naan_distrib {
+	local i
+	for i in 1 2 3 4 5 6 7 8
+	do
+		echo -n "$i: "
+		grep -c "what:[      ]*$i" master_naans
+	done
+}
+
 function in_ezid {
 	local id n=5
 	[[ "$1" ]] || {

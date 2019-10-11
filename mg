@@ -26,7 +26,8 @@ summary="
        $me [flags] status [ Port ... ]
 
        $me rs_config
-       $me [flags] rs_start
+       $me [flags] rs_start_ikwid
+       $me [flags] rs_stop_ikwid
        $me [flags] rs_list
        $me [flags] rs_status
        $me [flags] repltest [ Setcount ]
@@ -54,7 +55,7 @@ DESCRIPTION
        on all the daemons listed in the MG_LOCAL_DAEMONS environment variable.
        This and other replica set configuration variables are usually set via
        ~/warts/env.sh and the "ec2_bootmake" script should have initialized 
-       the replica set ("$me rs_start").
+       the replica set ("$me rs_start_ikwid").
        
        Be very careful initializing or reinitializing your replica set, as
        I find it far too easy to get into a state where the only recourse
@@ -70,15 +71,16 @@ REPLICA SETS
        and lose all your data), the following should have been run in
        ec2_bootmake to enable most replica set commands (beginning "rs_...").
 
-           $me rs_start
+           $me rs_start_ikwid
 
        It starts up all local daemons and adds them to the set. It is meant
-       to be used ONCE or rarely. Permanent replica set state information is
-       maintained in the mongodb data stores of the member instances. After
-       the host reboots, for example, it's enough simply to restart a local
-       daemon, which remembers that it belongs to the set. If you mess up
-       initialization (easy), stop all mongo servers and remove all the data
-       directories under \$sv/apache2/mongo/, and do "$me rs_start" again.
+       to be used ONCE or rarely. IKWID means "I know what I'm doing".
+       Permanent replica set state information is maintained in the mongodb
+       data stores of the member instances. After the host reboots, for
+       example, it's enough simply to restart a local daemon, which remembers
+       that it belongs to the set. If you mess up initialization (easy), stop
+       all mongo servers and remove all the data directories under
+       \$sv/apache2/mongo/, and do "$me rs_start_ikwid" again.
 
 REPLICA SET COMMANDS
        Use the commands
@@ -94,7 +96,7 @@ REPLICA SET COMMANDS
        Each mongo instance starts up ready to be part of the replica set "live"
        by default, or "test" if -t was given. Behind the scenes are internal
        commands that are NOT recommended unless you know what you're doing, eg,
-       for 3 configured local daemons, rs_start does something like
+       for 3 configured local daemons, rs_start_ikwid does something like
 
            $me rs_add 27017
            $me rs_add 27018
@@ -134,7 +136,7 @@ FILES
 
 EXAMPLES
        $me rs_config      # read this FIRST and configure ~/warts/env.sh
-       $me rs_start       # ONE-TIME operation after configuration
+       $me rs_start_ikwid       # ONE-TIME operation after configuration
        $me start          # run at host boot time
        $me stop           # run at host shutdown
        $me repltest 11    # set up, test, and tear down 11-member replica set
@@ -1693,11 +1695,11 @@ rs_list)
 	rs_list "$@"
 	exit
 	;;
-rs_start)
+rs_start_ikwid)
 	rs_start "$@"
 	exit
 	;;
-rs_stop)
+rs_stop_ikwid)
 	rs_stop "$@"
 	exit
 	;;

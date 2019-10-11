@@ -43,8 +43,8 @@ rollout       run "install" and restart the N2T Apache server
 cron_hitrnt   given mailto, run "hitrnt"; do pfxsync if also given rhost
 hitrnt        harvest, import, test, rollout, and do "n2t test"
 pfxsync       copy tested prefixes to given rhost and rollout
-help          show full usage information.
-init          initialize pfx system.
+help          show full usage information
+init          initialize pfx system
 backup        save snapshot of prefixes to given directory
 mark4refresh  marks harvest area so next hitrnt cycle does full refresh
 test_rollout  n2t_test test, install, rollout, and re-test
