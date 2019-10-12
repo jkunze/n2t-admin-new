@@ -1,15 +1,15 @@
 # n2t crontab file -- dev version
 
 EGG='--home /apps/n2t/sv/cur/apache2'
-MAILTO=$( egg host contact_email )
+MAILTO=$( egg cfq contact_email )
 
 # Update OS automatically on schedule determined by patch_* setting in
-# /apps/n2t/sv/cur/apache2/eggnog_conf and queried by "egg host patch_today".
+# /apps/n2t/sv/cur/apache2/eggnog_conf and queried by "egg cfq patch_today".
 # NB: changed admegn to reboot on any non-empty change (eg, crontab broke once).
 
-#xxx58 13 * * * bash -lc "echo hi; egg -q host resolver_check && echo rcheck" >> logs/sysupdate_log 2>&1
-#xxx41 13 * * * bash -lc "egg -q host patch_today && echo mailto: $MAILTO" >> logs/sysupdate_log 2>&1
-38 5 * * * bash -lc "egg -q host patch_today && (admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; fi)" >> logs/sysupdate_log 2>&1
+#xxx58 13 * * * bash -lc "echo hi; egg -q cfq resolver_check && echo rcheck" >> logs/sysupdate_log 2>&1
+#xxx41 13 * * * bash -lc "egg -q cfq patch_today && echo mailto: $MAILTO" >> logs/sysupdate_log 2>&1
+38 5 * * * bash -lc "egg -q cfq patch_today && (admegn sysupdate -y; if [[ \$? -eq 2 ]]; then echo +==== rebooting; sudo init 6; fi)" >> logs/sysupdate_log 2>&1
 
 # Every 3 minutes check that resolution is working. If not, an alert email
 # is sent and apache is restarted, which mitigates the "off-by-one" error.
@@ -17,7 +17,7 @@ MAILTO=$( egg host contact_email )
 # status, which is tested (via ||) for an apache restart.
 # NB: this is only done for production host running BerkeleyDB.
 
-*/3 * * * * bash -lc "egg host resolver_check && (admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart)) >> logs/restart_log 2>&1"
+*/3 * * * * bash -lc "egg -q cfq resolver_check && (admegn rcheck || (echo '+====' `date`; env PATH=~/local/bin:$PATH init.d/apache restart)) >> logs/restart_log 2>&1"
 
 # Check daily for system (possibly error) messages.
 #
