@@ -1,5 +1,6 @@
 #!/bin/bash
 
+#Control a public-facing combination HTTPD and MongoDB server (custom "mg"
 function usage () {
 	cat << EOT
 
@@ -7,9 +8,9 @@ Usage:
 	apache command
 	egnapa command
 
-Control a public-facing combination HTTPD and MongoDB server (custom "mg"
-command), unless invoked as "egnapa" (eggnog apache) in which case control
-a non-public combination server under an "svu new" or "svu old" mode
+Control a public-facing combination HTTPD server, unless invoked
+as "egnapa" (eggnog apache) in which case control a non-public
+combination server under an "svu new" or "svu old" mode
 (type "svu" for more information).  Commands:
 
     start          start the server
@@ -100,7 +101,7 @@ start)
 		# xxx we have no "downserver" yet/ever?
 		echo
 	fi
-	mg $1		# with no Port args, affects ALL local daemons
+	#mg $1		# with no Port args, affects ALL local daemons
 	httpd start || {
 		echo "NOT OK -- showing \"tail -5 $apache_top/logs/error_log\""
 		tail -5 $apache_top/logs/error_log
@@ -113,26 +114,26 @@ start)
 stop|graceful-stop)
 	httpd graceful-stop || exit 1	# note: this does graceful stop
 	echo "OK ($cfg_info) -- stopped (graceful)"
-	mg $1
+	#mg $1
 	;;
 
 hard-stop)
 	httpd stop || exit 1		# this does a hard stop
 	echo "OK ($cfg_info) -- stopped (hard)"
-	mg $1
+	#mg $1
 	;;
 
 restart|graceful)
 	#httpd $1
 	httpd graceful || exit 1	# note: this does graceful (restart)
 	echo "OK ($cfg_info) -- (graceful restart) $listening"
-	mg $1
+	#mg $1
 	;;
 
 hard-restart)
 	httpd restart || exit 1		# this does a hard restart
 	echo "OK ($cfg_info) -- (hard restart) $listening"
-	mg $1
+	#mg $1
 	;;
 
 status)
@@ -157,7 +158,7 @@ status)
 		echo "UP ($cfg_info) -- $listening, $netstat_up"
 	fi
 	# yyy no probe no "graceful"
-	mg status
+	#mg status
 	# xxx mg rs_list
 	#admegn mong status
 	[[ $? -ne 0 ]] &&

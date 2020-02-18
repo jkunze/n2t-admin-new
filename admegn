@@ -1082,11 +1082,11 @@ function rcheck {
 	local i t itcnt got errcnt=0 msg=''
 	local array i_t_pairs=(			# identifier/target pairs
 	  'ark:/12345/fk1234'
-		'http://www.cdlib.org/services'
+		'https://cdlib.org/services'
 	  'ark:/12345/fk1235'
-		'http://en.wikipedia.org/wiki'
+		'https://en.wikipedia.org/wiki'
 	  'ark:/12345/fk3'
-		'http://www.google.com/#q='
+		'https://www.google.com/#q='
 	)
 	(( itcnt=(${#i_t_pairs[@]} / 2) ))
 
@@ -1099,9 +1099,9 @@ function rcheck {
 	do
 		[[ "${#i_t_pairs}" -eq 0 ]] &&		# if list now empty
 			break				# we're done
-		i="${i_t_pairs[0]}"
+		i="${i_t_pairs[0]}"			# save first pair
 		t="${i_t_pairs[1]}"
-		i_t_pairs=( ${i_t_pairs[@]:2} )
+		i_t_pairs=( ${i_t_pairs[@]:2} )		# drop first pair
 		got=$( wegn locate "$i" |
 			sed -ne 's/^Location: *//p' -e '/[Ee]rror/p' )
 		[[ "$verbose" ]] && {
@@ -1634,7 +1634,7 @@ function backup {
 		dst=~/backups/binders/$b/$now
 		mkdir -p $dst
 		echo db_hotbackup for $b
-		db_hotbackup -h $src -b $dst
+		TMPDIR=~/backups/tmp db_hotbackup -h $src -b $dst
 		#took=$( ( time db_hotbackup -h $src -b $dst ) 2>&1 )
 		#echo " " $( sed -n s/real//p <<< "$took" )
 	done
@@ -1648,7 +1648,9 @@ function backup {
 			continue	# if not a binder or not a real binder
 		echo db_verify for $b
 		dst=~/backups/binders/$b/$now
-		msg=$( time db_verify $dst/egg.bdb 2>&1 ) || {
+		#msg=$( time db_verify $dst/egg.bdb 2>&1 ) || {
+ 		# Add TMPDIR because of performance problems using /
+ 		msg=$( TMPDIR=~/backups/tmp db_verify $dst/egg.bdb 2>&1 ) || {
 			echo "$msg" > $dst/VERIFY_FAILED
 			echo "$b backup - NOT OK"
 			echo "$msg"

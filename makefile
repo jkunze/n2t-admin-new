@@ -168,18 +168,31 @@ BASICDIRS=$(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/ssl \
 basicdirs: $(BASICDIRS)
 
 # xxx test this!
+# Create backups directory and tmp subdir; this is so TMPDIR can be set to it,
+#    avoiding overuse and performance problems using /tmp.
 $(HOME)/backups:
 	if [[ -d $(HOME)/../n2tbackup ]]; then \
-		mkdir $(HOME)/../n2tbackup/backups; \
+		mkdir -p $(HOME)/../n2tbackup/backups/tmp; \
 		ln -s $(HOME)/../n2tbackup/backups $@; \
 	else \
-		mkdir -p $@; \
+		mkdir -p $@/tmp; \
 	fi
 
 $(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/init.d $(HOME)/batches:
 	mkdir -p $@
 
+# XXX better: point env.sh directly to ~/ssl/*/.cer, because it's easier
+#     and safer to test by simply swapping the env.sh file instead of
+#     swapping it along with the ~/warts/ssl files
 sslreadme:
+	@ cfile=$$( echo $(HOME)/warts/ssl/*_cert.cer ); \
+	  rfile=$(HOME)/warts/ssl/README ; \
+	if [[ -f "$$cfile" && ( ! -f $$rfile || $$cfile -nt $$rfile ) ]]; \
+	then \
+		openssl x509 -in $$cfile -text -noout > $$rfile ; \
+	fi
+
+sslreadme_old:
 	@ cfile=$$( echo $(HOME)/warts/ssl/*.crt ); \
 	  rfile=$(HOME)/warts/ssl/README ; \
 	if [[ -f "$$cfile" && ( ! -f $$rfile || $$cfile -nt $$rfile ) ]]; \
