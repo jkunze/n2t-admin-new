@@ -52,6 +52,7 @@ if [ ! -z "${PS1:-}" ]; then		# if interactive shell
 	reset=$(tput sgr0)
         #PS1='\[$blue\]\h:\W \u\$ \[$reset\]'
 	# Make bash check its window size after a process completes
+	shopt -s direxpand	# make tab completion stop escaping $var
 	shopt -s checkwinsize
 	#set -o vi		# for vi-style command line editing
 

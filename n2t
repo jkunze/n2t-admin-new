@@ -68,7 +68,10 @@ function check_default_minders {
 	for binder in $binders
 	do
 		b=$( basename $binder )
-# ZZZ modify for exdb case to detect absence of 'public' isolator
+# ZZZ modify to detect absence of 'public' isolator
+# zzz how does server know that incoming request is for 'public' binder?
+#     * must get --isolator ... arg and no testdata arg, right?
+#     * for new binder, just create from scratch, or rename (rename better)
 		[[ -e $aptop/$minder_type/$b ]] &&	# if it already exists,
 			continue			# assume binder is ok
 		# Y is default.
@@ -80,7 +83,7 @@ function check_default_minders {
 		}
 		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
 			continue
-# ZZZ modify for exdb case to add 'public' isolator
+# ZZZ modify to add 'public' isolator
 		cp -npr $binder $aptop/$minder_type
 	done
 	return 0
