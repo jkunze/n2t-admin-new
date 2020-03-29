@@ -105,7 +105,7 @@ function check_default_minders {
 		dstb+="${stablename:-}"
 
 		# yyy
-		# brename problems for source binder
+		# bmv problems for source binder
 		# egg_n2t_dev_idsn2t2dev2bn2tnet.real_n2t_s_ezid
 		#       ^^ no _td                     ^^^ should be ezid
 
@@ -126,9 +126,9 @@ function check_default_minders {
 		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
 			continue
 
-		perl -Mblib egg brename $binder $dstdir/$dstb
+		perl -Mblib egg bmv $binder $dstdir/$dstb
 
-		#perl -Mblib egg --testdata td brename $b $dstdir/$dstb
+		#perl -Mblib egg --testdata td bmv $b $dstdir/$dstb
 
 		#cp -npr $binder $aptop/$minder_type
 	done
