@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+set -u			# use of unset variables throws an error
 me=$( basename $0 )
 function usage {
 	cat << EOT
@@ -65,16 +66,57 @@ function check_default_minders {
 			"empty: $nsf/$minder_type"
 		return 1
 	}
+	dstdir=$aptop/$minder_type
 	for binder in $binders
 	do
-		b=$( basename $binder )
-# ZZZ modify to detect absence of 'public' isolator
-# zzz how does server know that incoming request is for 'public' binder?
-#     * must get --isolator ... arg and no testdata arg, right?
-#     * for new binder, just create from scratch, or rename (rename better)
-		[[ -e $aptop/$minder_type/$b ]] &&	# if it already exists,
-			continue			# assume binder is ok
-		# Y is default.
+		# Summary: derive short binder name into $b, convert $b
+		# to proper prod $dstb, if $dstb does NOT exist in
+		# public directory, ask to create it
+
+		[[ -f $binder ]] && {		# if it's a file, just copy it
+			cp -p $binder $dstdir/		# (eg, README file)
+			continue			# and do next item
+		}
+
+		# If we get here, $binder is not a file.
+
+		# See if it's an actual binder and parse to pick out
+		# pieces we'll need to construct the new name. First do
+		# a complete parse into printf -v (trick to set bash variable
+		# names and values) commands, and then eval the output string.
+
+		var_val_pairs=$( egg bxname --all $binder | sed -n \
+			's/^\([^:]*\): \(.*\)/printf -v "\1" "%s" "\2"; /p' )
+		eval "$var_val_pairs"
+
+		[[ ! "${iexists:-}" ]] && {
+			echo "Warning: skipping non-binder $binder"
+			continue
+		}
+
+		# Does its public (rolled out) counterpart "destination
+		# binder" exist? Derive its name into $dstb in a process
+		# that relies on --home $aptop in EGG env var to pull in
+		# the correctly configured service and class values.
+
+		b=${user_binder_name:-}
+		dstb=$( perl -Mblib egg --isolator public bpname $b | \
+			sed -n 's/\..*/./p' )
+		dstb+="${stablename:-}"
+
+		# yyy
+		# brename problems for source binder
+		# egg_n2t_dev_idsn2t2dev2bn2tnet.real_n2t_s_ezid
+		#       ^^ no _td                     ^^^ should be ezid
+
+		# Does $dstb already exist?
+		is_binder=$( perl -Mblib egg bxname $dstdir/$dstb )
+
+		[[ "$is_binder" ]] && {		# if $dstb exists, skip to
+			continue			# the next item
+		}
+		# If we get here, ask to create new public binder. Default is Y.
+
 		read -t 30 -p \
 			"Server has no $b binder.  Copy from new server? [Y/n] "
 		[[ $? != 0 ]] && {
@@ -83,8 +125,12 @@ function check_default_minders {
 		}
 		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
 			continue
-# ZZZ modify to add 'public' isolator
-		cp -npr $binder $aptop/$minder_type
+
+		perl -Mblib egg brename $binder $dstdir/$dstb
+
+		#perl -Mblib egg --testdata td brename $b $dstdir/$dstb
+
+		#cp -npr $binder $aptop/$minder_type
 	done
 	return 0
 }
@@ -273,16 +319,17 @@ cd $sv/build/eggnog || {	# normally run from eggnog source directory
 echo "Process running now in $sv/build/eggnog directory."
 
 aptop=$sv/apache2			# apache top
+export EGG="--home $aptop"		# so we get $aptop config files
 nsf=$sv/build/eggnog/td_egnapa_public	# new server files
 apctl=~/init.d/apache			# apache control script
 
 force=
-[[ "$1" == --force ]] && {		# go even if uncommitted changes exist
+[[ "${1:-}" == --force ]] && {		# go even if uncommitted changes exist
 	force=1
 	shift
 }
 
-Command=$1
+Command=${1:-}
 shift
 case $Command in
 
