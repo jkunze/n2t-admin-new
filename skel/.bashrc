@@ -1,4 +1,16 @@
+# This file of bash settings is source'd on shell start up to create
+# an environment suitable for N2T.net administration.
+
 PATH=$HOME/local/bin:$PATH
+
+# As of 2019.09.16 the NAAN distribution was very heavy in the 80000's
+# 2: 59
+# 3: 52
+# 4: 53
+# 5: 53
+# 6: 56
+# 7: 57
+# 8: 146
 
 #function svu { eval `svu_run "$PS1"\|\|\|b $*`; }
 if [ -f "$HOME/.svudef" ]; then
@@ -12,7 +24,12 @@ export PERL_INSTALL_BASE=~/local	# note: this can change via svu
 export PERL5LIB=~/local/lib/perl5	# note: this can change via svu
 # This PYTHONPATH setting lets us use ~/n2t_create/mdsadmin.
 export PYTHONPATH=$HOME/sv/cur/lib64/python2.6/dist-packages
+export LC_ALL=C		# set computer mode locale, so all chars/scripts work
 export LESSCHARSET=utf-8
+
+# To run EZID and YAMZ locally
+export PYTHONPATH=/usr/local/lib/python2.7/site-packages:$PYTHONPATH:$HOME/wr/ezid/SITE/PROJECT
+export DJANGO_SETTINGS_MODULE=settings.localdev
 
 # Some aliases that make n2t/eggnog development and testing easier.
 #
@@ -20,14 +37,14 @@ alias blib="perl -Mblib"
 # $PERL_INSTALL_BASE interpolated at run time, eg, when "svu cur" in effect
 alias mkperl='perl Makefile.PL INSTALL_BASE=$PERL_INSTALL_BASE'
 
+# XXX should source these from $se/s/n2t/service.cfg
+
 n2prda='n2t@ids-n2t-prd-2a.n2t.net'
 	alias n2prda="ssh $n2prda"
 n2prdb='n2t@ids-n2t-prd-2b.n2t.net'
 	alias n2prdb="ssh $n2prdb"
-
 ezprd='ezid@ezid.cdlib.org'
 	alias ezprd="ssh $ezprd"
-
 n2stga='n2t@ids-n2t-stg-2a.n2t.net'
 	alias n2stga="ssh $n2stga"
 n2stgb='n2t@ids-n2t-stg-2b.n2t.net'
@@ -36,12 +53,15 @@ n2stgc='n2t@ids-n2t-stg-2c.n2t.net'
 	alias n2stgc="ssh $n2stgc"
 n2dev='n2t@ids-n2t-dev.n2t.net'
 	alias n2dev="ssh $n2dev"
+n2dev2='n2t@ids-n2t2-dev.n2t.net'
+	alias n2dev2="ssh $n2dev2"
+n2devb='n2t@ids-n2t2-dev-2b.n2t.net'
+	alias n2devb="ssh $n2devb"
 n2edina='n2t@n2tlx.edina.ac.uk'
 	alias n2edina="ssh $n2edina"
 
+alias ezmonit='~/ezidclient p admin:$(wegnpw ezidadmin) pause monitor'
 alias zp='ezcl p admin:$(wegnpw ezidadmin) pause'
-
-alias n2edina="ssh n2t@n2tlx.edina.ac.uk"
 
 if [ ! -z "${PS1:-}" ]; then		# if interactive shell
 
@@ -115,10 +135,11 @@ fi
 
 # General aliases and functions.
 # xxx should the aliases below become functions?
-#
 alias c=clear	# health: clear often so eyes/neck not always at screen bottom
 alias h="history | tail -100"
 alias edate="date '+%Y%m%d%H%M%S'"              # ERC-style date
+alias isodate="date '+%Y-%m-%dT%H:%M:%S%z'"	# ISO8601-style date
+
 # "command" prevents recursion
 function ls { command ls -F "$@"; }
 function cp { command cp -p "$@"; }
@@ -146,6 +167,14 @@ function hd2()  { "$@" | head -10 ; }
 function llt()  { hd ls -lt ; }
 function llt1() { hd1 ls -lt ; }
 function llt2() { hd2 ls -lt ; }
+function val { v=$(bc <<< "scale=5; "$@""); echo v=$v ; }
+function v { v=`sed "s/  */+/g" <<< "scale=5;"$@"" | bc`; echo v=$v; }
+
+function eztest () {
+	ezcl p - status '*'
+	echo -n "mint test: "
+	ezcl p apitest:apitest mint ark:/99999/fk4
+}
 
 function yaml {
 	[[ "$1" ]] || {
