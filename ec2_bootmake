@@ -13,23 +13,28 @@ then
 	cat << EOT
 Usage: $0 [ init | build ]
 
-Use these instructions and script to set up N2T on a new AWS EC2 instance
-(SSD and xfs recommended).
-Start by assuming the identity of the user (eg, sudo to a role account login)
-that you intend will administer the service and change to its home directory.
-Roughly, there are two steps: "init" and "build".
+XXX need to update this for git after hg->git migration
+Use these instructions and script to set up N2T on a new AWS EC2 instance.
+Pick the name of the user role account that will administer the service.
+Let's call it "n2t". Start by assuming the identity of the user,
 
-Set up yum installation and other foundation files, by running (interactively,
-not backgrounding)
+   \$ sudo su - n2t
+
+and making sure you're in n2t's home directory.  Roughly, there are two
+steps: "init" and "build".
+
+Set up yum installation, shell startup files, and other foundation files,
+by running (interactively, not backgrounding)
 
       $0 init
 
-and follow the instructions that follow and those that it prints, including:
+and follow the instructions that below, as well as those that this script
+prints, including:
 
   1.  Verify that you have correct values for username and cdl.username
-      inside your ~/.hgrc file.
+      inside your ~/.hgrc file (~/.gitconfig file).
 
-  2.  Add your instance's ssh key to bitbucket.org.
+  2.  Add your instance's ssh key to bitbucket.org (github.com).
 
       Login to https://bitbucket.org/cdl, click on your avatar, then on
       "bitbucket settings" -> "add ssh key" (or something like that).
