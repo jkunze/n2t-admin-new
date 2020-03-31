@@ -337,6 +337,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 	sudo yum -y install 'perl(Time::HiRes)'
 	sudo yum -y install 'perl(Try::Tiny)'
+	sudo yum -y install 'perl(Safe::Isa)'
 
 	# yyy why not install better version with cpanm?
 	sudo yum -y install 'perl(Log::Log4perl)'
@@ -446,6 +447,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 			# under the 'cur' version, our default logged-in state
 	echo done svu rollout
 
+	svu cur		# make sure we're on current version before n2t rollout
 	echo -n "SVU status, pre-n2t-rollout: " ; svu status
 	n2t rollout	# takes care of dvscid test
 
