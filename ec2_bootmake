@@ -300,12 +300,14 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 
 	sudo yum -y update			# update to latest OS version
 
+	sudo /usr/bin/amazon-linux-extras install epel	# for more packages
+			# eg, perl(BerkeleyDB), perl(Log::Log4perl)
+
 	# To browse so-called "package groups", do "yum group list ids".
-# xxx next 3 commands may not have worked
-#    check return status?
+	# yyy check return status?
 	#sudo yum -y group install "Development Libraries"
 	sudo yum -y group install "Development Tools"   # gcc
-	sudo yum -y group install "Web Server"    	# ? ExtUtils/MakeMaker
+	sudo yum -y group install "Web Server"    	# yyy needed?
 	sudo yum -y install mod_ssl
 #$ sudo yum -y group install "Development Libraries"
 #Loaded plugins: extras_suggestions, langpacks, priorities, update-motd
@@ -331,13 +333,13 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo yum -y install libdb	# linux2 v5 is default
 	sudo yum -y install hg git
 	sudo yum -y install 'perl(DB_File)'	# xxx drop this soon
-	sudo yum -y install 'perl(BerkeleyDB)'	# XXX unavailable?
+	sudo yum -y install 'perl(BerkeleyDB)'
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 	sudo yum -y install 'perl(Time::HiRes)'
 	sudo yum -y install 'perl(Try::Tiny)'
 
 	# yyy why not install better version with cpanm?
-	sudo yum -y install 'perl(Log::Log4perl)'	# XXX unavailable?
+	sudo yum -y install 'perl(Log::Log4perl)'
 
 # xxx when system comes up, even partially, crontab is off and spewing
 #     error messages a little too easily --  how to stop?
@@ -437,13 +439,14 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 		svu cur
 		exit 1
 	}
-	echo -n "SVU status, pre-rollout: " ; svu status
+	echo -n "SVU status, pre-svu-rollout: " ; svu status
 
 	# now make installed stuff "current" (what was "new" will be "cur")
 	svu rollout	# ok as no users yet; this puts everything of interest
 			# under the 'cur' version, our default logged-in state
 	echo done svu rollout
 
+	echo -n "SVU status, pre-n2t-rollout: " ; svu status
 	n2t rollout	# takes care of dvscid test
 
 	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
