@@ -8,6 +8,8 @@ hgrc=~/.hgrc
 envsh=warts/env.sh
 fakeuser=samsmith
 
+linux2=true		# xxx remove this later
+
 cmd=${1:-}
 if [[ "$cmd" != init && "$cmd" != config &&
 	"$cmd" != build && "$cmd" != httpd ]]
@@ -345,7 +347,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo yum -y install jq			# for Internet Archive API
 	sudo yum -y install golang		# nice, but not essential
 	sudo amazon-linux-extras install -y vim	# nice, but not essential
-	sudo amazon-linux-extras install postgresql11
+	sudo amazon-linux-extras install -y postgresql11
 
 	#sudo yum -y install mongodb-org
 	#echo \
@@ -400,6 +402,8 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 		echo Bailing
 		exit 1
 	}
+	[[ "$linux2" ]] &&
+		hg update linux2
 	make
 # XXXX oops: crontab is now set up, but n2t isn't even rolled out!
 
@@ -420,7 +424,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
 	# NB: ./make_instance requires "svu new", where installs go
 	#./make_instance build mongodb_pm n2t > berrs 2>&1 || {
-	./make_instance build n2t > berrs 2>&1 || {
+	linux2=$linux2 ./make_instance build n2t > berrs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
 		exit 1
