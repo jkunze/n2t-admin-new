@@ -373,11 +373,12 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	# # PYTHONPATH=$sv/lib64/python2.6/dist-packages
 
 	cd		# go to home directory
-	#hg clone http://hg.cdlib.org/n2t_create
 	hg clone ssh://hg@bitbucket.org/cdl/n2t-admin
 	rm -fr n2t_create	# if it exists the rename below won't work
 	mv n2t-admin n2t_create		# simple rename
 	cd n2t_create
+	[[ "$linux2" ]] &&
+		hg update linux2
 	make			# sets up .bashrc and svu defs; runs "svu init"
 				# sets up of crontab
 		# XXX do not background or redirect, since it asks questions!
