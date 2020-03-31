@@ -752,6 +752,9 @@ do
 	#hg clone https://hg.cdlib.org/$p
 	hg clone ssh://hg@bitbucket.org/cdl/$p
 
+	[[ "$linux2" ]] &&
+		hg update linux2 || echo OK if no linux2 for repo $p
+
 	#[[ ! "$updateflag" ]] &&
 	#	rm -fr $p
 	#[[ -e $p ]] ||
