@@ -327,16 +327,17 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 #Maybe run: yum groups mark install (see man yum)
 #No packages in any requested group available to install or update
 
-	sudo yum -y install libdb4	# version 4 (v5 is default)
+	#sudo yum -y install libdb4	# version 4 (v5 is default)
+	sudo yum -y install libdb	# linux2 v5 is default
 	sudo yum -y install hg git
 	sudo yum -y install 'perl(DB_File)'	# xxx drop this soon
-	sudo yum -y install 'perl(BerkeleyDB)'
+	sudo yum -y install 'perl(BerkeleyDB)'	# XXX unavailable?
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 	sudo yum -y install 'perl(Time::HiRes)'
 	sudo yum -y install 'perl(Try::Tiny)'
 
 	# yyy why not install better version with cpanm?
-	sudo yum -y install 'perl(Log::Log4perl)'
+	sudo yum -y install 'perl(Log::Log4perl)'	# XXX unavailable?
 
 # xxx when system comes up, even partially, crontab is off and spewing
 #     error messages a little too easily --  how to stop?
@@ -399,6 +400,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 		echo Bailing
 		exit 1
 	}
+	echo -n "SVU status: " ; svu status
 	cd ~/n2t_create	|| {	# go to build directory
 		echo Bailing
 		exit 1
@@ -425,18 +427,23 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
 	# NB: ./make_instance requires "svu new", where installs go
 	#./make_instance build mongodb_pm n2t > berrs 2>&1 || {
+
+	cd ~/n2t_create || {    # go back to build directory
+		echo Bailing
+		exit 1
+	}
 	linux2=$linux2 ./make_instance build n2t > berrs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
 		exit 1
 	}
+	echo -n "SVU status, pre-rollout: " ; svu status
 
 	# now make installed stuff "current" (what was "new" will be "cur")
 	svu rollout	# ok as no users yet; this puts everything of interest
 			# under the 'cur' version, our default logged-in state
 	echo done svu rollout
 
-# XXXXXX! alter rollout now that td_egnapa contains complete server!!
 	n2t rollout	# takes care of dvscid test
 
 	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
