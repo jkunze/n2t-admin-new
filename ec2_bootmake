@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-source ~/.bashrc	# which might not exist yet
+[[ -f ~/.bashrc ]] &&
+	source ~/.bashrc	# which might not exist yet
 
 set -u			# now make the use of unset variables throw an error
 hgrc=~/.hgrc
@@ -8,12 +9,14 @@ envsh=warts/env.sh
 fakeuser=samsmith
 
 cmd=${1:-}
-if [[ "$cmd" != init && "$cmd" != build && "$cmd" != httpd ]]
+if [[ "$cmd" != init && "$cmd" != config &&
+	"$cmd" != build && "$cmd" != httpd ]]
 then
 	cat << EOT
-Usage: $0 [ init | build ]
+Usage: $0 [ init | config | httpd | build ]
 
 XXX need to update this for git after hg->git migration
+
 Use these instructions and script to set up N2T on a new AWS EC2 instance.
 Pick the name of the user role account that will administer the service.
 Let's call it "n2t". Start by assuming the identity of the user,
@@ -56,9 +59,9 @@ prints, including:
   5.  Per the cert filename assignments in ~/$envsh, copy the correct
       files from ~/ssl/... into ~/warts/ssl.
 
-
 Then run
 
+      $0 config
       $0 build
 
 Finally have your system people install ~/n2t_create/n2t.service with
@@ -160,8 +163,8 @@ EOT
 #!/bin/sh
 
 # This shell script sets some instance-specific environment variables.
-# The build_server_tree script (eggnog source) reads these for host and
-# certificate configuration.
+# The build_server_tree script (from the eggnog source code) reads these
+# for host and certificate configuration.
 
 export EGNAPA_SERVICE=n2t		# database names start egg_n2t_...
 export EGNAPA_HOST=$hostname
@@ -170,36 +173,17 @@ export EGNAPA_HOST_CLASS=$class		# eg, one of dev, stg, prd, loc
 # Define filenames to hold copies (NOT the master files) of your certificates.
 # Use EGNAPA_SSL_CERTFILE for the full path of a signed certificate, if any,
 #     and similarly for EGNAPA_SSL_KEYFILE and EGNAPA_SSL_CHAINFILE.
-export EGNAPA_SSL_CERTFILE=/apps/n2t/warts/ssl/n2t_net.crt
-export EGNAPA_SSL_KEYFILE=/apps/n2t/warts/ssl/n2t_net.key
-export EGNAPA_SSL_CHAINFILE=/apps/n2t/warts/ssl/n2t_net.int-root
+export EGNAPA_SSL_CERTFILE=/apps/n2t/warts/ssl/2022-03-30/n2t_net.crt
+export EGNAPA_SSL_KEYFILE=/apps/n2t/warts/ssl/2022-03-30/n2t_net.key
+export EGNAPA_SSL_CHAINFILE=/apps/n2t/warts/ssl/2022-03-30/n2t_net.int-root
 
 # Define email address to receive system notifications, eg, from crontab.
 export EGNAPA_MAILTO='$mailto'
 
 EOT
 
-## Define fully qualified hostname (don't trust hostname -f on some networks).
-#export MG_HOST=\$EGNAPA_HOST
-#
-## Define the hostports of the mongod daemons that should start up.
-#export MG_LOCAL_DAEMONS="\$MG_HOST:27017,\$MG_HOST:27018,\$MG_HOST:27019"
-#
-## Define connection string hosts, which may include non-local servers.
-## If undefined, this var defaults to MG_LOCAL_DAEMONS.
-#export MG_CSTRING_HOSTS="\$MG_LOCAL_DAEMONS"
-#
-## Define default mongo replica set options for the connection string.
-#export MG_REPSETOPTS="socketTimeoutMS=30000&readPreference=primaryPreferred"
-#
-## Define default mongo replica set name for the connection string.
-#export MG_REPSETNAME="live"
-#
-## Define default starter port (in a series) for replica set testing.
-#export MG_TEST_PORT="47017"
-
-		echo Created $envsh -- now you must copy your cert, keyfile, \
-			and chainfile to warts/ssl/n2t_net.{crt,key,int-root}
+		echo Created $envsh -- now you must copy your cert files, eg, \
+			from ssl/2022-03-30/* to warts/ssl/
 	}
 	return 0
 }
