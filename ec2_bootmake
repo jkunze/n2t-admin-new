@@ -62,7 +62,14 @@ prints, including:
 Then run
 
       $0 config
+
+It's a good idea to logout and login again to make sure the startup files
+are working. Then do
+
       $0 build
+
+If over time a system patch updates apache, you'll do this again (as it
+actually calls "$0 httpd" to re-import the system apache.
 
 Finally have your system people install ~/n2t_create/n2t.service with
 systemd so that the service comes up and shuts down properly during system
@@ -324,6 +331,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo yum -y install 'perl(BerkeleyDB)'
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 	sudo yum -y install 'perl(Time::HiRes)'
+	sudo yum -y install 'perl(Try::Tiny)'
 
 	# yyy why not install better version with cpanm?
 	sudo yum -y install 'perl(Log::Log4perl)'
@@ -401,11 +409,11 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 				# enough to let us start a server
 
 
-	# this now works with Linux2
-	mg rs_start || {	# one-time replica set initialization
-		echo Bailing
-		exit 1
-	}
+	## this now works with Linux2
+	#mg rs_start || {	# one-time replica set initialization
+	#	echo Bailing
+	#	exit 1
+	#}
 
 
 	# XXXX resume script here

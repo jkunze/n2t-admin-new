@@ -61,7 +61,8 @@ VERSION=0.1	# version of this script
 #all=(bdb perl bdb_pm dbfile_pm uuid_pm zlib bz2 openssl httpd python hg n2t)
 # Trying shorter version, at least on Mac
 #all=(bdb perl bdb_pm dbfile_pm uuid_pm mongodb_pm httpd python hg n2t)
-all=(mongodb_pm httpd n2t)
+#all=(mongodb_pm httpd n2t)
+all=(n2t)
 
 # xxx on Mac, I only installed: bdb (notyet)perl uuid_pm httpd n2t 
 # xxx remove dbfile_pm?
