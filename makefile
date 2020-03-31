@@ -22,7 +22,6 @@ UTILITIES=$(LBIN)/n2t $(LBIN)/wegn $(LBIN)/wegnpw $(LBIN)/admegn \
 FILES=boot_install_n2t db-5.3.28.tar.gz zlib-1.2.8.tar.gz \
 	make_instance replicate n2t apache svu_run
 # NB: that the two ezid rlogs get pride of place over all other binders
-#QLINKS=$(HOME)/shoulders $(HOME)/minters $(HOME)/binders
 QL=$(HOME)/logs
 QLOGLINKS=$(QL)/access_log $(QL)/error_log $(QL)/rewrite_log \
 	$(QL)/binders/ezid/egg.rlog \
@@ -144,7 +143,7 @@ basicfiles: egnapa
 
 BASICDIRS=$(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/ssl \
 	$(HOME)/.ssh $(HOME)/logs $(HOME)/init.d $(HOME)/backups \
-	$(HOME)/shoulders $(HOME)/minters $(HOME)/binders $(HOME)/batches
+	$(HOME)/minters $(HOME)/binders $(HOME)/batches
 
 basicdirs: $(BASICDIRS)
 
