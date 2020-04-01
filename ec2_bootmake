@@ -78,14 +78,6 @@ systemd so that the service comes up and shuts down properly during system
 reboots.  You'll also want to have web service monitoring set up, eg, Nagios.
 
 EOT
-      #(b) added mongodb.repo to
-      #/etc/yum.repos.d, and (c) opened up access between mongo replicas on
-      #ports 27017-27027 and 47017-47027.
-#This involves asking them to turn off the mongod that
-#$systemd is configured to start up by default.
-#
-#     \$ sudo systemctl disable mongod
-
 	exit
 fi
 
@@ -353,6 +345,9 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo amazon-linux-extras install -y vim	# nice, but not essential
 	sudo amazon-linux-extras install -y postgresql11
 
+	sudo yum-config-manager --add-repo \
+		https://repo.mongodb.org/yum/amazon/2/mongodb-org/4.0/x86_64/
+	# see https://confluence.ucop.edu/display/CUG/Amazon+Linux+2+User+Guide#AmazonLinux2UserGuide-Packages
 	sudo yum -y install mongodb-org
 	echo \
 "WARNING: on AWS Linux2, this installation of mongodb configures host boot
@@ -360,11 +355,17 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# on mac, need: brew install mongodb --with-openssl
 	# yyy never actually used telnet for this
 	#sudo yum -y install telnet	# network testing, eg, mongo replication
-	rpm -V mongodb-org || {		# because it has gpgcheck disabled
-		sudo yum -y remove mongodb-org
-		echo error: mongodb-org installation failed to verify -- aborting.
-		exit 1
-	}
+	#rpm -V mongodb-org || {		# because it has gpgcheck disabled
+	#	sudo yum -y remove mongodb-org
+	#	echo error: mongodb-org installation failed to verify -- aborting.
+	#	exit 1
+	#}
+	# yyy (c) opened up access between mongo replicas on
+	# ports 27017-27027 and 47017-47027.
+
+	# Turn off mongod that $systemd is configured to start up by default.
+	sudo systemctl disable mongod
+
 
 	# Try the hypothesis that we don't need these next two yum installs
 	# # XXX should confirm that these next are still needed
@@ -438,7 +439,7 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 		echo Bailing
 		exit 1
 	}
-	linux2=$linux2 ./make_instance build n2t > berrs 2>&1 || {
+	linux2=$linux2 ./make_instance build mongodb_pm n2t > berrs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
 		exit 1
