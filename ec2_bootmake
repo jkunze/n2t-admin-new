@@ -415,6 +415,9 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 
 # xxx note that linux1 had libdb 4.7 and linux2 (in /usr/lib64) has
 #     libdb 5.3 -- we MAY need to do db conversion
+	svu cur		# make sure we're on current version before n2t rollout
+	echo -n "SVU status, pre-do_apache24: " ; svu status
+
 	do_apache_httpd24 	# copy and modify system version just
 				# enough to let us start a server
 
@@ -449,6 +452,7 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 
 	svu cur		# make sure we're on current version before n2t rollout
 	echo -n "SVU status, pre-n2t-rollout: " ; svu status
+
 	n2t rollout	# takes care of dvscid test
 
 	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
