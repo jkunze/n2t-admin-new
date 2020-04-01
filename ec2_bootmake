@@ -353,18 +353,18 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo amazon-linux-extras install -y vim	# nice, but not essential
 	sudo amazon-linux-extras install -y postgresql11
 
-	#sudo yum -y install mongodb-org
-	#echo \
-#"WARNING: on AWS Linux2, this installation of mongodb configures host boot
-#scripts via systemd to automatically start mongo on port 27017" 1>&2
+	sudo yum -y install mongodb-org
+	echo \
+"WARNING: on AWS Linux2, this installation of mongodb configures host boot
+scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# on mac, need: brew install mongodb --with-openssl
 	# yyy never actually used telnet for this
 	#sudo yum -y install telnet	# network testing, eg, mongo replication
-	#rpm -V mongodb-org || {		# because it has gpgcheck disabled
-	#	sudo yum -y remove mongodb-org
-	#	echo error: mongodb-org installation failed to verify -- aborting.
-	#	exit 1
-	#}
+	rpm -V mongodb-org || {		# because it has gpgcheck disabled
+		sudo yum -y remove mongodb-org
+		echo error: mongodb-org installation failed to verify -- aborting.
+		exit 1
+	}
 
 	# Try the hypothesis that we don't need these next two yum installs
 	# # XXX should confirm that these next are still needed
