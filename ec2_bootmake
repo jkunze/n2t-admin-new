@@ -216,7 +216,7 @@ function do_apache_httpd24 {
  	cp $sysap/conf/magic conf/
 	cp /etc/mime.types conf/
 	cp -pr /etc/httpd/conf.d .	# later build_server_tree removes these
-	mv conf.d/ssl.conf{,.noop}	# disable SSL so we come up w.o certs
+	mv conf.d/ssl.conf{,.noop}	# disable SSL so we come up w.o. certs
 	cp /etc/httpd/conf/httpd.conf conf/httpd.conf.sys	# one-time save
 	perl -pE '/^(Server|Document)Root/ and s/^/#/;
 		/^Listen/ and s/.*/Listen 18880/' conf/httpd.conf.sys \
@@ -382,6 +382,7 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	rm -fr n2t_create	# if it exists the rename below won't work
 	mv n2t-admin n2t_create		# simple rename
 	cd n2t_create
+	linux2=$( hg branches | grep linux2 )
 	[[ "$linux2" ]] &&
 		hg update linux2
 	make			# sets up .bashrc and svu defs; runs "svu init"
@@ -405,12 +406,15 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 		exit 1
 	}
 	echo -n "SVU status: " ; svu status
+
 	cd ~/n2t_create	|| {	# go to build directory
 		echo Bailing
 		exit 1
 	}
+	linux2=$( hg branches | grep linux2 )
 	[[ "$linux2" ]] &&
 		hg update linux2
+# XXX does make require svu?
 	make
 # XXXX oops: crontab is now set up, but n2t isn't even rolled out!
 
@@ -422,24 +426,23 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	do_apache_httpd24 	# copy and modify system version just
 				# enough to let us start a server
 
-
-	## this now works with Linux2
-	#mg rs_start || {	# one-time replica set initialization
-	#	echo Bailing
-	#	exit 1
-	#}
-
-
 	# XXXX resume script here
 	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
 	# NB: ./make_instance requires "svu new", where installs go
 	#./make_instance build mongodb_pm n2t > berrs 2>&1 || {
 
+	# XXX this script and make_instance call "hg" -- remember to convert
+	svu new || {
+		echo Bailing
+		exit 1
+	}
+	echo -n "SVU status, pre-make_instance: " ; svu status
+
 	cd ~/n2t_create || {    # go back to build directory
 		echo Bailing
 		exit 1
 	}
-	linux2=$linux2 ./make_instance build mongodb_pm n2t > berrs 2>&1 || {
+	./make_instance build mongodb_pm n2t > berrs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
 		exit 1

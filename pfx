@@ -526,10 +526,14 @@ function pfx_harvest {
 
 	# by default, dns, connect, and read timeouts are 900 secs (15 mins)
 	# yyy --timeout=90 ?
-	wget -q -O $pfx_quarantine/ebireg.xml $ebi_tmparg $ebi_url || {
-		echo "Error running wget from $ebi_url" 1>&2
-		return 1
-	}
+# xxx 2019.10.09 stopping watching this file since EBI isn't updating it
+#	wget -q -O $pfx_quarantine/ebireg.xml $ebi_tmparg $ebi_url || {
+#		echo "Error running wget from $ebi_url" 1>&2
+#		return 1
+#	}
+# XXX temporarily keep old copy in n2t_create and harvest from there,
+# until proper harvesting of new format is debugged and in place
+	cp ~/n2t_create/ebireg.xml $pfx_quarantine	# XXX kludge
 
 	pfx_harvest_validate ||	# if ok, moves files up out of quarantine
 		return 1
