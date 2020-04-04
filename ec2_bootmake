@@ -469,11 +469,12 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	#echo 'Now grab and install warts/.pswdfile.n2t from another system.'
 
 	#### IMPORTANT!
-	echo 'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
-	and set up chkconfig so that the N2T service comes up on machine (re)boot.'
+	echo \
+'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
+and set up chkconfig so that the N2T service comes up on machine (re)boot.'
 	echo 'Also, ask for a Nagios web service monitor to be set up.'
-
-	echo To switch between two main utility directories, use '"cd $sn; pd $se"'.
+	echo \
+'To switch between two main utility directories, use "cd $sn; pd $se".'
 	echo
 	exit
 }
