@@ -37,13 +37,13 @@ EOT
 	[[ ! "$1" == help ]] &&		# if not asking for full information
 		return 0
 
-cat << EOT
+	cat << EOT
     Currently configured-in server abbreviations:
 
-      prd  -->  ${def_prd:-??}
-      stg  -->  ${def_stg:-??}
-      dev  -->  ${def_dev:-??}
-      loc  -->  ${def_loc:-??}
+      prd  -->  $( host_where class prd )
+      stg  -->  $( host_where class stg )
+      dev  -->  $( host_where class dev )
+      loc  -->  $( host_where class loc )
 
 OPTIONS
     -v         Make $me more verbose.
@@ -127,6 +127,11 @@ SECURITY CONSIDERATIONS
 EOT
 }
 
+function host_where {
+	# in case there's more than one matching line, take just first line
+	egg --home $HOME/sv/cur/apache2 cfq _host_where $@ | head -1
+}
+
 function wegn_cfg {
 
 	cfgdir="$1"
@@ -186,9 +191,9 @@ function wegn_cfg {
 	#def_loc=$EGNAPA_HOST:$EGNAPA_PORT_HPRS
 	def_loc=localhost:$EGNAPA_PORT_HPRS
 
-	def_prd=${EGNAPA_SERVER_prd}
-	def_stg=${EGNAPA_SERVER_stg}
-	def_dev=${EGNAPA_SERVER_dev}
+	#def_prd=${EGNAPA_SERVER_prd}
+	#def_stg=${EGNAPA_SERVER_stg}
+	#def_dev=${EGNAPA_SERVER_dev}
 
 	def_host=$def_loc
 	def_user=ezid
@@ -497,10 +502,15 @@ done
 	[[ "$host" =~ : ]] &&
 		portpart=$( sed 's/^.*\(:.*\)/\1/' <<< $host )
 	hostpart=$( sed 's/:.*//' <<< $host )
-	h=def_$hostpart			# use h just as an indirect variable
-	if [[ "${!h}" ]] 		# if we have a def_$hostpart variable
+	#h=def_$hostpart		# use h just as an indirect variable
+	h=$( host_where class $hostpart )
+	if [[ "$h" ]] 		# if found host with matching class
+	#if [[ "${!h}" ]] 		# if we have a def_$hostpart variable
 	then
-		hostpart=${!h}		# use it, else stay with caller's value
+		[[ "$h" == "localhost" ]] &&
+			h=localhost:$EGNAPA_PORT_HPRS
+		hostpart=${h}		# use it, else stay with caller's value
+		#hostpart=${!h}		# use it, else stay with caller's value
 	else
 		echo "Warning: no host mapping found for abbreviation" \
 			"$hostpart."

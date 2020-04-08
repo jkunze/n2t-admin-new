@@ -1,9 +1,9 @@
-# n2t crontab file -- generic version
+# n2t crontab file
 
 # This file is updated from a master file in the eggnog/n2t source directory
 # when 'make' is run there (no arguments). It uses the bash shell invoked
 # with -l (login) to set environment and ensure "svu cur" is in effect.
-# The file is generic and runs on various classes of host (dev, stg, prd)
+# This file is generic and runs on various classes of host (dev, stg, prd)
 # which share a common configuration file (eggnog_conf) that defines hosts
 # and roles, all queryable via "egg cfq ...". Default SHELL is /bin/sh.
 
@@ -19,7 +19,7 @@ MAILTO = 'jak@ucop.edu'
 
 # Every 2 mins Mon-Sat check local resolution is working.  If not, an alert
 # email is sent and apache restarted; this mitigates the "off-by-one" error
-# that used to show up with Berkeley DB (but hasn't been seen since 2014?).
+# that used to show up with Berkeley DB (but has not been seen since 2014?).
 # We rely on "admegn rcheck" to send an email on failure and then exit with
 # non-zero status, which we test (via ||) to trigger an apache restart.
 # Do the same on Sunday, but take a break during the maintenance window.
@@ -33,7 +33,7 @@ MAILTO = 'jak@ucop.edu'
 # Backup twice daily -- first time with rotation, second time without,
 
 37 2 * * * bash -lc "egg -q cfq backup && (admegn backup; admegn backup_rotate) >> logs/backup_log 2>&1"
-37 14 * * * bash -lc "egg -q cfq backup && && admegn backup >> logs/backup_log 2>&1"
+37 14 * * * bash -lc "egg -q cfq backup && admegn backup >> logs/backup_log 2>&1"
 
 # Replication
 # xxx turning off replication to help ease swap problem
