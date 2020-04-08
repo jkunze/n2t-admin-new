@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# defined service/deployment classes and hostnames
-classfmt="CLASS CANONICAL_NAME OTHER_NAMES ..."
-hostclass=(
-    -dev    n2t-dev.n2t.net ids-n2t-dev.n2t.net
-    -stg    n2t-stg.n2t.net ids-n2t-stg-2{a,b,c}.n2t.net
-    -prd    n2t.net ids-n2t-prd-2{a,b,c}.n2t.net
-    -mac    jak-macbook.local
-)
+## defined service/deployment classes and hostnames
+#classfmt="CLASS CANONICAL_NAME OTHER_NAMES ..."
+#hostclass=(
+#    -dev    n2t-dev.n2t.net ids-n2t-dev.n2t.net
+#    -stg    n2t-stg.n2t.net ids-n2t-stg-2{a,b,c}.n2t.net
+#    -prd    n2t.net ids-n2t-prd-2{a,b,c}.n2t.net
+#    -mac    jak-macbook.local
+#)
 
 # xxx do a system version of this, eg, EGNAPA_NOTIFY?
 notify=jak@ucop.edu	# xxx backup, sysupdate, or other failure
@@ -17,7 +17,6 @@ function usage {
 
 summary="
      $me warts
-     $me class [ Host | list ]
      $me mdump [ -v ] [ Minter/nog.bdb ... ] [ > MinterStates ]
      $me mload [ -nv ] Dir [ < MinterStates ]
      $me validate_naans [ NAANsFile ]
@@ -54,10 +53,11 @@ DESCRIPTION
        The "warts" form takes the ~/warts/env.sh bash scripts and creates a
        corresponding ~/warts/env.yaml form of its settings (in YAML format).
 
-       The "class" form prints the service class (dev, stg, prd, mac) and
-       canonical hostname of the given Host (the current host by default).
-       If the first argument is "list", it prints a list of known hosts
-       and classes.
+       # XXX remove soon
+       #The "class" form prints the service class (dev, stg, prd, mac) and
+       #canonical hostname of the given Host (the current host by default).
+       #If the first argument is "list", it prints a list of known hosts
+       #and classes.
 
        The "mdump" form writes minter states in ANVL format to stdout.
        If no minters are specified, it looks for minters in a "minters"
@@ -1491,7 +1491,7 @@ function logdelete {
 	return 0
 }
 
-function class {
+function xxxclass {
 
 	source ~/warts/env.sh
 	local Host=${1:-$EGNAPA_HOST}
@@ -1529,7 +1529,7 @@ function class {
 			return 0
 		}
 	done
-	echo "Host \"$Host\" not found.  Try \"$me list\"."
+	echo "Host \"$Host\" not found.  Try \"$me class list\"."
 	return 1
 }
 
@@ -1912,7 +1912,9 @@ warts)
 	exit
 	;;
 class)
-	class "$@"
+	echo 'DEPRECATED: use "egg cfq class" instead'
+	exit 1
+	#class "$@"
 	exit
 	;;
 mong)
@@ -2001,7 +2003,8 @@ error_check)
 		fi
 	if [[ ! -z "$1" && ! -z "$errors" ]]
 	then
-		class=$( admegn class )
+		#class=$( admegn class )
+		class=$( egg cfq class )	# xxx egg must be installed
 		mail -s "$class system log messages" $1 <<< "$errors"
 	elif [[ ! -z "$errors" ]]
 	then

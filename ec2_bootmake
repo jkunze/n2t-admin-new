@@ -167,9 +167,9 @@ EOT
 # The build_server_tree script (from the eggnog source code) reads these
 # for host and certificate configuration.
 
-export EGNAPA_SERVICE=n2t		# database names start egg_n2t_...
+#export EGNAPA_SERVICE=n2t		# database names start egg_n2t_...
 export EGNAPA_HOST=$hostname
-export EGNAPA_HOST_CLASS=$class		# eg, one of dev, stg, prd, loc
+#export EGNAPA_HOST_CLASS=$class		# eg, one of dev, stg, prd, loc
 
 # Define filenames to hold copies (NOT the master files) of your certificates.
 # Use EGNAPA_SSL_CERTFILE for the full path of a signed certificate, if any,
@@ -383,13 +383,19 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	mv n2t-admin n2t_create		# simple rename
 	cd n2t_create
 	linux2=$( hg branches | grep linux2 )
-	[[ "$linux2" ]] &&
+	[[ "$linux2" ]] && {
 		hg update linux2
+		echo note: repo should be set to Linux2 branch
+	}
 	make			# sets up .bashrc and svu defs; runs "svu init"
 				# sets up of crontab
 		# XXX do not background or redirect, since it asks questions!
+
+	do_apache_httpd24 	# copy and modify system version just
+				# enough to let us start a server
+
 	exit
-}
+} # end of config
 
 # XXXX stop here, and make the user do source and svu
 #set +u			# cannot count on .bashrc to be squeaky clean
@@ -398,33 +404,6 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 #set -u
 
 [[ "$cmd" == build ]] && {
-
-	# XXX watch out that you haven't done svu new already! else this
-	# will build stuff in the next higher svu level
-	svu new || {
-		echo Bailing
-		exit 1
-	}
-	echo -n "SVU status: " ; svu status
-
-	cd ~/n2t_create	|| {	# go to build directory
-		echo Bailing
-		exit 1
-	}
-	linux2=$( hg branches | grep linux2 )
-	[[ "$linux2" ]] &&
-		hg update linux2
-# XXX does make require svu?
-	make
-# XXXX oops: crontab is now set up, but n2t isn't even rolled out!
-
-# xxx note that linux1 had libdb 4.7 and linux2 (in /usr/lib64) has
-#     libdb 5.3 -- we MAY need to do db conversion
-	svu cur		# make sure we're on current version before n2t rollout
-	echo -n "SVU status, pre-do_apache24: " ; svu status
-
-	do_apache_httpd24 	# copy and modify system version just
-				# enough to let us start a server
 
 	# XXXX resume script here
 	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
@@ -457,7 +436,7 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	svu cur		# make sure we're on current version before n2t rollout
 	echo -n "SVU status, pre-n2t-rollout: " ; svu status
 
-	n2t rollout	# takes care of dvscid test
+	n2t rollout	# takes care of dvcsid test
 
 	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
 	#     seems we might need to run "pfx hitrnt" before rollout?, but we
@@ -472,7 +451,9 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	echo \
 'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
 and set up chkconfig so that the N2T service comes up on machine (re)boot.'
-	echo 'Also, ask for a Nagios web service monitor to be set up.'
+	echo \
+'Also, decide when to adjust eggnog_conf values to turn on cron error checks,
+backups, etc. Then arrange for a Nagios web service monitor to be set up.'
 	echo \
 'To switch between two main utility directories, use "cd $sn; pd $se".'
 	echo
