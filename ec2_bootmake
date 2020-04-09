@@ -25,16 +25,13 @@ Let's call it "n2t". Start by assuming the identity of the user,
 
    \$ sudo su - n2t
 
-and making sure you're in n2t's home directory.  Roughly, there are two
-steps: "init" and "build".
-
-Set up yum installation, shell startup files, and other foundation files,
-by running (interactively, not backgrounding)
+and making sure you're in n2t's home directory.  Set up yum installation,
+shell startup files, and other foundation files, by running (interactively,
+not backgrounding)
 
       $0 init
 
-and follow the instructions that below, as well as those that this script
-prints, including:
+and follow the instructions below, as well as any printed by this script.
 
   1.  Verify that you have correct values for username and cdl.username
       inside your ~/.hgrc file (~/.gitconfig file).
@@ -91,26 +88,26 @@ function ec2_init {
 	def_mailto='samsmith at example dot org'	# use wrong syntax
 		# to trigger downstream external warnings if set to default
 
-	# get $hostname and $class vars
+	# get $hostname
 	read -t 60 -p "Enter hostname (default $def_hostname): " hostname || {
 		echo Error: the hostname must be defined 1>&2
 		return 1
 	}
 	[[ "$hostname" ]] ||
 		hostname="$def_hostname"
-	p="Enter service class: [loc(default)|dev|stg|prd] "
-	read -t 60 -p "$p" class || {
-		echo Error: the service class must be defined 1>&2
-		return 1
-	}
-	[[ "$class" ]] ||
-		class="$def_class"
-	case "$class" in
-	loc|dev|stg|prd) ;;
-	*)	echo Error: service class must be one of \
-				loc, dev, stg, or prd 1>&2
-		return 1 ;;
-	esac
+	#p="Enter service class: [loc(default)|dev|stg|prd] "
+	#read -t 60 -p "$p" class || {
+	#	echo Error: the service class must be defined 1>&2
+	#	return 1
+	#}
+	#[[ "$class" ]] ||
+	#	class="$def_class"
+	#case "$class" in
+	#loc|dev|stg|prd) ;;
+	#*)	echo Error: service class must be one of \
+	#			loc, dev, stg, or prd 1>&2
+	#	return 1 ;;
+	#esac
 	p="Enter email address for system notifications: "
 	read -t 60 -p "$p" mailto || {
 		echo Error: the service mailto must be defined 1>&2
@@ -183,8 +180,10 @@ export EGNAPA_MAILTO='$mailto'
 
 EOT
 
-		echo Created $envsh -- now you must copy your cert files, eg, \
-			from ssl/2022-03-30/* to warts/ssl/
+		cp -pr ~/ssl ~/warts/
+		echo Created $envsh -- done.
+		#now you must copy your cert files, eg, \
+		#	from ssl/2022-03-30/* to warts/ssl/
 	}
 	return 0
 }
@@ -201,6 +200,8 @@ function do_apache_httpd24 {
 	# ! assumes svu cur
 	local sysap=/etc/httpd		# system apache
 	local aptop=~/sv/cur/apache2
+	echo Running do_apache_httpd24 in $aptop.
+
 	rm -fr $aptop
 	mkdir $aptop
 
@@ -291,9 +292,8 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	#      yum can install, but will never update."
 
 	sudo yum -y update			# update to latest OS version
-
-	sudo /usr/bin/amazon-linux-extras install epel	# for more packages
-			# eg, perl(BerkeleyDB), perl(Log::Log4perl)
+	sudo amazon-linux-extras install -y epel	# for more packages
+				# eg, perl(BerkeleyDB), perl(Log::Log4perl)
 
 	# To browse so-called "package groups", do "yum group list ids".
 	# yyy check return status?
@@ -391,9 +391,6 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 				# sets up of crontab
 		# XXX do not background or redirect, since it asks questions!
 
-	do_apache_httpd24 	# copy and modify system version just
-				# enough to let us start a server
-
 	exit
 } # end of config
 
@@ -416,6 +413,10 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 		exit 1
 	}
 	echo -n "SVU status, pre-make_instance: " ; svu status
+
+	echo Creating bare-bones apache server.
+	do_apache_httpd24 	# copy and modify system version just
+				# enough to let us start a server
 
 	cd ~/n2t_create || {    # go back to build directory
 		echo Bailing
@@ -448,14 +449,17 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	#echo 'Now grab and install warts/.pswdfile.n2t from another system.'
 
 	#### IMPORTANT!
-	echo \
-'Have a superuser copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t
-and set up chkconfig so that the N2T service comes up on machine (re)boot.'
-	echo \
-'Also, decide when to adjust eggnog_conf values to turn on cron error checks,
-backups, etc. Then arrange for a Nagios web service monitor to be set up.'
-	echo \
-'To switch between two main utility directories, use "cd $sn; pd $se".'
-	echo
+	cat << EOT
+Ask your superuser:
+Please copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t and set up chkconfig so that the N2T service comes up on machine (re)boot.
+
+When ready, adjust eggnog_conf values to turn on crontab for things like
+prefix harvesting, error checks, backups, etc.
+
+When all is stable, arrange for Nagios web service monitoring.
+
+To switch between two main utility directories, use "cd $sn; pd $se".
+
+EOT
 	exit
 }

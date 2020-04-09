@@ -749,32 +749,18 @@ for p in ${pkgs[@]}
 do
 	echo ======================== package $p ========================
 	rm -fr $p
-	#hg clone https://hg.cdlib.org/$p
 	hg clone ssh://hg@bitbucket.org/cdl/$p
 
-	linux2=$( hg branches | grep linux2 )
-	[[ "$linux2" ]] &&
-		hg update linux2
-	#[[ "$linux2" ]] &&
-	#	hg update linux2 || echo OK if no linux2 for repo $p
-
-	#[[ ! "$updateflag" ]] &&
-	#	rm -fr $p
-	#[[ -e $p ]] ||
-	#	mkdir $p
 	(cd $p
-		#if [[ $updateflag ]]; then
-		#	hg pull https://hg.cdlib.org/$p
-		#	hg update
-		#else
-		#	(cd ..; rm -fr $p; hg clone https://hg.cdlib.org/$p )
-		#fi
+		linux2=$( hg branches | grep linux2 )
+		[[ "$linux2" ]] && {
+			hg update linux2
+			echo Updating repo $p to Linux2.
+		}
 
 		perl Makefile.PL INSTALL_BASE=$sv
 		$gmake
 		$gmake test
-
-		# XXXX missing: actual deploy of real system
 
 		#if [[ $p == eggnog ]]		# final server tests
 		#then

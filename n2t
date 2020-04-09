@@ -51,7 +51,8 @@ function check_changes {
 	return 1
 }
 
-function check_default_minders {
+function check_default_binders {
+
 	minder_type=$1
 	# Note: if needed, build_server_tree makes a new NAANs minter from
 	# scratch, in ~/sv/cur/build/eggnog/td_egnapa/minters/n2t/naans
@@ -136,19 +137,21 @@ function check_default_minders {
 }
 
 function check_minders {
+
 	for m in binders minters shoulders
 	do
 		# Don't want to overwrite any existing binders, but we want
 		# make sure (eg, first time deploy ever on new system) that
 		# at least some binders are in place (that's what
-		# check_default_minders is for). Regarding minters and
+		# check_default_binders is for). Regarding minters and
 		# shoulders, we don't copy in anything if there's already a
 		# minters (shoulders) directory, but for the first time, we
 		# do copy in fresh defaults.
 
-		if [[ -e $aptop/$m ]]
+		if [[ "$m" == 'binders' ]]
 		then
-			check_default_minders $m	# not checking return
+			mkdir -p $aptop/$m
+			check_default_binders $m	# not checking return
 			continue
 		fi
 		# Y is default.
