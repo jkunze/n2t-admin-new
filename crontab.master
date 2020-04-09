@@ -57,4 +57,3 @@ MAILTO = 'jak@ucop.edu'
 # Sundays at 4:03 am, delete log files older than 6 months.
 
 03 04 * * 0 bash -lc "egg -q cfq log_rotate && admegn logdelete 6 >> logs/logdelete_log 2>&1"
-
