@@ -153,10 +153,14 @@ function check_minders {
 			mkdir -p $aptop/$m
 			check_default_binders $m	# not checking return
 			continue
+		elif [[ -e $aptop/$m ]]
+		then
+			continue	# already there, don't need to create
 		fi
-		# Y is default.
+		# if we get here, there's a missing directory
 		read -t 30 -p \
 			"Server has no $m directory.  Create? [Y/n] "
+			# Y is default.
 		[[ $? != 0 ]] && {
 			echo -e "\nError: response EOF or timeout: aborting."
 			exit 1
