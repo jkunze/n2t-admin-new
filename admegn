@@ -68,9 +68,11 @@ DESCRIPTION
 
        The "mload" form reads a minter state file written by mdump from
        stdin and brings minters under directory Dir up to date, creating
-       minters as need be.  If -n is given no states will be changed, but
-       proposed changes will be reported.  Dir should have populator
-       subdirectories (ezid, oca, yamz, etc) as immediate descendants.
+       minters as need be. Compared with a brand new minter, bringing a
+       recently updated minter up to date takes much less time. If -n is
+       given, no states will be changed, but proposed changes will be
+       reported. Dir should have populator subdirectories (ezid, oca,
+       yamz, etc) as immediate descendants.
 
        The "validate_naans" form performs consistency and uniqueness checks
        on a NAANsFile containing ANVL-formatted NAAN records, returning a
