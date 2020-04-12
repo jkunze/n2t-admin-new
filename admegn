@@ -50,14 +50,20 @@ DESCRIPTION
        The -v option makes it more verbose for some forms.  A non-zero
        exit status indicates an error.
 
+       Some important services are best done with other tools. For example,
+       to migrate an entire binder to a new system, change into the ezid
+       binder directory (with the egg.bdb file) and do something like
+
+            \$ db_dump egg.bdb > ../../ezidsnapshot.dump
+
+       Copy that file to the other system, change to its destination
+       directory and use db_load, for example,
+
+            \$ cd egg_n2t_dev_public.real_ezid_s_ezid
+            \$ db_load egg.bdb < ../../ezidsnapshot.dump
+
        The "warts" form takes the ~/warts/env.sh bash scripts and creates a
        corresponding ~/warts/env.yaml form of its settings (in YAML format).
-
-       # XXX remove soon
-       #The "class" form prints the service class (dev, stg, prd, mac) and
-       #canonical hostname of the given Host (the current host by default).
-       #If the first argument is "list", it prints a list of known hosts
-       #and classes.
 
        The "mdump" form writes minter states in ANVL format to stdout.
        If no minters are specified, it looks for minters in a "minters"
