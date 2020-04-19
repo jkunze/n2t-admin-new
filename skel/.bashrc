@@ -25,6 +25,9 @@ export PERL5LIB=~/local/lib/perl5	# note: this can change via svu
 # This PYTHONPATH setting lets us use ~/n2t_create/mdsadmin.
 export PYTHONPATH=$HOME/sv/cur/lib64/python2.6/dist-packages
 export LC_ALL=C		# set computer mode locale, so all chars/scripts work
+
+export LESS='ieFRX'	# ignore case, quit on 2nd EOF, honor color escapes,...
+export MORE=$LESS	# ? needed?
 export LESSCHARSET=utf-8
 
 # To run EZID and YAMZ locally
@@ -152,7 +155,7 @@ function df { command df -k "$@"; }
 
 function j() { jobs -l "$@"; }
 function j() { jobs -l "$@"; }
-function m() { more "$@"; }
+function m() { less "$@"; }
 function q() { exit "$@"; }
 function rl() { rlogin "$@"; }
 function z() { suspend "$@"; }
@@ -162,7 +165,7 @@ function ll() { ls -lF "$@"; }
 
 # usage:  mm any_command
 #function mm()  { $* $2 $3 $4 $5 $6 $7 $8 $9 | 2>&1 more ; }
-function mm()   { "$@" | 2>&1 more ; }
+function mm()   { "$@" | 2>&1 less ; }
 # usage:  g pattern any_command
 function g() { $2 $3 $4 $5 $6 $7 $8 $9 | grep -i "$1" ; }
 function hd()   { "$@" | head -5 ; }
