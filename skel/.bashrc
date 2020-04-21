@@ -26,6 +26,7 @@ export PERL5LIB=~/local/lib/perl5	# note: this can change via svu
 export PYTHONPATH=$HOME/sv/cur/lib64/python2.6/dist-packages
 export LC_ALL=C		# set computer mode locale, so all chars/scripts work
 
+alias vi=vim
 export LESS='ieFRX'	# ignore case, quit on 2nd EOF, honor color escapes,...
 export MORE=$LESS	# ? needed?
 export LESSCHARSET=utf-8

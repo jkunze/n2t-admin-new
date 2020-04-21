@@ -1,12 +1,15 @@
+syntax on
 :set background=dark
 :set vb t_vb=
+set nojoinspaces
 set encoding=utf-8
-set wrapmargin=7
+set wrapmargin=1
+set mouse=h
 set fo=ltc
 set ruler
 set nohlsearch
 set ai ic
-map K* i<C-R>=strftime("%Y.%m.%d")<CR><CR>
+map KK i<C-R>=strftime("%Y.%m.%d")<CR><CR>
 map K^ :,$s/^/> /''
 map K& :,$s/^> \?//''
 map KA :set noai noic
@@ -19,7 +22,6 @@ map KF :+,$!msfold''
 map KG 70| 
 map KJ 76|F 
 map KH 71|F 
-map KK i<C-R>=strftime("%Y.%m.%d")<CR><CR>
 map KN :w:nn
 map KI "mP
 map KP "mp
