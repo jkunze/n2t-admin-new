@@ -17,17 +17,16 @@ then
 	cat << EOT
 Usage: $0 [ init | config | httpd | build ]
 
-XXX need to update this for git after hg->git migration
-
+    XXX need to update this for git after hg->git migration
 Use these instructions and script to set up N2T on a new AWS EC2 instance.
 Pick the name of the user role account that will administer the service.
 Let's call it "n2t". Start by assuming the identity of the user,
 
    \$ sudo su - n2t
 
-and making sure you're in n2t's home directory.  Set up yum installation,
-shell startup files, and other foundation files, by running (interactively,
-not backgrounding)
+and making sure you're in n2t's home directory. To set up gather information
+to allow yum installation, shell startup files, and other foundation files,
+answer the questions asked by running
 
       $0 init
 
@@ -40,13 +39,8 @@ and follow the instructions below, as well as any printed by this script.
 
       Login to https://bitbucket.org/cdl, click on your avatar, then on
       "bitbucket settings" -> "add ssh key" (or something like that).
-      If needed, you can generate it with
-
-        ssh-keygen -t rsa         # enter no filename, no passphrase
-        cat ~/.ssh/id_rsa.pub     # then "copy" contents to clipboard
-
-      Paste it in when bitbucket asks for it. You'll also likely want to
-      add this key to other n2t hosts that you'll want to interact with.
+      View your key with "cat ~/.ssh/id_rsa.pub" and paste it in when
+      bitbucket asks for it and add it to other n2t hosts as needed.
 
   3.  Copy into ~/warts/.pswdfile.n2t the same from from another host, eg,
 
@@ -58,7 +52,7 @@ and follow the instructions below, as well as any printed by this script.
   5.  Per the cert filename assignments in ~/$envsh, copy the correct
       files from ~/ssl/... into ~/warts/ssl.
 
-Then run
+This next step takes several minutes: run (interactively, don't background)
 
       $0 config
 
@@ -95,19 +89,6 @@ function ec2_init {
 	}
 	[[ "$hostname" ]] ||
 		hostname="$def_hostname"
-	#p="Enter service class: [loc(default)|dev|stg|prd] "
-	#read -t 60 -p "$p" class || {
-	#	echo Error: the service class must be defined 1>&2
-	#	return 1
-	#}
-	#[[ "$class" ]] ||
-	#	class="$def_class"
-	#case "$class" in
-	#loc|dev|stg|prd) ;;
-	#*)	echo Error: service class must be one of \
-	#			loc, dev, stg, or prd 1>&2
-	#	return 1 ;;
-	#esac
 	p="Enter email address for system notifications: "
 	read -t 60 -p "$p" mailto || {
 		echo Error: the service mailto must be defined 1>&2
@@ -135,6 +116,13 @@ function ec2_init {
 
 	# If we get here, we're committed to actual filesystem mods.
 	mkdir -p ssl warts/ssl
+
+        [[ ! -e ~/.ssh/id_rsa.pub ]] && {
+		echo OK to answer the next few questions with defaults.
+		ssh-keygen -t rsa         # enter no filename, no passphrase
+	}
+	echo This is your public key for copy/paste into hg repo.
+	cat ~/.ssh/id_rsa.pub
 
 	[[ -e $hgrc ]] || {
 		echo creating generic $hgrc '<---' edit this change user names
@@ -166,14 +154,15 @@ EOT
 
 #export EGNAPA_SERVICE=n2t		# database names start egg_n2t_...
 export EGNAPA_HOST=$hostname
-#export EGNAPA_HOST_CLASS=$class		# eg, one of dev, stg, prd, loc
 
 # Define filenames to hold copies (NOT the master files) of your certificates.
 # Use EGNAPA_SSL_CERTFILE for the full path of a signed certificate, if any,
 #     and similarly for EGNAPA_SSL_KEYFILE and EGNAPA_SSL_CHAINFILE.
-export EGNAPA_SSL_CERTFILE=/apps/n2t/warts/ssl/2022-03-30/n2t_net.crt
-export EGNAPA_SSL_KEYFILE=/apps/n2t/warts/ssl/2022-03-30/n2t_net.key
-export EGNAPA_SSL_CHAINFILE=/apps/n2t/warts/ssl/2022-03-30/n2t_net.int-root
+
+ssldir=/apps/n2t/warts/ssl/2022-04-16
+export  EGNAPA_SSL_CERTFILE=\$ssldir/ids-n2t2-prd_n2t_net_cert.cer
+export   EGNAPA_SSL_KEYFILE=\$ssldir/ids-n2t2-prd_n2t_net.key
+export EGNAPA_SSL_CHAINFILE=\$ssldir/ids-n2t2-prd_n2t_net_interm.cer
 
 # Define email address to receive system notifications, eg, from crontab.
 export EGNAPA_MAILTO='$mailto'
@@ -407,6 +396,8 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# NB: ./make_instance requires "svu new", where installs go
 	#./make_instance build mongodb_pm n2t > berrs 2>&1 || {
 
+# XXX logout then do from here {
+# XXX put this in "http" arg
 	# XXX this script and make_instance call "hg" -- remember to convert
 	svu new || {
 		echo Bailing
@@ -418,11 +409,12 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	do_apache_httpd24 	# copy and modify system version just
 				# enough to let us start a server
 
+# XXX to here }
 	cd ~/n2t_create || {    # go back to build directory
 		echo Bailing
 		exit 1
 	}
-	./make_instance build mongodb_pm n2t > berrs 2>&1 || {
+	./make_instance build mongodb_pm n2t > make_instance_errs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
 		exit 1
