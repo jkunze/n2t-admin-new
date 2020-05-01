@@ -2,12 +2,17 @@
 
 set -u			# treat unset variables as an error when substituting
 me=$( basename $0 )
+ME=$( tr '[:lower:]' '[:upper:]' <<< "$me" )
 
-alias py_ia="python2.7 ~/local/bin/ia"		# requires 2.7
+#alias py_ia="python2.7 ~/local/bin/ia"		# requires 2.7
+function py_ia {
+	python2.7 ~/local/bin/ia "$@"
+}
+
 repo=archive.org
 resolver=n2t.net
 publisher='California Digital Library'
-collection=luck
+#collection=luck
 iso8601format='+%Y-%m-%dT%H:%M:%S%z'		# date format
 cc0url='https://creativecommons.org/publicdomain/zero/1.0/'
 ezcreds=					# ezid credentials
@@ -24,19 +29,22 @@ function usage {
 	cat << EOT
 
 SYNOPSIS                          ($0)
-    $me - manage versioned ARK-hival object in LUCK collection at $repo
+    $me - manage versioned ARK-hival object at $repo
 
 USAGE $summary
 
 DESCRIPTION
        Given a Filename, the "$me" tool manages a versioned archival object
-       (data plus metadata) via a local file that it creates called
-       "$me.Filename". The tool mints an ARK identifier associated with the
-       object, and deposits it in the LUCK (Long-term UC Knowledge) collection
-       at $repo.
+       (ie, data from Filename plus metadata) represented by a local file,
+       "Filename.$ME". This tool creates that file, mints an associated
+       ARK identifier, and deposits it in a repository at $repo.
 
        The "init" form mints a new ARK and makes the first deposit of an
        object that associates File with the given Dublin Core metadata.
+       This form only reserves an ARK but does not make it public.
+XXX big kludge next; should do this directly via n2t API
+       When you're sure of it, make it resolvable by going to EZID,
+       logging in as admin, and changing the status to public.
 
        The "addversion" form finds a file of the form File.vN for the
        highest number N, or uses N=0 if none. It then uploads the contents
@@ -55,9 +63,10 @@ OPTIONS
        Use "--test" with "init" to mint a test ARK instead of a permanent ARK.
 
 LIMITATIONS
-       ARK minting is limited to users with EZID admin credentials.
-       Deposit at $repo uses the "luck" collection and credentials of the
-       caller (use "py_ia configure" to set up a ~/.config/ia.ini file).
+       ARK minting is limited to users with EZID admin credentials. Deposit
+       uses the $repo credentials of the caller; use "py_ia configure"
+       to set up a ~/.config/ia.ini file and see the py_ia function
+       definition inside this script.
 
 SUMMARY $summary
 
@@ -108,6 +117,7 @@ function delete_iaid {		# delete Internet Archive id
 
 function arkit_addversion {
 
+echo XXX addversion NOT SUPPORTED YET. Dev messages follow.
 	while [[ "${1:-}" =~ ^- ]]
 	do
 		case $1 in
@@ -131,7 +141,7 @@ function arkit_addversion {
 		echo Error: cannot find file to archive: $File 1>&2
 		return 1
 	}
-	local objfile=$me.$File
+	local objfile=$File.$ME
 	[[ ! -r $objfile ]] && {
 		echo "Error: object file \"$objfile\" does not exist;" \
 			'use "init" to create' 1>&2
@@ -139,28 +149,32 @@ function arkit_addversion {
 	}
 	local File_date=$( date -r $File "$iso8601format" )
 
-	local version version_string vfile
+	local version versioned_file
+	local vfiles=$( shopt -sq nullglob; echo $File.v* )
+	if [[ ! "$vfiles" ]]
+	then
+		version=0
+		versioned_file=''
+	else
+		version=( $( ls $vfiles 2>&1 | \
+			perl -ne 's/^.*\.v(\d+)$/$1/ and print' \
+			| sort -n | tail -1 ) )
+		versioned_file="$File.v$version"
+		[[ ! -e "$versioned_file" ]] && {
+			echo "Error: versioned file \"$versioned_file\"" \
+				"does not exist (version $version)"  1>&2
+			return 1
+		}
+	fi
+	local cksum=$( cksum $versioned_file )
 
-	#vfile=$( ls $File.v* 2>&1 )
-	#prefixes.v003.yaml
+	#prefixes.v004.yaml
 	# NB: so SPT works, .vN must appear at end, not before,
 	#     eg, foo.yaml.v003 not foo.v003.yaml
 	# yyy what to do if this interferes with content-type inferencing
 	#     based on suffix?
-	version=( $( ls $File.v* 2>&1 | \
-		perl -ne 's/^.*\.v(\d+)$/$1/ and print' \
-		| sort -n | tail -1 ) )
-	# The vn_vfile array should contain 2 elements:
-	#   a version number and it's corresponding filename
-	# $vfile contains '' or "N $File.v*" where N is number for highest
-	#   existing version file
-echo version is "${vn_vfile[0]}"
-echo file is "${vn_vfile[1]}"
-	[[ ! "$vfile" ]] && {
-		version=0
-		version_string=''
-	}
-exit
+echo XXX versioned_file is $versioned_file, cksum is $cksum
+
 # Updates available at: https://n2t.net/ark:/13030/c7xk84q2j
 # xxx Permalink to updated content: https://n2t.net/ark:/13030/c7xk84q2j
 # xxx Permalink to this version: https://n2t.net/ark:/13030/c7xk84q2j.v005
@@ -180,10 +194,9 @@ exit
 	py_ia metadata
 	--modify="highest_version:$version"
 
-	local cksum=$( cksum /dev/null )
-
+# XXX
 	py_ia upload
-		--target="files/$File.v$version"
+		--target="files/$versioned_file"
 		--metadata="title:..., Version $version"
 		--metadata="updatedate:..."
 		--metadata="version:$version"
@@ -197,7 +210,9 @@ exit
 	echo version_metadata
 	echo "$version_metadata"
 
-echo "=== id status \"$idstatus\"; wont be permanent without \"commit\""
+echo "=== id status \"$idstatus\"; won't be permanent without \"commit\""
+echo XXX premature exit
+exit
 
 
 	# py_ia upload ... ` cat $objfile `
@@ -249,7 +264,7 @@ function arkit_init {
 	local who=${erc[0]:-'(:unav)'}
 	local what=${erc[1]:-'(:unav)'}
 	local when=${erc[2]:-$File_date}
-	local objfile=$me.$File
+	local objfile=$File.$ME
 	[[ -r $objfile && ! "$force" ]] && {
 		echo "Error: object file \"$objfile\" exists;" \
 			"use --force to overwrite" 1>&2
@@ -343,13 +358,13 @@ EOT
 		--metadata="identifier:https://$resolver/$ark"
 		--metadata="identifier-ark:https://$resolver/$ark"
 		--metadata="iaid:$iaid"
-		--metadata="collection:$collection"
 		--metadata="licenseurl:$cc0url"
 		--metadata="bestest:https://$resolver/$ark"
 		--metadata="landing:$landing"
 		--metadata="plunging:$redirect"
 		--metadata="highest_version:0"
 	EOT
+	#	--metadata="collection:$collection"
 
 	# this next line seems to be needed to get a final \n (bash bug?)
 	overall_metadata+=$'\n'
@@ -406,7 +421,7 @@ init)
 	arkit_init "$@"
 	exit
 	;;
-rewrite-meta)		# rewrite object level metadata found in $me.$File
+rewrite-meta)		# rewrite object level metadata found in $File.$ME
 	# ...
 	exit
 	;;
@@ -431,6 +446,7 @@ esac
 
 exit
 
+# ========= NOTHING BELOW is EXECUTED ============
 # py_ia upload myidjakkbl2 testia.txt --metadata="foo:bar" --metadata="collection:luck" && echo ok
 
 #target="https://archive.org/download/ark_13030_c7xk84q2j/cdl_ebi_prefixes.yaml"
@@ -461,5 +477,4 @@ py_ia upload "$item" "filename.v$version" \
    --metadata="subject:identifier" \
    --metadata="subject:resolver" \
    --metadata="subject:scheme" \
-
 

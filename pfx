@@ -357,8 +357,11 @@ pfx_sources=(					# yyy normalized names
 	master_naans
 	master_shoulders.txt 
 	ebireg.xml
+	ebinewreg.json
+	prefixcc.json 
 	lsregistry.yml
 ) # $pfx_base is also a component, but not listed in $pfx_sources
+#	ebireg.xml
 source_base_prefixes=build/eggnog/t/n2t/$pfx_base
 master_base_prefixes=sv/cur/$source_base_prefixes
 
@@ -534,6 +537,18 @@ function pfx_harvest {
 # XXX temporarily keep old copy in n2t_create and harvest from there,
 # until proper harvesting of new format is debugged and in place
 	cp ~/n2t_create/ebireg.xml $pfx_quarantine	# XXX kludge
+
+	ebi_newurl='https://registry.api.identifiers.org/resolutionApi/getResolverDataset'
+	wget -q -O $pfx_quarantine/ebinewreg.json $ebi_newurl || {
+		echo "Error running wget from $ebi_newurl" 1>&2
+		return 1
+	}
+
+	prefixcc_url='http://prefix.cc/popular/all.file.json'
+	wget -q -O $pfx_quarantine/prefixcc.json $prefixcc_url || {
+		echo "Error running wget from $prefixcc_url" 1>&2
+		return 1
+	}
 
 	pfx_harvest_validate ||	# if ok, moves files up out of quarantine
 		return 1
@@ -754,6 +769,56 @@ function pfx_backup {
 
 # validate EBI registry
 function validate_ebi {
+
+	# validate and save pretty-printed javascript
+	jq . ebinewreg.json > ebi_pp.js || {
+		echo ebinewreg.json: bad javascript 1>&2
+	}
+	jq '.payload.namespaces[]' ebi_pp.js > x
+
+	# jq -r '@text "name: \(.foo)", "val: \(.bar)"' xi
+
+
+# From https://docs.identifiers.org/articles/migration.html
+#// namespace model
+#Old API	New API	Information
+#		id	Internal database id of the namespace.
+#id		mirId	In the new API, id is the internal database id of the namespace.
+#		name	Namespace name.
+#definition	description
+#url		Internal Identifiers.org URL has been deprecated.
+#		created	Namespace addition date.
+#		modified	Namespace last modified date.
+#		sampleId	Namespace sample ID.
+#prefixed	namespaceEmbeddedInLui
+
+#// resource model
+#Old API	New API	Information
+#		id	Internal database id of the resource.
+#id		mirId	In the new API, id is the internal database id of the resource.
+#accessURL	urlPattern
+#		name	Resource name.
+#info		description
+#resourcePrefix	providerCode
+#localId	sampleId
+#resourceURL	resourceHomeUrl
+#institution	institution is now an object. Refer to its definition.
+#testString	testString has been deprecated.
+#location	location is now an object. Refer to its definition.
+
+#// institution model
+#Field		Information
+#id		Internal database id of the institution.
+#name		Name of the institution.
+#homeUrl	Institution home URL.
+#description	Institution description.
+#location	Location object containing the institution's location. Refer to the definition.
+
+#// location model
+#Field	Information
+#countryCode	ISO-3166 compliant country code.
+#countryName	ISO-3166 compliant country name.
+
 
 	# Need to strip namespace definition because xmllint --xpath is picky.
 	# Also remove odd \r\n sequences that mess up later ANVL parsing.
@@ -2618,4 +2683,3 @@ testlinks)
 	exit 1
 	;;
 esac
-
