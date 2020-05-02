@@ -11,11 +11,12 @@ fakeuser=samsmith
 linux2=true		# xxx remove this later
 
 cmd=${1:-}
+shift
 if [[ "$cmd" != init && "$cmd" != config &&
 	"$cmd" != build && "$cmd" != httpd ]]
 then
 	cat << EOT
-Usage: $0 [ init | config | httpd | build ]
+Usage: $0 [ init | config | httpd [ new ] | build ]
 
     XXX need to update this for git after hg->git migration
 Use these instructions and script to set up N2T on a new AWS EC2 instance.
@@ -67,6 +68,7 @@ actually calls "$0 httpd" to re-import the system apache.
 Finally have your system people install ~/n2t_create/n2t.service with
 systemd so that the service comes up and shuts down properly during system
 reboots.  You'll also want to have web service monitoring set up, eg, Nagios.
+Occasionally, run "$0 httpd" to rebuild from newly patched Apache server.
 
 EOT
 	exit
@@ -87,8 +89,13 @@ function ec2_init {
 		echo Error: the hostname must be defined 1>&2
 		return 1
 	}
-	[[ "$hostname" ]] ||
+	local h=$( sed 's/  *//g' <<< "$hostname" )
+	if [[ ! "$h" ]]			# if no nonblank
+	then
 		hostname="$def_hostname"
+	else
+		hostname="$h"
+	fi
 	p="Enter email address for system notifications: "
 	read -t 60 -p "$p" mailto || {
 		echo Error: the service mailto must be defined 1>&2
@@ -184,11 +191,13 @@ EOT
 
 # XXX after system patch, check for new files and re-snapshot!!
 
+# Give first arg as "new" (default "cur") to install in ~/sv/new
+
 function do_apache_httpd24 {
 
 	# ! assumes svu cur
 	local sysap=/etc/httpd		# system apache
-	local aptop=~/sv/cur/apache2
+	local aptop=~/sv/${1:-cur}/apache2
 	echo Running do_apache_httpd24 in $aptop.
 
 	rm -fr $aptop
@@ -255,7 +264,7 @@ EOT
 }
 
 [[ "$cmd" == httpd ]] && {
-	do_apache_httpd24
+	do_apache_httpd24 "$@"
 	exit
 }
 
@@ -396,8 +405,6 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# NB: ./make_instance requires "svu new", where installs go
 	#./make_instance build mongodb_pm n2t > berrs 2>&1 || {
 
-# XXX logout then do from here {
-# XXX put this in "http" arg
 	# XXX this script and make_instance call "hg" -- remember to convert
 	svu new || {
 		echo Bailing
@@ -406,19 +413,20 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	echo -n "SVU status, pre-make_instance: " ; svu status
 
 	echo Creating bare-bones apache server.
-	do_apache_httpd24 	# copy and modify system version just
+	do_apache_httpd24 new 	# copy and modify system version just
 				# enough to let us start a server
 
-# XXX to here }
 	cd ~/n2t_create || {    # go back to build directory
 		echo Bailing
 		exit 1
 	}
+	echo 'Running ./make_instance build ..., output in "make_instance_errs"'
 	./make_instance build mongodb_pm n2t > make_instance_errs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
 		exit 1
 	}
+	echo 'Finished ./make_instance build ..."'
 	echo -n "SVU status, pre-svu-rollout: " ; svu status
 
 	# now make installed stuff "current" (what was "new" will be "cur")
