@@ -41,6 +41,12 @@ emsg+="override with --force."
 
 function check_changes {
 
+	local h=$( perl -pE 's/\s+//g' <<< "$EGNAPA_HOST" )
+	[[ ! "$h" ]] && {			# sanity test comes in handy
+		echo "PANIC -- EGNAPA_HOST ($EGNAPA_HOST) looks wrong" 1>&2
+		exit 1
+	}
+	# XXX change hg to git
 	hgid=$( hg identify | sed 's/ .*//' )
 		# in git would do this check with "git diff --quiet"
 	changes=

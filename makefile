@@ -20,7 +20,7 @@ UTILITIES=$(LBIN)/n2t $(LBIN)/wegn $(LBIN)/wegnpw $(LBIN)/admegn \
 		$(LBIN)/make_shdr $(LBIN)/shdr_exists $(LBIN)/make_ezacct \
 		$(LBIN)/doip2naan $(LBIN)/naan $(LBIN)/valsh \
 	$(LBIN)/granvl $(LBIN)/replicate \
-	$(LBIN)/egg_batch $(LBIN)/ec2-metadata
+	$(LBIN)/egg_batch $(LBIN)/aws-ec2-metadata
 FILES=boot_install_n2t db-5.3.28.tar.gz zlib-1.2.8.tar.gz \
 	make_instance replicate n2t apache svu_run
 # NB: that the two ezid rlogs get pride of place over all other binders
