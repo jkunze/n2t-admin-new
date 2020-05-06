@@ -54,13 +54,12 @@ DESCRIPTION
        to migrate an entire binder to a new system, change into the ezid
        binder directory (with the egg.bdb file) and do something like
 
-            \$ db_dump egg.bdb > ../../ezidsnapshot.dump
+        \$ dbdir=sv/cur/apache2/binders/egg_n2t_stg_public.real_ezid_s_ezid
+        \$ db_dump egg.bdb | ssh n2t@ids-n2t2-stg.n2t.net \
+               '( cd \$dbdir; db_load egg.bdb )'
 
-       Copy that file to the other system, change to its destination
-       directory and use db_load, for example,
-
-            \$ cd egg_n2t_dev_public.real_ezid_s_ezid
-            \$ db_load egg.bdb < ../../ezidsnapshot.dump
+       You may want to clean up the remote \$dbdir directory by removing any
+       __db.* and/or log.* files that may not apply to the new environment.
 
        The "warts" form takes the ~/warts/env.sh bash scripts and creates a
        corresponding ~/warts/env.yaml form of its settings (in YAML format).
