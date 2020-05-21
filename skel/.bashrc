@@ -28,7 +28,6 @@ export LC_ALL=C		# set computer mode locale, so all chars/scripts work
 
 alias vi=vim
 export LESS='ieFRX'	# ignore case, quit on 2nd EOF, honor color escapes,...
-export MORE=$LESS	# ? needed?
 export LESSCHARSET=utf-8
 
 # To run EZID and YAMZ locally
