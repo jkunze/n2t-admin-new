@@ -400,7 +400,7 @@ function wegn_cmd {
 # "web" shipped with the eggnog source.  We crudely prefer the first
 # directory in $src_top/t that (a) is NOT t/web and (b) contains what
 # looks like a $bstcfg file.
-#
+
 svumode=$( sed 's/^[^:]*://' <<< $SVU_USING )
 [[ "$svumode" ]] ||
 	svumode=cur		# if none, default to "cur"

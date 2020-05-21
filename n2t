@@ -122,16 +122,16 @@ function check_default_binders {
 		[[ "$is_binder" ]] && {		# if $dstb exists, skip to
 			continue			# the next item
 		}
-		# If we get here, ask to create new public binder. Default is Y.
 
-		read -t 30 -p \
-			"Server has no $b binder.  Copy from new server? [Y/n] "
-		[[ $? != 0 ]] && {
-			echo -e "\nError: response EOF or timeout: aborting."
-			exit 1
-		}
-		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
-			continue
+		## If we get here, ask to create new public binder. Default is Y.
+		#read -t 30 -p \
+		#	"Server has no $b binder.  Copy from new server? [Y/n] "
+		#[[ $? != 0 ]] && {
+		#	echo -e "\nError: response EOF or timeout: aborting."
+		#	exit 1
+		#}
+		#[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
+		#	continue
 
 		perl -Mblib egg bmv $binder $dstdir/$dstb
 

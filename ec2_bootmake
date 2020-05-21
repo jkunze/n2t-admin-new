@@ -96,6 +96,21 @@ function ec2_init {
 	else
 		hostname="$h"
 	fi
+
+	p="Enter service class: [loc(default)|dev|stg|prd] "
+	read -t 60 -p "$p" class || {
+	       echo Error: the service class must be defined 1>&2
+	       return 1
+	}
+	[[ "$class" ]] ||
+	       class="$def_class"
+	case "$class" in
+	loc|dev|stg|prd) ;;
+	*)     echo Error: service class must be one of \
+			       loc, dev, stg, or prd 1>&2
+	       return 1 ;;
+	esac
+
 	p="Enter email address for system notifications: "
 	read -t 60 -p "$p" mailto || {
 		echo Error: the service mailto must be defined 1>&2
@@ -157,10 +172,12 @@ EOT
 
 # This shell script sets some instance-specific environment variables.
 # The build_server_tree script (from the eggnog source code) reads these
-# for host and certificate configuration.
+# for host and certificate configuration. The EGNAPA_HOST_CLASS here should
+# match what is in the eggnog_conf file; this copy is (cached) for speed
+# and it helps bootstrapping the first service rollout.
 
-#export EGNAPA_SERVICE=n2t		# database names start egg_n2t_...
 export EGNAPA_HOST=$hostname
+export EGNAPA_HOST_CLASS=$class		# eg, one of dev, stg, prd, loc
 
 # Define filenames to hold copies (NOT the master files) of your certificates.
 # Use EGNAPA_SSL_CERTFILE for the full path of a signed certificate, if any,
@@ -320,7 +337,11 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 #No packages in any requested group available to install or update
 
 	#sudo yum -y install libdb4	# version 4 (v5 is default)
-	sudo yum -y install libdb	# linux2 v5 is default
+	#sudo yum -y install libdb4-devel	# /usr/include/libdb4/db.h and
+						# /usr/lib64/libdb4/libdb.so
+	#sudo yum -y install libdb4-util		# plus db4_* CLI tools
+
+	sudo yum -y install libdb		# linux2 v5 is default
 	sudo yum -y install hg git
 	sudo yum -y install 'perl(DB_File)'	# xxx drop this soon
 	sudo yum -y install 'perl(BerkeleyDB)'
@@ -343,11 +364,11 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo amazon-linux-extras install -y vim	# nice, but not essential
 	sudo amazon-linux-extras install -y postgresql11
 
-	sudo yum-config-manager --add-repo \
-		https://repo.mongodb.org/yum/amazon/2/mongodb-org/4.0/x86_64/
-	# see https://confluence.ucop.edu/display/CUG/Amazon+Linux+2+User+Guide#AmazonLinux2UserGuide-Packages
-	sudo yum -y install mongodb-org
-	echo \
+	#sudo yum-config-manager --add-repo \
+	#	https://repo.mongodb.org/yum/amazon/2/mongodb-org/4.0/x86_64/
+	## see https://confluence.ucop.edu/display/CUG/Amazon+Linux+2+User+Guide#AmazonLinux2UserGuide-Packages
+	#sudo yum -y install mongodb-org
+	#echo \
 "WARNING: on AWS Linux2, this installation of mongodb configures host boot
 scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# on mac, need: brew install mongodb --with-openssl
@@ -361,9 +382,8 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# yyy (c) opened up access between mongo replicas on
 	# ports 27017-27027 and 47017-47027.
 
-	# Turn off mongod that $systemd is configured to start up by default.
-	sudo systemctl disable mongod
-
+	## Turn off mongod that $systemd is configured to start up by default.
+	#sudo systemctl disable mongod
 
 	# Try the hypothesis that we don't need these next two yum installs
 	# # XXX should confirm that these next are still needed
@@ -421,7 +441,8 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 		exit 1
 	}
 	echo 'Running ./make_instance build ..., output in "make_instance_errs"'
-	./make_instance build mongodb_pm n2t > make_instance_errs 2>&1 || {
+	#./make_instance build mongodb_pm n2t > make_instance_errs 2>&1 || {
+	./make_instance build n2t > make_instance_errs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
 		exit 1
@@ -443,6 +464,8 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	#     seems we might need to run "pfx hitrnt" before rollout?, but we
 	#     can't do that before we've rolled things out the first time
 	#     (or can we?)
+	pfx hitrnt	# 2nd time might work? XXX
+	n2t rollout
 
 	n2t test		# test that things are more or less ok
 
