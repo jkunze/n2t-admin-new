@@ -359,6 +359,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	# XML to parse and format XML blobs for inflection support
 	sudo yum -y install 'perl(XML::LibXML)' 'perl(XML::LibXSLT)'
 	sudo yum -y install 'perl(App::cpanminus)'
+	sudo yum -y install python3		# for transition
 	sudo yum -y install jq			# for Internet Archive API
 	sudo yum -y install golang		# nice, but not essential
 	sudo amazon-linux-extras install -y vim	# nice, but not essential
@@ -464,6 +465,9 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	#     seems we might need to run "pfx hitrnt" before rollout?, but we
 	#     can't do that before we've rolled things out the first time
 	#     (or can we?)
+# XXX harvest files have come in before the 'make all' implied above
+# XXX and the below won't work until rollout,? because... why?
+#     since $sa/prefixes isn't in place?
 	pfx hitrnt	# 2nd time might work? XXX
 	n2t rollout
 
