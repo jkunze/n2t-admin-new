@@ -760,6 +760,11 @@ do
 	rm -fr $p
 	hg clone ssh://hg@bitbucket.org/cdl/$p
 
+	[[ "$p" == "n2t-eggnog" ]] && {
+		# create kludge link so build_server_tree with pfx import works
+		ln -s $p eggnog
+	}
+
 	(cd $p
 		linux2=$( hg branches | grep linux2 )
 		[[ "$linux2" ]] && {
@@ -783,7 +788,8 @@ do
 		$gmake install
 	)
 done
-mv n2t-eggnog eggnog
+rm eggnog			# remove temporary link
+mv n2t-eggnog eggnog		# rename to real name (kludge)
 
 }
 

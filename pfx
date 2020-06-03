@@ -54,10 +54,11 @@ find          given a term, show matching records
 grok          show lexical analysis of each given id (no lookup)
 onboard       assemble imported and system components into \$pfx_build
 build         calls "validate" and "combine" on \$pfx_build
-updates_ready_in      true if any components in given ingest stage are newer
+updates_ready_in IngestStage
+              true if --force or any components in given IngestStage are newer
 install       install new prefix file on running system.
 tested_ok     create file as a flag to indicate that "pfx test" succeeded
-prebuild      assemble imported prefix components into \$pfx_build
+prebuild      assemble imported prefix components into \$pfx_build (--force)
 base          update given ingest stage with given Base.yaml file
 validate      validate all component prefix files in \$pfx_build
 combine       combine NAANs, shoulders, prefixes into validated $mainout
@@ -335,6 +336,9 @@ function pfx_updates_ready_in {
 		ready+=( $( cat $ondeck/mark4refresh ) )
 		rm -f $ondeck/mark4refresh
 	}
+	[[ "$force" ]] && {
+		ready+=( force_option )
+	}
 	# yyy we don't check for existence of prefixes.yaml
 	[[ ${#ready[@]} -gt 0 ]] && {
 		echo ${ready[@]}	# output the list
@@ -419,7 +423,7 @@ function pfx_mark4refresh {
 
 	mark=$( basename $mark )
 	echo "$mark" > $markfile
-	echo "$(cat $markfile) marked for refresh"
+	echo "$(cat $markfile) pretend marked for refresh"
 }
 
 # "publish" various prefix components via the current server
@@ -562,6 +566,7 @@ function pfx_harvest {
 # Allow system build to not use developer prefix base.
 # Allow harvesting to proceed without disturbing system or developer
 # prefix base.
+# * Special case for prebuild stage pulls file from source code dir
 
 function pfx_base {
 
@@ -586,7 +591,10 @@ function pfx_base {
 	esac
 
 	# default file with new content default
-	local nfile=$buildout_root/../../../$source_base_prefixes
+	# eg, source_base_prefixes=build/eggnog/t/n2t/$pfx_base
+	#local nfile=$buildout_root/../../../$source_base_prefixes
+	#local nfile=$buildout_root/../$source_base_prefixes
+	local nfile=~/$master_base_prefixes
 	[[ $# -gt 0 ]] && {
 		nfile=$1
 		shift
@@ -1069,6 +1077,7 @@ EOT
 	echo "  verified prefix array in ebi.yaml:" \
 		$( grep -c '^  name:' ebi.yaml ) \
 		prefix/provider code combinations
+	return 0
 }
 
 function pfx_validate_prefixes {
@@ -1320,10 +1329,14 @@ EOT
 		perl -CS -e "$perl_prog" ebi.yaml  2>&1 > $ebi_outfile )
 #		perl -e "$perl_prog" ebi.yaml |
 #			iconv -f ISO-8859-1 -t UTF-8 2>&1 > $ebi_outfile )
+	[[ $? -ne 0 ]] && {
+		echo "aborting: $err" 1>&2
+		return 1
+	}
 	[[ "$err" ]] &&
 		echo "err: $err"
 		# yyy use ${LINENO}?
-
+	return 0
 	# zzz takes ebi.yaml to ebi.anvl
 }
 
@@ -1496,7 +1509,8 @@ function pfx_validate {
 	# verified prefix array in ebi.yaml: 751 prefix/provider code combinations
 	echo "$s"
 	#echo Nebi=$Nebi
-	pfx_validate_prefixes	# zzz takes ebi.yaml to ebi.anvl
+	pfx_validate_prefixes ||	# zzz takes ebi.yaml to ebi.anvl
+		return 1
 
 	echo "- Validating n2t base prefixes"
 		validate_n2t_base || return 1
@@ -1926,6 +1940,7 @@ function pfx_onboard {
 	#local source_base_prefixes=$sv/build/eggnog/t/n2t/pfx_base.yaml
 	# xxx separate proc, or call direct?
 	#pfx -d $buildout_root prebuild || {	# import from import area
+	# yyy relies on caller putting us in the $pfx_build directory
 	pfx_prebuild || {	# import from import area
 		echo Error: prebuild failed 1>&2
 		return 1
@@ -1939,8 +1954,11 @@ function pfx_onboard {
 	}
 	# xxx separate proc, or call direct?
 	#pfx -d $buildout_root updates_ready_in prebuild
+
 	pfx_updates_ready_in prebuild
-	# NB: this function's return status will be that of the above command
+	# NB: this function's return status will be that of the above command.
+	#     It returns 0 (success) if something's ready, or returns 1 (fail)
+	#     if nothing's ready.
 }
 
 function pfx_build {
@@ -2409,7 +2427,7 @@ show=lines		# default for "find"
 # This is an important way to prevent prefix building from disrupting a
 # currently running production service. Overridden with the -d option.
 
-buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
+#buildout_root=${EGNAPA_BUILDOUT_ROOT:-}
 # xxx pfx_base
 
 while [[ $# -gt 0 && "$1" =~ ^- ]]

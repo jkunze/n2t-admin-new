@@ -41,6 +41,14 @@ emsg+="override with --force."
 
 function check_changes {
 
+	local ib=$( grep INSTALL_BASE Makefile )
+	[[ ! "$ib" ]] && {
+		echo "PANIC -- Makefile wasn't built with an INSTALL_BASE " 1>&2
+		echo "Did you use 'mkperl'? Usually it's aliased to" \
+			"something like:" 1>&2
+		echo "        $mkperl" 1>&2
+		exit 1
+	}
 	local h=$( perl -pE 's/\s+//g' <<< "$EGNAPA_HOST" )
 	[[ ! "$h" ]] && {			# sanity test comes in handy
 		echo "PANIC -- EGNAPA_HOST ($EGNAPA_HOST) looks wrong" 1>&2
@@ -211,11 +219,11 @@ function n2t_rollout {	# assumes caller ran check_changes!
 	local pubpx=cdl_ebi_prefixes.yaml
 	local n2tpx=n2t_prefixes.yaml
 	make || {		# "make" again, in case "import" wasn't done
-		echo "Error with make"
+		echo "Error with make" 1>&2
 		err=y
 	}
 	make install || {	# this installs both libraries and scripts
-		echo "Error with make install"
+		echo "Error with make install" 1>&2
 		err=y
 	}
 
@@ -399,6 +407,7 @@ rollout)
 	$apctl graceful-stop 	# proceed even if old server is damaged
 	(time n2t_rollout) 2> .rolltime || {
 		echo "Problem with rollout."
+		cat .rolltime
 		# If we time out after 15 seconds, $? will not be zero.
 		# Y is default.
 		read -t 15 -p "Rollback to previous? [Y/n] "
