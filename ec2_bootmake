@@ -349,6 +349,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo yum -y install 'perl(Time::HiRes)'
 	sudo yum -y install 'perl(Try::Tiny)'
 	sudo yum -y install 'perl(Safe::Isa)'
+	sudo yum -y install 'perl(boolean)'
 
 	# yyy why not install better version with cpanm?
 	sudo yum -y install 'perl(Log::Log4perl)'

@@ -65,13 +65,17 @@ listening=$( grep ^Listen $apache_conf )		# initialize
 listening=$( sed 's/ Listen/,/' <<< $listening )	# and modify
 
 # first arg is action, eg, start, stop
+
 function httpd () {
+
 #	local did_mg=
 #	[[ "${1:-}" =~ start ]] && {	# start mongo before web server
 #		did_mg=1
 #		mg $1	# with no Port args, starts ALL local daemons
 #	}
+
 	$apache_top/bin/httpd -k $1 -d $apache_top -f $apache_conf
+
 #	local apstatus=$?
 #	[[ ! "$did_mg" ]] && {		# stop (et al) mongo after web server
 #		mg $1	# with no Port args, affects ALL local daemons
