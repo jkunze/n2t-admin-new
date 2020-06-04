@@ -123,17 +123,28 @@ export EGNAPA_SSL_CHAINFILE=\n\
 #	fi
 # XXX change .dev to nothing
 
+	#@if [[ ! -s crontab.master ]]; then \
+	#	echo 'Error: not updating crontab from zero-length file'; \
+	#	exit 1; \
+	#fi; \
+	#else \
+	#	crontab -l > crontab_saved; \
+	#	cmp --silent crontab_saved crontab.master && { \
+	#		exit 0; \
+	#	}; \
+	#	echo Updating crontab via crontab.master; \
+	#	crontab crontab.master; \
+	#fi
+
 crontab:
-	@if [[ ! -s crontab.master ]]; then \
-		echo 'Error: not updating crontab from zero-length file'; \
-	else \
-		crontab -l > crontab_saved; \
-		cmp --silent crontab_saved crontab.master && { \
-			exit 0; \
-		}; \
-		echo Updating crontab via crontab.master; \
-		crontab crontab.master; \
-	fi
+	@ ctab=crontab.master; \
+	[[ -e cronstop ]] && ctab=cronstop; \
+	crontab -l > crontab_saved; \
+	cmp --silent crontab_saved $$ctab && { \
+		exit 0; \
+	}; \
+	echo Updating crontab via $$ctab; \
+	crontab $$ctab
 
 # Goal here is to reflect basic skeleton in the maintenance/role account.
 

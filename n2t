@@ -19,6 +19,8 @@ This script supports commands that automate common N2T service admin tasks.
   rollout     stop public-facing server, install new code, restart server
   test        test code installed in currently running public-facing server
   rollback    back out of the last rollout, reverting to the prior rollout
+  cronstop    install cronstop file to (by default) disable all crontab jobs
+  cronstart   install usual crontab file
   checkpoint  mark rollback point (to be run before "hg update")
 
 The first three commands above reflect the normal sequence.  Use "rollback"
@@ -33,6 +35,7 @@ installs under "svu new".
 EOT
 }
 
+n2t_service_dir=~/n2t_create
 mkperl="perl Makefile.PL INSTALL_BASE=$PERL_INSTALL_BASE"
 #bst_cmd="./build_server_tree --public build t/n2t"
 bst_cmd="./build_server_tree --public build n2t"
@@ -142,6 +145,7 @@ function check_default_binders {
 		#	continue
 
 		perl -Mblib egg bmv $binder $dstdir/$dstb
+		echo Initializing binder: $dstdir/$dstb 
 
 		#perl -Mblib egg --testdata td bmv $b $dstdir/$dstb
 
@@ -171,17 +175,18 @@ function check_minders {
 		then
 			continue	# already there, don't need to create
 		fi
-		# if we get here, there's a missing directory
-		read -t 30 -p \
-			"Server has no $m directory.  Create? [Y/n] "
-			# Y is default.
-		[[ $? != 0 ]] && {
-			echo -e "\nError: response EOF or timeout: aborting."
-			exit 1
-		}
-		[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
-			continue
+		## if we get here, there's a missing directory
+		#read -t 30 -p \
+		#	"Server has no $m directory.  Create? [Y/n] "
+		#	# Y is default.
+		#[[ $? != 0 ]] && {
+		#	echo -e "\nError: response EOF or timeout: aborting."
+		#	exit 1
+		#}
+		#[[ $REPLY == "" || $REPLY =~ ^[yY] ]] ||
+		#	continue
 		cp -pr $nsf/$m $aptop
+		echo Initializing directory: $aptop/$m
 	done
 }
 
@@ -380,7 +385,12 @@ rollout)
 		exit 1
 	}
 	check_minders		# if there are minders, copy them in
-
+	[[ -e "$aptop/eggnog_conf" ]] || {
+		cp -p $nsf/eggnog_conf $aptop || {
+			echo "Problem initializing eggnog_conf in '$aptop'."
+			exit 1
+		}
+	}
 	make || {		# "make" again, in case "import" wasn't done
 		echo Problem running make.
 		exit 1
@@ -460,6 +470,32 @@ test)
 	# NB: do NOT use perl's -Mblib option, which tests UNINSTALLED code.
 	#
 	perl t/egn_post_install_n2t.t
+	exit
+	;;
+
+cronstart)
+	cd $n2t_service_dir
+	[[ -e cronstop ]] && {
+		rm cronstop || {
+			echo Problem removing $n2t_service_dir/cronstop file
+			exit 1
+		}
+	}
+	make crontab
+	exit
+	;;
+
+cronstop)
+	cd $n2t_service_dir
+	[[ -e cronstop ]] || {
+		crontab -l | sed 's/^/#/' > cronstop || {
+			echo Problem creating cronstop file in $n2t_service_dir
+			exit 1
+		}
+		echo "Creating blanket $n2t_service_dir/cronstop file;" \
+			"edit it to selectively re-enable services."
+	}
+	make crontab
 	exit
 	;;
 
