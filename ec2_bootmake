@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# XXX don't enable crontab until after first system rollout!!
+
 [[ -f ~/.bashrc ]] &&
 	source ~/.bashrc	# which might not exist yet
 
@@ -12,11 +14,11 @@ linux2=true		# xxx remove this later
 
 cmd=${1:-}
 shift
-if [[ "$cmd" != init && "$cmd" != config &&
-	"$cmd" != build && "$cmd" != httpd ]]
+if [[ "$cmd" != init && "$cmd" != config && "$cmd" != realclean &&
+	"$cmd" != build && "$cmd" != install && "$cmd" != httpd ]]
 then
 	cat << EOT
-Usage: $0 [ init | config | httpd [ new ] | build ]
+Usage: $0 [ init | config | httpd [ new ] | build | install | realclean ]
 
     XXX need to update this for git after hg->git migration
 Use these instructions and script to set up N2T on a new AWS EC2 instance.
@@ -65,10 +67,18 @@ are working. Then do
 If over time a system patch updates apache, you'll do this again (as it
 actually calls "$0 httpd" to re-import the system apache.
 
+Now logout and login again. Then run
+
+      $0 install
+
 Finally have your system people install ~/n2t_create/n2t.service with
 systemd so that the service comes up and shuts down properly during system
 reboots.  You'll also want to have web service monitoring set up, eg, Nagios.
 Occasionally, run "$0 httpd" to rebuild from newly patched Apache server.
+
+To start over and prepare for an "init" on a clean system, do
+
+      $0 realclean
 
 EOT
 	exit
@@ -212,7 +222,6 @@ EOT
 
 function do_apache_httpd24 {
 
-	# ! assumes svu cur
 	local sysap=/etc/httpd		# system apache
 	local aptop=~/sv/${1:-cur}/apache2
 	echo Running do_apache_httpd24 in $aptop.
@@ -290,6 +299,37 @@ EOT
 	exit
 }
 
+[[ "$cmd" == realclean ]] && {
+	cd ~
+	rm -fr \
+		README backups/ batches/ binders \
+		init.d/ local/ logs/ minters \
+		n2t_create/ pfx_harvest/ sv/ \
+		.cpanm/ .eggnog/ .cache/ \
+		.bashrc .bash_profile .vimrc .svudef
+
+	sudo yum -y group erase "Development Tools"
+	sudo yum -y group erase "Web Server"
+	sudo yum -y erase mod_ssl libdb hg git
+	sudo yum -y erase 'perl(DB_File)'
+	sudo yum -y erase 'perl(BerkeleyDB)'
+	sudo yum -y erase 'perl(Data::UUID)' 'perl(Test::More)'
+	sudo yum -y erase 'perl(Time::HiRes)'
+	sudo yum -y erase 'perl(Try::Tiny)'
+	sudo yum -y erase 'perl(Safe::Isa)'
+	sudo yum -y erase 'perl(Log::Log4perl)'
+	sudo yum -y erase 'perl(XML::LibXML)' 'perl(XML::LibXSLT)'
+	sudo yum -y erase 'perl(App::cpanminus)'
+	sudo yum -y erase python3		# for transition
+	sudo yum -y erase jq			# for Internet Archive API
+	sudo yum -y erase golang		# nice, but not essential
+	sudo amazon-linux-extras erase -y vim	# nice, but not essential
+	sudo amazon-linux-extras erase -y postgresql11
+	# XXX not removing .hgrc or .gitconfig
+	echo Now logout and login again.
+	exit
+}
+
 source ~/warts/env.sh
 
 # If we get get here, $cmd was "go", so full steam ahead.
@@ -315,32 +355,13 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	#sudo yum -y group install "Development Libraries"
 	sudo yum -y group install "Development Tools"   # gcc
 	sudo yum -y group install "Web Server"    	# yyy needed?
-	sudo yum -y install mod_ssl
-#$ sudo yum -y group install "Development Libraries"
-#Loaded plugins: extras_suggestions, langpacks, priorities, update-motd
-#153 packages excluded due to repository priority protections
-#Warning: group Development Libraries does not exist.
-#Maybe run: yum groups mark install (see man yum)
-#Error: No packages in any requested group available to install or update
-#$ sudo yum -y group install
-#"Development Tools"   # gcc
-#Loaded plugins: extras_suggestions, langpacks, priorities, update-motd
-#153 packages excluded due to repository priority protections
-#Maybe run: yum groups mark install (see man yum)
-#No packages in any requested group available to install or update
-#$ sudo yum -y group install
-#"Web Server"    # mod_ssl, ExtUtils/MakeMaker
-#Loaded plugins: extras_suggestions, langpacks, priorities, update-motd
-#153 packages excluded due to repository priority protections
-#Warning: Group web-server does not have any packages to install.
-#Maybe run: yum groups mark install (see man yum)
-#No packages in any requested group available to install or update
 
 	#sudo yum -y install libdb4	# version 4 (v5 is default)
 	#sudo yum -y install libdb4-devel	# /usr/include/libdb4/db.h and
 						# /usr/lib64/libdb4/libdb.so
 	#sudo yum -y install libdb4-util		# plus db4_* CLI tools
 
+	sudo yum -y install mod_ssl
 	sudo yum -y install libdb		# linux2 v5 is default
 	sudo yum -y install hg git
 	sudo yum -y install 'perl(DB_File)'	# xxx drop this soon
@@ -371,8 +392,8 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	## see https://confluence.ucop.edu/display/CUG/Amazon+Linux+2+User+Guide#AmazonLinux2UserGuide-Packages
 	#sudo yum -y install mongodb-org
 	#echo \
-"WARNING: on AWS Linux2, this installation of mongodb configures host boot
-scripts via systemd to automatically start mongo on port 27017" 1>&2
+#"WARNING: on AWS Linux2, this installation of mongodb configures host boot
+#scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# on mac, need: brew install mongodb --with-openssl
 	# yyy never actually used telnet for this
 	#sudo yum -y install telnet	# network testing, eg, mongo replication
@@ -408,7 +429,9 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 		echo note: repo should be set to Linux2 branch
 	}
 	make			# sets up .bashrc and svu defs; runs "svu init"
-				# sets up of crontab
+	# sets up of crontab, which we need to disable for now
+	crontab /dev/null
+	echo "Disabling crontab for now. Re-enable with (cd n2t_create; make)"
 		# XXX do not background or redirect, since it asks questions!
 
 	exit
@@ -427,6 +450,7 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	# NB: ./make_instance requires "svu new", where installs go
 	#./make_instance build mongodb_pm n2t > berrs 2>&1 || {
 
+# XXX make user do svu new?
 	# XXX this script and make_instance call "hg" -- remember to convert
 	svu new || {
 		echo Bailing
@@ -434,6 +458,94 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	}
 	echo -n "SVU status, pre-make_instance: " ; svu status
 
+# XXX script takes over here
+	# XXX this script and make_instance call "hg" -- remember to convert
+	echo Creating bare-bones apache server.
+	do_apache_httpd24 new 	# copy and modify system version just
+				# enough to let us start a server
+
+	cd ~/n2t_create || {    # go back to build directory
+		echo Bailing
+		exit 1
+	}
+
+	echo 'Running ./make_instance build ..., output in "make_instance_errs"'
+	#./make_instance build mongodb_pm n2t > make_instance_errs 2>&1 || {
+# XXX do some prefix harvesting before this!
+	./make_instance build n2t > make_instance_errs 2>&1 || {
+		echo make_instance error -- bailing
+		svu cur
+		exit 1
+	}
+	echo 'Finished ./make_instance build ..."'
+	echo -n "SVU status, pre-svu-rollout: " ; svu status
+
+# XXX make user do svu rollout?
+	# now make installed stuff "current" (what was "new" will be "cur")
+	svu rollout	# ok as no users yet; this puts everything of interest
+			# under the 'cur' version, our default logged-in state
+	echo done svu rollout
+	echo
+	echo Important: now logout and login again
+	echo
+}
+
+[[ "$cmd" == install ]] && {
+
+	#svu cur	# make sure we're on current version before n2t rollout
+	#echo -n "SVU status, pre-n2t-rollout: " ; svu status
+
+	echo n2t rollout
+	n2t rollout	# takes care of dvcsid test
+
+	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
+	#     seems we might need to run "pfx hitrnt" before rollout?, but we
+	#     can't do that before we've rolled things out the first time
+	#     (or can we?)
+# XXX harvest files have come in before the 'make all' implied above
+# XXX and the below won't work until rollout,? because... why?
+#     since $sa/prefixes isn't in place?
+	#pfx hitrnt	# 2nd time might work? XXX
+	#n2t rollout
+
+	echo n2t test
+	n2t test		# test that things are more or less ok
+
+	#echo 'Now grab and install warts/.pswdfile.n2t from another system.'
+
+	#### IMPORTANT!
+	cat << EOT
+Ask your superuser:
+Please copy ~/n2t_create/apache.n2t to /etc/init.d/apache.n2t and set up chkconfig so that the N2T service comes up on machine (re)boot.
+
+When ready, adjust eggnog_conf values to turn on crontab for things like
+prefix harvesting, error checks, backups, etc.
+
+When all is stable, arrange for Nagios web service monitoring.
+
+To switch between two main utility directories, use "cd $sn; pd $se".
+
+EOT
+	exit
+}
+
+[[ "$cmd" == oldbuild ]] && {
+
+	# XXXX resume script here
+	#./make_instance build mongodb_pm httpd n2t > berrs 2>&1
+	# NB: ./make_instance requires "svu new", where installs go
+	#./make_instance build mongodb_pm n2t > berrs 2>&1 || {
+
+# XXX make user do svu new?
+	# XXX this script and make_instance call "hg" -- remember to convert
+	svu new || {
+		echo Bailing
+		exit 1
+	}
+	echo -n "SVU status, pre-make_instance: " ; svu status
+
+# XXX script takes over here
+	# XXX this script and make_instance call "hg" -- remember to convert
 	echo Creating bare-bones apache server.
 	do_apache_httpd24 new 	# copy and modify system version just
 				# enough to let us start a server
@@ -444,6 +556,7 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	}
 	echo 'Running ./make_instance build ..., output in "make_instance_errs"'
 	#./make_instance build mongodb_pm n2t > make_instance_errs 2>&1 || {
+# XXX do some prefix harvesting before this!
 	./make_instance build n2t > make_instance_errs 2>&1 || {
 		echo make_instance error -- bailing
 		svu cur
@@ -452,15 +565,26 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 	echo 'Finished ./make_instance build ..."'
 	echo -n "SVU status, pre-svu-rollout: " ; svu status
 
+# XXX make user do svu rollout?
 	# now make installed stuff "current" (what was "new" will be "cur")
-	svu rollout	# ok as no users yet; this puts everything of interest
-			# under the 'cur' version, our default logged-in state
+	# ok as no users yet; this puts everything of interest
+	# under the 'cur' version, our default logged-in state
+	svu rollout || {
+		echo Bailing: svu rollout failed
+		exit 1
+	}
 	echo done svu rollout
 
-	svu cur		# make sure we're on current version before n2t rollout
+	svu cur	|| {	# make sure we're on current version before n2t rollout
+		echo Bailing: svu cur failed
+		exit 1
+	}
 	echo -n "SVU status, pre-n2t-rollout: " ; svu status
 
-	n2t rollout	# takes care of dvcsid test
+	n2t rollout || {		# takes care of dvcsid test
+		echo Bailing: n2t rollout failed
+		exit 1
+	}
 
 	# yyy chicken & egg problem(?) with rollout, which depends on prefixes.
 	#     seems we might need to run "pfx hitrnt" before rollout?, but we
@@ -469,8 +593,8 @@ scripts via systemd to automatically start mongo on port 27017" 1>&2
 # XXX harvest files have come in before the 'make all' implied above
 # XXX and the below won't work until rollout,? because... why?
 #     since $sa/prefixes isn't in place?
-	pfx hitrnt	# 2nd time might work? XXX
-	n2t rollout
+	#pfx hitrnt	# 2nd time might work? XXX
+	#n2t rollout
 
 	n2t test		# test that things are more or less ok
 
