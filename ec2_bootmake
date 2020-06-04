@@ -196,7 +196,8 @@ export EGNAPA_HOST_CLASS=$class		# eg, one of dev, stg, prd, loc
 ssldir=/apps/n2t/warts/ssl/2022-04-16
 export  EGNAPA_SSL_CERTFILE=\$ssldir/ids-n2t2-prd_n2t_net_cert.cer
 export   EGNAPA_SSL_KEYFILE=\$ssldir/ids-n2t2-prd_n2t_net.key
-export EGNAPA_SSL_CHAINFILE=\$ssldir/ids-n2t2-prd_n2t_net_interm.cer
+export EGNAPA_SSL_CHAINFILE=\$ssldir/cdl-20200530.int-root
+#export EGNAPA_SSL_CHAINFILE=\$ssldir/ids-n2t2-prd_n2t_net_interm.cer
 
 # Define email address to receive system notifications, eg, from crontab.
 export EGNAPA_MAILTO='$mailto'

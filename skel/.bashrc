@@ -26,7 +26,6 @@ export PERL5LIB=~/local/lib/perl5	# note: this can change via svu
 export PYTHONPATH=$HOME/sv/cur/lib64/python2.6/dist-packages
 export LC_ALL=C		# set computer mode locale, so all chars/scripts work
 
-alias vi=vim
 export LESS='ieFRX'	# ignore case, quit on 2nd EOF, honor color escapes,...
 export LESSCHARSET=utf-8
 
@@ -176,6 +175,17 @@ function llt1() { hd1 ls -lt ; }
 function llt2() { hd2 ls -lt ; }
 function val { v=$(bc <<< "scale=5; "$@""); echo v=$v ; }
 function v { v=`sed "s/  */+/g" <<< "scale=5;"$@"" | bc`; echo v=$v; }
+
+function dumpcert() {
+	[[ "$1" ]] || {
+		cat << EOT 1>&2
+Usage: dumpcert FILE
+This function prints a readable version of a 509/SSL certificate to stdout.
+EOT
+		return 1
+	}
+	openssl x509 -in "$1" -text -noout
+}
 
 function eztest () {
 	ezcl p - status '*'
