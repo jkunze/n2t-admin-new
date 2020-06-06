@@ -305,7 +305,7 @@ EOT
 	rm -fr \
 		README backups/ batches/ binders \
 		init.d/ local/ logs/ minters \
-		n2t_create/ pfx_harvest/ sv/ \
+		n2t_create/ pfx_harvest/ sv/ warts/README \
 		.cpanm/ .eggnog/ .cache/ \
 		.bashrc .bash_profile .vimrc .svudef
 
@@ -434,6 +434,9 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	crontab /dev/null
 	echo "Disabling crontab for now. Re-enable with (cd n2t_create; make)"
 		# XXX do not background or redirect, since it asks questions!
+	echo
+	echo Good idea now to logout and login again.
+	echo
 
 	exit
 } # end of config
