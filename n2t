@@ -19,9 +19,10 @@ This script supports commands that automate common N2T service admin tasks.
   rollout     stop public-facing server, install new code, restart server
   test        test code installed in currently running public-facing server
   rollback    back out of the last rollout, reverting to the prior rollout
-  cronstop    install cronstop file to (by default) disable all crontab jobs
-  cronstart   install usual crontab file
   checkpoint  mark rollback point (to be run before "hg update")
+  cron stop   install cronstop file to (by default) disable all crontab jobs
+  cron start  install or re-enable usual crontab jobs
+  cron works  check if a cronstop file exists; if so exit 1, else exit 0
 
 The first three commands above reflect the normal sequence.  Use "rollback"
 only if "test" failed.  Use "checkpoint" if you're not using "import".
@@ -215,7 +216,6 @@ function n2t_import {	# assumes caller ran check_changes!
 # minters, logs) created during server tree construction and testing!
 # But there's one big exception: the prefixes yaml file is created
 # fresh each time from various text files kept under revision control.
-# XXX make sure to use only anonymized shoulders and naans files
 
 function n2t_rollout {	# assumes caller ran check_changes!
 
@@ -385,8 +385,9 @@ rollout)
 		exit 1
 	}
 	check_minders		# if there are minders, copy them in
-	[[ -e "$aptop/eggnog_conf" ]] || {
-		cp -p $nsf/eggnog_conf $aptop || {
+
+	[[ -e "$aptop/eggnog_conf" ]] || {	# if very first rollout, add
+		cp -p $nsf/eggnog_conf $aptop || {	# config to bootstrap
 			echo "Problem initializing eggnog_conf in '$aptop'."
 			exit 1
 		}
@@ -473,28 +474,33 @@ test)
 	exit
 	;;
 
-cronstart)
+cron)
+	subcmd=${1:-works}
 	cd $n2t_service_dir
-	[[ -e cronstop ]] && {
+	if [[ "$subcmd" == start && -e cronstop ]]
+	then
 		rm cronstop || {
 			echo Problem removing $n2t_service_dir/cronstop file
 			exit 1
 		}
-	}
-	make crontab
-	exit
-	;;
-
-cronstop)
-	cd $n2t_service_dir
-	[[ -e cronstop ]] || {
+	elif [[ "$subcmd" == stop && ! -e cronstop ]]
+	then
 		crontab -l | sed 's/^/#/' > cronstop || {
 			echo Problem creating cronstop file in $n2t_service_dir
 			exit 1
 		}
 		echo "Creating blanket $n2t_service_dir/cronstop file;" \
 			"edit it to selectively re-enable services."
-	}
+	else			# assume "works" (status check)
+		[[ -e cronstop ]] && {
+			echo "Crontab disabled by cronstop. Do" \
+				"\"n2t cron start\" to re-enable crontab jobs."
+			exit 1
+		}
+		echo "Crontab enabled. No cronstop file exists. Do" \
+			\"n2t cron stop\" "to disable."
+		exit 0
+	fi
 	make crontab
 	exit
 	;;
