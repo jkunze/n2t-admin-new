@@ -1,0 +1,22 @@
+[user]
+	name = John A. Kunze
+	email = 105020+jkunze@users.noreply.github.com
+[core]
+	editor = vi
+	pager = less
+[color]
+	ui = true
+[push]
+	default = simple
+[alias]
+	alias = ! git config --get-regexp ^alias\\. | sed -e s/^alias\\.// -e s/\\ /\\ =\\ /
+	br    = branch
+	chi   = commit -a -v
+	cho   = checkout
+	df    = diff HEAD
+	lg    = log --decorate
+	lp    = log --decorate --patch
+	mg    = merge
+	pl    = pull
+	ps    = push
+	st    = status -sb

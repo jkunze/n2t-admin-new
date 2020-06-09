@@ -3,15 +3,6 @@
 
 PATH=$HOME/local/bin:$PATH
 
-# As of 2019.09.16 the NAAN distribution was very heavy in the 80000's
-# 2: 59
-# 3: 52
-# 4: 53
-# 5: 53
-# 6: 56
-# 7: 57
-# 8: 146
-
 #function svu { eval `svu_run "$PS1"\|\|\|b $*`; }
 if [ -f "$HOME/.svudef" ]; then
 	source $HOME/.svudef
@@ -22,16 +13,33 @@ fi
 
 export PERL_INSTALL_BASE=~/local	# note: this can change via svu
 export PERL5LIB=~/local/lib/perl5	# note: this can change via svu
-# This PYTHONPATH setting lets us use ~/n2t_create/mdsadmin.
-export PYTHONPATH=$HOME/sv/cur/lib64/python2.6/dist-packages
 export LC_ALL=C		# set computer mode locale, so all chars/scripts work
 
 export LESS='ieFRX'	# ignore case, quit on 2nd EOF, honor color escapes,...
 export LESSCHARSET=utf-8
 
+# This PYTHONPATH setting lets us use ~/n2t_create/mdsadmin.
+#export PYTHONPATH=$HOME/sv/cur/lib64/python2.6/dist-packages
 # To run EZID and YAMZ locally
-export PYTHONPATH=/usr/local/lib/python2.7/site-packages:$PYTHONPATH:$HOME/wr/ezid/SITE/PROJECT
+export xxx_PYTHONPATH=/usr/local/lib/python2.7/site-packages:$PYTHONPATH:$HOME/wr/ezid/SITE/PROJECT
 export DJANGO_SETTINGS_MODULE=settings.localdev
+
+# Some python settings
+
+VENV_DIR=venv
+
+alias p3="python3"
+
+# create a virtualenv in ./VENV_DIR
+alias venv_init="p3 -m venv ${VENV_DIR}"
+
+# start a virtualenv in ./VENV_DIR
+alias venv_on="source ${VENV_DIR}/bin/activate"
+
+# end a virtualenv in ./VENV_DIR
+alias venv_off="deactivate"
+
+# Some git settings
 
 # Some aliases that make n2t/eggnog development and testing easier.
 #
@@ -65,6 +73,8 @@ n2devb='n2t@ids-n2t2-dev-2b.n2t.net'
 	alias n2devb="ssh $n2devb"
 n2edina='n2t@n2tlx.edina.ac.uk'
 	alias n2edina="ssh $n2edina"
+yzdev='yamz@ids-yamz2-dev.yamz.net'
+	alias yzdev="ssh $yzdev"
 
 alias ezmonit='~/ezidclient p admin:$(wegnpw ezidadmin) pause monitor'
 alias zp='ezcl p admin:$(wegnpw ezidadmin) pause'
