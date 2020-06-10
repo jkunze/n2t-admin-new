@@ -762,7 +762,8 @@ do
 
 	[[ "$p" == "n2t-eggnog" ]] && {
 		# create kludge link so build_server_tree with pfx import works
-		ln -s $p eggnog
+		ln -v -s $p eggnog ||
+			echo Error running ln -s $p eggnog
 	}
 
 	(cd $p
@@ -788,6 +789,8 @@ do
 		$gmake install
 	)
 done
+echo -n "removing eggnog link: "
+ls -l eggnog
 rm eggnog			# remove temporary link
 mv n2t-eggnog eggnog		# rename to real name (kludge)
 

@@ -50,17 +50,15 @@ and follow the instructions below, as well as any printed by this script.
         scp -p n2t-dev.n2t.net:warts/.pswdfile.n2t ~/warts/
 
   4.  Make sure that your system people have put your web server certs
-      file into the ~/ssl/ directory.
-
-  5.  Per the cert filename assignments in ~/$envsh, copy the correct
-      files from ~/ssl/... into ~/warts/ssl.
+      file into a ~/ssl/YYYY-MM-DD directory, and match the cert filename
+      assignments in ~/$envsh to the correct files.
 
 This next step takes several minutes: run (interactively, don't background)
 
       $0 config
 
-It's a good idea to logout and login again to make sure the startup files
-are working. Then do
+You may need to reboot. Either way, it's a good idea to logout and login
+again to make sure the startup files are working. Then do
 
       $0 build
 
@@ -324,10 +322,12 @@ EOT
 	sudo yum -y erase python3		# for transition
 	sudo yum -y erase jq			# for Internet Archive API
 	sudo yum -y erase golang		# nice, but not essential
-	sudo amazon-linux-extras erase -y vim	# nice, but not essential
-	sudo amazon-linux-extras erase -y postgresql11
+	#sudo amazon-linux-extras erase -y vim
+	#sudo amazon-linux-extras erase -y postgresql11
 	# XXX not removing .hgrc or .gitconfig
-	echo Now logout and login again.
+	echo
+	echo Now logout and login again. If lots of system updates occurred, you should reboot first.
+	echo
 	exit
 }
 

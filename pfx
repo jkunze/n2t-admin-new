@@ -229,8 +229,10 @@ DESCRIPTION
 
     Prefixes are built in a server directory given by, in precedence order,
     either the -d option or the EGNAPA_BUILDOUT_ROOT environment variable.
-    If both of those are empty, it uses ~/sv/cur/apache2. The -f option
-    forces some operations to proceed that would otherwise be conditional.
+    If both of those are empty, it uses \$sv/apache2, which is usually in
+    ~/sv/cur (the current service version, but upon system initialization
+    in ~/sv/new). The -f option forces some operations to proceed that
+    would otherwise be conditional.
 
   testall     To do: test all lookups and redirect rules
   testlinks   To do: test redirects by pinging external servers
@@ -366,11 +368,16 @@ pfx_sources=(					# yyy normalized names
 	lsregistry.yml
 ) # $pfx_base is also a component, but not listed in $pfx_sources
 #	ebireg.xml
-source_base_prefixes=build/eggnog/t/n2t/$pfx_base
-master_base_prefixes=sv/cur/$source_base_prefixes
 
-published=~/sv/cur/apache2/htdocs/e/pub
-ark_published=~/sv/cur/apache2/htdocs/e/arks.org
+# Recall lthat the current service version is in environment variable $sv
+source_base_prefixes=build/eggnog/t/n2t/$pfx_base
+master_base_prefixes=$sv/$source_base_prefixes
+#master_base_prefixes=sv/cur/$source_base_prefixes
+
+#published=~/sv/cur/apache2/htdocs/e/pub
+#ark_published=~/sv/cur/apache2/htdocs/e/arks.org
+published=$sv/apache2/htdocs/e/pub
+ark_published=$sv/apache2/htdocs/e/arks.org
 
 # first check for errors in harvested sources; if none move out of
 # quarantine; if there's an error in a quarantined file, it stays
@@ -447,7 +454,8 @@ function pfx_publish {
 		cp -p ~/shoulders/lsregistry.yml $published
 		;;
 	base)		# not really harvested, this completes the components
-		cp -p ~/$master_base_prefixes $published
+		cp -p $master_base_prefixes $published
+		#cp -p ~/$master_base_prefixes $published
 		;;
 	*)
 		cat << EOT
@@ -489,26 +497,28 @@ function pfx_harvest {
 	# eggnog source code, is peculiar to the current host, and is
 	# updated in $pfx_import by the developer (eg, build_server_tree).
 	# To keep things complete, we harvest it from the production
-	# host's eggnog source (always in sv/cur/), knowing that normal
+	# host's eggnog source (usually in sv/cur/), knowing that normal
 	# dev builds should overwrite it from the developer code repo
 	# (via build_server_tree).
 
 # xxx revise this block of declarations into documentation
 # ebireg.xml lsregistry.yml master_naans master_shoulders.txt pfx_base.yaml
-	rfiles=''			# remote files -- globals?
-	# SPECIAL base file, to keep it from being empty
-	rfiles+=" $master_base_prefixes"
-	# INTERNALLY maintained registry
-	# old:     rfiles+=' shoulders/master_shoulders.txt'
-	# new location below is better, since it's the "installed" version,
-	#     and it also comes with strong assurance of being validated;
-	#     so we don't have to run ezid-specific validation on every
-	#     instance of n2t where we want to validate prefixes
-	rfiles+=' sv/cur/apache2/htdocs/e/pop/ezid/master_shoulders.txt'
-	# INTERNALLY maintained registry
-	rfiles+=' shoulders/naans/master_naans'
-	# EXTERNALLY maintained (but on hiatus) registry; this is a snapshot
-	rfiles+=' shoulders/lsregistry.yml'
+#	rfiles=''			# remote files -- globals?
+#	# SPECIAL base file, to keep it from being empty
+#	#rfiles+=" $master_base_prefixes"
+#	rfiles+=" ${master_base_prefixes#$HOME/}"
+#	# INTERNALLY maintained registry
+#	# old:     rfiles+=' shoulders/master_shoulders.txt'
+#	# new location below is better, since it's the "installed" version,
+#	#     and it also comes with strong assurance of being validated;
+#	#     so we don't have to run ezid-specific validation on every
+#	#     instance of n2t where we want to validate prefixes
+#	#rfiles+=' sv/cur/apache2/htdocs/e/pop/ezid/master_shoulders.txt'
+#	rfiles+=" sv/cur/apache2/htdocs/e/pop/ezid/master_shoulders.txt"
+#	# INTERNALLY maintained registry
+#	rfiles+=' shoulders/naans/master_naans'
+#	# EXTERNALLY maintained (but on hiatus) registry; this is a snapshot
+#	rfiles+=' shoulders/lsregistry.yml'
 	# EXTERNALLY maintained registry, updated daily at 05:30 GMT.
 	ebi_url='https://ebi.identifiers.org/service/registryxml'
 	ebi_tmparg='--no-check-certificate'
@@ -594,7 +604,8 @@ function pfx_base {
 	# eg, source_base_prefixes=build/eggnog/t/n2t/$pfx_base
 	#local nfile=$buildout_root/../../../$source_base_prefixes
 	#local nfile=$buildout_root/../$source_base_prefixes
-	local nfile=~/$master_base_prefixes
+	#local nfile=~/$master_base_prefixes
+	local nfile=$master_base_prefixes
 	[[ $# -gt 0 ]] && {
 		nfile=$1
 		shift
@@ -725,7 +736,8 @@ function pfx_backup {
 		return 1
 	}
 	local pfx_harvest=~/pfx_harvest
-	cp -Lpr ~/sv/cur/apache2/$pfx_work $pfx_harvest $dst
+	cp -Lpr $sv/apache2/$pfx_work $pfx_harvest $dst
+	#cp -Lpr ~/sv/cur/apache2/$pfx_work $pfx_harvest $dst
 }
 
 # function xpfx_harvest {		# placeholder function for the moment
@@ -1916,7 +1928,6 @@ function pfx_grok {
 	}
 EOT
 	# xxx but not -Mblib all the time, right? make it a var?
-#	local srcdir=~/sv/cur/build/eggnog
 	cd $pfx_build || {
 		echo Could not chdir to $pfx_build. 1>&2
 		return 1
@@ -2199,7 +2210,8 @@ function pfx_test_rollout_n2t_test {
 	for file in $changed_files
 	do
 		old=$pfx_build/$file
-		new=~/sv/cur/apache2/$pfx_work/build/$file
+		new=$sv/apache2/$pfx_work/build/$file
+		#new=~/sv/cur/apache2/$pfx_work/build/$file
 		(
 			echo diff $old $new;
 			echo -ne '--- ';
@@ -2396,7 +2408,8 @@ function pfx_pfxsync {
 		return 1
 	}
 	echo +==== copying import files
-	scp -pr ~/sv/cur/apache2/$pfx_work/import \
+	#scp -pr ~/sv/cur/apache2/$pfx_work/import \
+	scp -pr $sv/apache2/$pfx_work/import \
 			$pfx_maint_user@$rhost:sv/cur/apache2/$pfx_work/ || {
 		echo "+==== error: couldn't scp import area"
 		return 1
