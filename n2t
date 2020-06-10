@@ -342,7 +342,7 @@ cd $sv/build/eggnog || {	# normally run from eggnog source directory
 	echo Could not chdir to $sv/build/eggnog.
 	exit 1
 }
-echo "Process running now in $sv/build/eggnog directory."
+echo "(Process running now in $sv/build/eggnog directory.)"
 
 aptop=$sv/apache2			# apache top
 export EGG="--home $aptop"		# so we get $aptop config files
@@ -374,6 +374,13 @@ rollout)
 		echo "$emsg"
 		exit 1
 	}
+	[[ -e "$aptop/eggnog_conf" ]] || {	# if very first rollout, add
+		cp -p $nsf/eggnog_conf $aptop || {	# config to bootstrap
+			echo "Problem initializing eggnog_conf in '$aptop'."
+			exit 1
+		}
+	}
+
 	# xxx there's some bug where an uncommitted hg id ends up in
 	# td_egnapa_public/logs/dvcsid, and messes up blib t/service_n2t.t
 	# tests until blib t/apachebase.t is run
@@ -384,14 +391,9 @@ rollout)
 		echo "$b_out"
 		exit 1
 	}
+
 	check_minders		# if there are minders, copy them in
 
-	[[ -e "$aptop/eggnog_conf" ]] || {	# if very first rollout, add
-		cp -p $nsf/eggnog_conf $aptop || {	# config to bootstrap
-			echo "Problem initializing eggnog_conf in '$aptop'."
-			exit 1
-		}
-	}
 	make || {		# "make" again, in case "import" wasn't done
 		echo Problem running make.
 		exit 1
