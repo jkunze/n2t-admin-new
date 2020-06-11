@@ -19,6 +19,7 @@ summary="
      $me warts
      $me mdump [ -v ] [ Minter/nog.bdb ... ] [ > MinterStates ]
      $me mload [ -nv ] Dir [ < MinterStates ]
+     (from backup) db_dump egg.bdb | ssh \$HOST '(cd \$dbdir; db_load egg.bdb)'
      $me validate_naans [ NAANsFile ]
      $me rcheck [ -v ]
      $me rstat IdPattern Logfile ...
@@ -51,15 +52,19 @@ DESCRIPTION
        exit status indicates an error.
 
        Some important services are best done with other tools. For example,
-       to migrate an entire binder to a new system, change into the ezid
-       binder directory (with the egg.bdb file) and do something like
+       to migrate an entire binder to a new system, change into an ezid
+       binder directory (with the egg.bdb file in it). The binder must be
+       quiescent, such as a recent backup copy. Then do something like
 
-        \$ dbdir=sv/cur/apache2/binders/egg_n2t_stg_public.real_ezid_s_ezid
-        \$ db_dump egg.bdb | ssh n2t@ids-n2t2-stg.n2t.net \
-               '( cd \$dbdir; db_load egg.bdb )'
+        \$ rhost=n2t@ids-n2t2-prd.n2t.net
+        \$ dbdir=sv/cur/apache2/binders/egg_n2t_prd_public.real_ezid_s_ezid
+        \$ export TMPDIR=~/backups/tmp
+        \$ db_dump egg.bdb | ssh \$rhost \\
+	       "( cd \$dbdir; TMPDIR=~/backups/tmp db_load egg.bdb )"
 
-       You may want to clean up the remote \$dbdir directory by removing any
-       __db.* and/or log.* files that may not apply to the new environment.
+       It may be a good idea to clean up the remote \$dbdir directory
+       beforehand by removing any __db.* and/or log.* files as they may
+       interfere with the new environment.
 
        The "warts" form takes the ~/warts/env.sh bash scripts and creates a
        corresponding ~/warts/env.yaml form of its settings (in YAML format).
