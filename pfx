@@ -2418,7 +2418,7 @@ function pfx_pfxsync {
 	echo +==== running test_rollout_n2t_test
 	ssh -n $pfx_maint_user@$rhost \
 			"pfx test_rollout_n2t_test '$changed_files'" 2>&1 || {
-		echo "+==== error: test_rollout_n2t_test failed"
+		echo "+==== error: not all post rollout n2t tests passed"
 		return 1
 	}
 	return 0
