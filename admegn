@@ -19,6 +19,7 @@ summary="
      $me warts
      $me mdump [ -v ] [ Minter/nog.bdb ... ] [ > MinterStates ]
      $me mload [ -nv ] Dir [ < MinterStates ]
+     $me msync RemoteHost
      (from backup) db_dump egg.bdb | ssh \$HOST '(cd \$dbdir; db_load egg.bdb)'
      $me validate_naans [ NAANsFile ]
      $me rcheck [ -v ]
@@ -74,7 +75,11 @@ DESCRIPTION
        directory under the Apache server root.  If a Minter path is given,
        it should include the eggnog populator, eg, ezid, as in
 
-            \$ $me mdump minters/ezid/ark/?????/*/nog.bdb
+            \$ for p in ezid oca yamz snac
+            > do
+            >     $me mdump minters/\$p/ark/?????/*/nog.bdb > m\$p
+            > done
+            \$ scp mezid moca myamz msnac n2t@ids-n2t2-prd.n2t.net:\$sa/
 
        The "mload" form reads a minter state file written by mdump from
        stdin and brings minters under directory Dir up to date, creating
@@ -82,7 +87,16 @@ DESCRIPTION
        recently updated minter up to date takes much less time. If -n is
        given, no states will be changed, but proposed changes will be
        reported. Dir should have populator subdirectories (ezid, oca,
-       yamz, etc) as immediate descendants.
+       yamz, etc) as immediate descendants, for example,
+
+            \$ for p in ezid oca yamz snac
+            > do
+            >     \$ $me mload \$sa < m\$p
+            > done
+
+       The "msync" form keeps the current host's minters in sync with those
+       of the RemoteHost. It more or less follows the steps outlined above.
+       By running it once a day or hour, catching the current host is fast.
 
        The "validate_naans" form performs consistency and uniqueness checks
        on a NAANsFile containing ANVL-formatted NAAN records, returning a
@@ -721,7 +735,7 @@ function mload {
 		print("Error line $line: bad header: $_\n"),
 		next;
 	my ($populator, $naan, $shdr) = $header =~
-			m{([^/]+)/ark/(\w\w\w\w\w)/(\w*)/nog\.bdb$} or
+			m{([^/]+)/ark/(\w\w\w\w\w)/([^/]*)/nog\.bdb$} or
 		print("Error line $line: header must be of form ",
 				"Populator/ark/NAAN/Shoulder: $header\n"),
 		next;
@@ -886,6 +900,24 @@ EOT
 	#
 	env ADMEGN_NO_EXEC=$no_exec ADMEGN_VERBOSE=$verbose MINTERS_TOP=$Dir \
 		perl -00 -wne "$perl_mload"
+}
+
+# sync local minters up from remote state
+
+function msync {
+
+	local rhost=${1:-}
+	[[ ! "$rhost" ]] && {
+		echo "Error: no remote host specified" 1>&2
+		return 1
+	}
+	ssh n2t@$rhost "(
+		cd ~/sv/cur/apache2
+		for p in ezid oca yamz snac
+		do
+			admegn mdump minters/\$p/ark/?????/*/nog.bdb
+		done
+	)" | admegn mload ~/sv/cur/apache2
 }
 
 # these sources usually overridden during pfx validation
@@ -1940,6 +1972,10 @@ mdump)
 	;;
 mload)
 	mload $@
+	exit
+	;;
+msync)
+	msync $@
 	exit
 	;;
 validate_naans)

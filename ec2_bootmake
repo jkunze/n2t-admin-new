@@ -322,6 +322,8 @@ EOT
 	sudo yum -y erase python3		# for transition
 	sudo yum -y erase jq			# for Internet Archive API
 	sudo yum -y erase golang		# nice, but not essential
+	sudo yum -y erase htop
+	sudo yum -y erase glances
 	#sudo amazon-linux-extras erase -y vim
 	#sudo amazon-linux-extras erase -y postgresql11
 	# XXX not removing .hgrc or .gitconfig
@@ -385,6 +387,8 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo yum -y install python3		# for transition
 	sudo yum -y install jq			# for Internet Archive API
 	sudo yum -y install golang		# nice, but not essential
+	sudo yum -y install htop		# monitoring tool
+	sudo yum -y install glances		# monitoring tool
 	sudo amazon-linux-extras install -y vim	# nice, but not essential
 	sudo amazon-linux-extras install -y postgresql11
 
