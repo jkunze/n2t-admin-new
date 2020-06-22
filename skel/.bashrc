@@ -14,6 +14,7 @@ fi
 export PERL_INSTALL_BASE=~/local	# note: this can change via svu
 export PERL5LIB=~/local/lib/perl5	# note: this can change via svu
 export LC_ALL=C		# set computer mode locale, so all chars/scripts work
+export TMPDIR=$HOME/sv		# make Berkeley DB TMPDIR not be tiny /tmp
 
 export LESS='ieFRX'	# ignore case, quit on 2nd EOF, honor color escapes,...
 export LESSCHARSET=utf-8
@@ -26,9 +27,39 @@ export DJANGO_SETTINGS_MODULE=settings.localdev
 
 # Some python settings
 
+alias p3="python3"
+
 VENV_DIR=venv
 
-alias p3="python3"
+function venv() {
+	local cmd=${1:-help}
+	local not=" not"
+	[[ -e $VENV_DIR ]] && not=
+	case $cmd in
+	on)
+		[[ "$not" ]] && {
+			echo Initializing $VENV_DIR sub-directory.
+			python3 -m venv $VENV_DIR
+		}
+		source ${VENV_DIR}/bin/activate
+		;;
+	off)
+		[[ "$not" ]] && {
+			echo No $VENV_DIR sub-directory, \
+				so nothing to deactivate.
+			return 1
+		}
+		deactivate
+		;;
+	*)
+		cat << EOT 1>&2
+Usage: venv [ on | off | help ]
+Turn Python virtualenv on or off, initializing it if need be.
+There is$not a $VENV_DIR sub-directory present here.
+EOT
+		return 1
+	esac
+}
 
 # create a virtualenv in ./VENV_DIR
 alias venv_init="p3 -m venv ${VENV_DIR}"
@@ -131,10 +162,12 @@ if [ ! -z "${PS1:-}" ]; then		# if interactive shell
 			return
 		}
 		local gitish=
-		dvcs_dirty=$( git status 2> /dev/null ) &&
+		#dvcs_dirty=$( git status 2> /dev/null ) &&
+		dvcs_dirty=$( git status --porcelain 2> /dev/null ) &&
 			gitish=1		# git repo present
-		[[ "$gitish" && ! $( tail -n1 <<< "$dvcs_dirty" ) =~ \
-				'nothing to commit, working' ]] && {
+		#[[ "$gitish" && ! $( tail -n1 <<< "$dvcs_dirty" ) =~ \
+		#		'nothing to commit, working' ]] && {
+		[[ "$gitish" && $( grep -vs '^??' <<< "$dvcs_dirty" ) ]] && {
 			echo "$dvcs_dirty_mark"
 			return
 		}
