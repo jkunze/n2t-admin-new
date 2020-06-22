@@ -149,7 +149,7 @@ crontab:
 # Goal here is to reflect basic skeleton in the maintenance/role account.
 
 #basicfiles: egnapa
-basicfiles:
+basicfiles: skel/.bash_profile
 	@cd skel; \
 	asked=; \
 	for f in `find . | sed -e 's,^\./,,' -e '/^ssl\//d'`; \
@@ -170,6 +170,9 @@ basicfiles:
 		fi; \
 	done; true
 	@chmod 600 $(HOME)/.hgrc
+
+skel/.bash_profile: skel/.bashrc
+	cp $^ $@
 
 BASICDIRS=$(LBIN) $(HOME)/warts $(HOME)/warts/ssl $(HOME)/ssl \
 	$(HOME)/.ssh $(HOME)/logs $(HOME)/init.d $(HOME)/backups \
