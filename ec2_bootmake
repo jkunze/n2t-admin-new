@@ -367,7 +367,7 @@ grep "^cdl.username.*$fakeuser" $hgrc && {
 	sudo yum -y install mod_ssl
 	sudo yum -y install libdb		# linux2 v5 is default
 	sudo yum -y install hg git
-	sudo yum -y install 'perl(DB_File)'	# xxx drop this soon
+	sudo yum -y install 'perl(DB_File)'	# used by, eg, admegn mload
 	sudo yum -y install 'perl(BerkeleyDB)'
 	sudo yum -y install 'perl(Data::UUID)' 'perl(Test::More)'
 	sudo yum -y install 'perl(Time::HiRes)'
