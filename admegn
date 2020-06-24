@@ -91,7 +91,7 @@ DESCRIPTION
 
             \$ for p in ezid oca yamz snac
             > do
-            >     \$ $me mload \$sa < m\$p
+            >     $me mload \$sa/minters < m\$p
             > done
 
        The "msync" form keeps the current host's minters in sync with those
